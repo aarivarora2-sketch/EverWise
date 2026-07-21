@@ -1,13 +1,21 @@
 import { FlameIcon, StarIcon } from "../components/Icons";
 
-export default function Home({ streak, scamsCaught, allDone, onStart }) {
+export default function Home({ name, streak, scamsCaught, allDone, onStart }) {
+  const firstName = name ? name.trim().split(" ")[0] : "";
+
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
       <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
         Everwise
       </p>
 
-      <div className="mt-16 animate-fade-up">
+      {firstName && (
+        <p className="mt-8 text-2xl text-ink-soft animate-fade-up">
+          Hello, <span className="font-semibold text-ink">{firstName}</span>.
+        </p>
+      )}
+
+      <div className={`${firstName ? "mt-6" : "mt-16"} animate-fade-up`}>
         <h1 className="font-serif text-6xl font-semibold leading-[1.05] tracking-tight text-ink">
           {allDone ? (
             <>

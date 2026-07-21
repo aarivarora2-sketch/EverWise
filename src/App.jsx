@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { lessons } from "./data/lessons";
 import PhoneShell from "./components/PhoneShell";
+import Landing from "./screens/Landing";
+import SignUp from "./screens/SignUp";
+import LogIn from "./screens/LogIn";
 import Home from "./screens/Home";
 import LessonPath from "./screens/LessonPath";
 import Learn from "./screens/Learn";
@@ -20,7 +23,8 @@ function scamsCaughtFor(completedCount) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState("home");
+  const [screen, setScreen] = useState("landing");
+  const [name, setName] = useState(""); // remembered so we can greet the person
   const [completedCount, setCompletedCount] = useState(2); // matches the design's mid-path state
   const [activeIndex, setActiveIndex] = useState(2);
   const [selected, setSelected] = useState(null);
@@ -30,6 +34,12 @@ export default function App() {
 
   const goHome = () => setScreen("home");
   const goPath = () => setScreen("path");
+
+  // Entry flow. No real auth yet — screens validate then land on Home.
+  const createAccount = (personName) => {
+    setName(personName);
+    setScreen("home");
+  };
 
   const startLesson = (index) => {
     setActiveIndex(index);
@@ -50,9 +60,36 @@ export default function App() {
 
   let content;
   switch (screen) {
+    case "landing":
+      content = (
+        <Landing
+          onGetStarted={() => setScreen("signup")}
+          onLogIn={() => setScreen("login")}
+        />
+      );
+      break;
+    case "signup":
+      content = (
+        <SignUp
+          onCreate={createAccount}
+          onGoToLogIn={() => setScreen("login")}
+          onBack={() => setScreen("landing")}
+        />
+      );
+      break;
+    case "login":
+      content = (
+        <LogIn
+          onLogIn={goHome}
+          onGoToSignUp={() => setScreen("signup")}
+          onBack={() => setScreen("landing")}
+        />
+      );
+      break;
     case "home":
       content = (
         <Home
+          name={name}
           streak={STARTING_STREAK}
           scamsCaught={scamsCaughtFor(completedCount)}
           allDone={allDone}
