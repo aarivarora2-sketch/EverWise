@@ -16,7 +16,7 @@
 export const lessons = [
   {
     type: "protection",
-    title: "Fake IRS calls",
+    title: "Fake IRS Calls",
     learn:
       "The government will never call you and demand money over the phone. Real agencies like the IRS send letters by mail. A caller who says you owe taxes and must pay right now — or you'll be arrested — is a scammer. They use fear to rush you. It is always safe to hang up.",
     question: "Is this a real call, or a scam?",
@@ -68,7 +68,7 @@ export const lessons = [
   },
   {
     type: "protection",
-    title: "Prize you won",
+    title: "You won a prize",
     learn:
       "A real prize never costs you money. If someone says you've won a lottery, a gift card, or a vacation — but you must first pay a fee, taxes, or “shipping” — it's a scam. You cannot win a contest you never entered. When a prize asks you to pay to collect it, the answer is always no.",
     question: "Is this a real prize, or a scam?",

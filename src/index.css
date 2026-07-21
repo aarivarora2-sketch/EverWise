@@ -5,13 +5,21 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* Bump the root size so all body/scenario text scales up a little for
+       older eyes. Headings stay serif (set below); this only affects size. */
+    font-size: 18px;
+    height: 100%;
+  }
+
+  body,
+  #root {
+    height: 100%;
   }
 
   body {
     @apply bg-cream text-ink font-sans antialiased;
-    /* Larger base size for readability by older adults */
-    font-size: 18px;
-    line-height: 1.6;
+    /* Sans-serif, comfortable line height for easy reading */
+    line-height: 1.65;
   }
 
   /* Clear, visible focus outline for keyboard users */
