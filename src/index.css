@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+    /* Larger base size for readability by older adults */
+    font-size: 18px;
+    line-height: 1.6;
+  }
+
+  /* Clear, visible focus outline for keyboard users */
+  *:focus-visible {
+    outline: 3px solid #22201c;
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-serif;
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  /* Primary clay action button — big, high contrast, easy to tap */
+  .btn-primary {
+    @apply w-full rounded-2xl bg-clay px-6 py-5 text-center text-xl font-bold
+      text-cream-card shadow-btn transition-all duration-150
+      active:translate-y-1 active:shadow-none hover:bg-clay-dark;
+    min-height: 68px;
+  }
+
+  .btn-secondary {
+    @apply w-full rounded-2xl border-2 border-ink/20 bg-cream-card px-6 py-5
+      text-center text-lg font-semibold text-ink transition-colors
+      hover:bg-cream-deep;
+    min-height: 60px;
+  }
+
+  .stat-card {
+    @apply rounded-2xl bg-cream-card px-5 py-4 shadow-card;
+  }
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
