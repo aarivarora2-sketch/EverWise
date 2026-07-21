@@ -8,6 +8,17 @@ export default function ReadAloud({ text, label = "Read aloud" }) {
   const supported =
     typeof window !== "undefined" && "speechSynthesis" in window;
 
+  // Some browsers load the list of voices asynchronously. Nudge them to load
+  // so the first tap has a voice ready to go.
+  useEffect(() => {
+    if (!supported) return;
+    const synth = window.speechSynthesis;
+    synth.getVoices();
+    const onVoices = () => synth.getVoices();
+    synth.addEventListener?.("voiceschanged", onVoices);
+    return () => synth.removeEventListener?.("voiceschanged", onVoices);
+  }, [supported]);
+
   // Stop any speech if the text changes or the screen unmounts.
   useEffect(() => {
     return () => {
@@ -23,14 +34,26 @@ export default function ReadAloud({ text, label = "Read aloud" }) {
   };
 
   const speak = () => {
-    window.speechSynthesis.cancel();
+    const synth = window.speechSynthesis;
+    // Clear anything queued or left in a stuck/paused state first.
+    synth.cancel();
+
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.92; // a touch slower, easier to follow
+    utter.rate = 0.9; // a touch slower, easier to follow
     utter.pitch = 1;
+    utter.lang = "en-US";
+
+    const voices = synth.getVoices();
+    const enVoice = voices.find((v) => v.lang && v.lang.startsWith("en"));
+    if (enVoice) utter.voice = enVoice;
+
     utter.onend = () => setSpeaking(false);
     utter.onerror = () => setSpeaking(false);
+
     setSpeaking(true);
-    window.speechSynthesis.speak(utter);
+    synth.speak(utter);
+    // Chrome sometimes starts in a paused state after cancel(); resume() fixes it.
+    synth.resume();
   };
 
   return (

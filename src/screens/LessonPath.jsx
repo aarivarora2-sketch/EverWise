@@ -125,7 +125,8 @@ export default function LessonPath({
                 <PathNode
                   state={state}
                   onClick={
-                    state === "current"
+                    // Current and already-completed lessons are both playable.
+                    state === "current" || state === "done"
                       ? () => onSelectLesson(node.index)
                       : undefined
                   }
@@ -160,12 +161,14 @@ function PathNode({ state, onClick, title }) {
 
   if (state === "done") {
     return (
-      <div
-        className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage"
-        aria-label={`Completed: ${title}`}
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`Redo completed lesson: ${title}`}
+        className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage transition-transform active:translate-y-1 active:shadow-none"
       >
         <CheckIcon className="h-12 w-12" />
-      </div>
+      </button>
     );
   }
 

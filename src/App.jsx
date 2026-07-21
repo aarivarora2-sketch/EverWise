@@ -25,8 +25,8 @@ function scamsCaughtFor(completedCount) {
 export default function App() {
   const [screen, setScreen] = useState("landing");
   const [name, setName] = useState(""); // remembered so we can greet the person
-  const [completedCount, setCompletedCount] = useState(2); // matches the design's mid-path state
-  const [activeIndex, setActiveIndex] = useState(2);
+  const [completedCount, setCompletedCount] = useState(0); // new users begin at lesson 1
+  const [activeIndex, setActiveIndex] = useState(0);
   const [selected, setSelected] = useState(null);
 
   const activeLesson = lessons[activeIndex];
