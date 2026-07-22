@@ -2,9 +2,17 @@ export default function Landing({ onGetStarted, onLogIn }) {
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-12">
       <div className="animate-fade-up">
-        <p className="font-serif text-4xl font-bold tracking-tight text-clay">
-          Everwise
-        </p>
+        <div className="flex items-center gap-3">
+          <img
+            src="/everwise-icon.svg"
+            alt=""
+            aria-hidden="true"
+            className="h-12 w-12 rounded-xl"
+          />
+          <p className="font-serif text-4xl font-bold tracking-tight text-clay">
+            Everwise
+          </p>
+        </div>
 
         <h1 className="mt-16 font-serif text-6xl font-semibold leading-[1.05] tracking-tight text-ink">
           Learn to

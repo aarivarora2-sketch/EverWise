@@ -5,9 +5,17 @@ export default function Home({ name, streak, scamsCaught, allDone, onStart }) {
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
-      <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
-        Everwise
-      </p>
+      <div className="flex items-center gap-3">
+        <img
+          src="/everwise-icon.svg"
+          alt=""
+          aria-hidden="true"
+          className="h-10 w-10 rounded-[9px]"
+        />
+        <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
+          Everwise
+        </p>
+      </div>
 
       {firstName && (
         <p className="mt-8 text-2xl text-ink-soft animate-fade-up">
