@@ -14,9 +14,9 @@ export default function Home({
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
       <div className="flex items-center justify-between gap-3">
         <img
-          src="/logo.png"
-          alt="Everwise: Digital Literacy"
-          className="h-auto w-[130px] object-contain object-left"
+          src="/everwise-icon.svg"
+          alt="Everwise"
+          className="h-11 w-11"
         />
         <button
           type="button"
