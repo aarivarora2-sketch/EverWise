@@ -12,22 +12,16 @@ export default function Home({
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img
-            src="/everwise-icon.svg"
-            alt=""
-            aria-hidden="true"
-            className="h-10 w-10 rounded-[9px]"
-          />
-          <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
-            Everwise
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <img
+          src="/logo.png"
+          alt="Everwise: Digital Literacy"
+          className="h-auto w-[130px] object-contain object-left"
+        />
         <button
           type="button"
           onClick={onLogOut}
-          className="rounded-full px-4 py-2 text-lg font-semibold text-ink-soft transition-colors hover:bg-cream-deep"
+          className="shrink-0 rounded-full px-4 py-2 text-lg font-semibold text-ink-soft transition-colors hover:bg-cream-deep"
         >
           Log out
         </button>
