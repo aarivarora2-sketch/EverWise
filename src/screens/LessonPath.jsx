@@ -23,12 +23,16 @@ function centerY(i) {
 }
 
 export default function LessonPath({
-  completedCount,
+  completedLessons = [],
   streak,
   scamsCaught,
   onSelectLesson,
   onBack,
 }) {
+  const doneSet = new Set(completedLessons);
+  // The current lesson is the first one that isn't done yet (-1 = all done).
+  const currentIndex = lessons.findIndex((l) => !doneSet.has(l.id));
+
   // Path nodes: every lesson, plus a final reward node at the end.
   const nodes = [
     ...lessons.map((lesson, i) => ({
@@ -103,12 +107,12 @@ export default function LessonPath({
           {nodes.map((node, i) => {
             const state =
               node.kind === "reward"
-                ? completedCount >= lessons.length
+                ? currentIndex === -1
                   ? "reward-done"
                   : "locked"
-                : i < completedCount
+                : doneSet.has(lessons[i].id)
                 ? "done"
-                : i === completedCount
+                : i === currentIndex
                 ? "current"
                 : "locked";
 

@@ -7,7 +7,8 @@ skills and spot scams, in about two minutes a day. Think Duolingo, calmed down:
 a gentle winding path of short lessons that alternate between **skills** (how to
 do things online) and **protection** (how to spot the tricks).
 
-Built with **React + Vite** and **Tailwind CSS**.
+Built with **React + Vite**, **Tailwind CSS**, and **Firebase** (Authentication
++ Cloud Firestore) for real accounts and saved progress.
 
 ## Getting started
 
@@ -18,10 +19,33 @@ npm run build    # production build
 npm run preview  # preview the production build
 ```
 
+### Firebase setup
+
+Real accounts and progress require a Firebase project:
+
+1. Create a project at the [Firebase console](https://console.firebase.google.com/).
+2. Enable **Authentication → Email/Password** and create a **Cloud Firestore**
+   database.
+3. Copy your web app's config into `src/firebase.js`, replacing the placeholder
+   values. It exports the initialized `auth` and `db`.
+
+User data is stored in Firestore at `users/{uid}`:
+
+| field               | meaning                                        |
+| ------------------- | ---------------------------------------------- |
+| `name`              | the person's name (for the greeting)           |
+| `email`             | account email                                  |
+| `streak`            | consecutive days with a completed lesson       |
+| `scamsCaught`       | lessons answered correctly (counted once each) |
+| `completedLessons`  | array of completed lesson `id`s                |
+| `lastCompletedDate` | `YYYY-MM-DD` of the last completion, or `null` |
+
 ## The six screens
 
-The whole app is a small React state machine in `src/App.jsx` — no router, no
-backend, no `localStorage`. Progress lives in React state.
+Auth and navigation live in `src/App.jsx`. `onAuthStateChanged` sends a
+logged-in user straight to Home (skipping Landing) and shows a loading state
+while it checks. The entry flow is **Landing → Sign Up / Log In**, then the
+six lesson screens.
 
 1. **Home** (`screens/Home.jsx`) — "Today's lesson is ready." with streak and
    scams-caught stats and one clay call-to-action.
@@ -41,6 +65,7 @@ by default, alternating `protection` and `skill`. Each lesson has:
 
 | field         | meaning                                     |
 | ------------- | ------------------------------------------- |
+| `id`          | stable unique id (tracks completion)        |
 | `type`        | `"skill"` or `"protection"`                 |
 | `title`       | short lesson name                           |
 | `learn`       | plain-language teaching text (read aloud)   |

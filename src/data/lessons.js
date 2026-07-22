@@ -4,6 +4,7 @@
 // both lesson types live in one consistent, easy flow.
 //
 // Shape of each lesson:
+//   id          stable unique identifier (used to track completion)
 //   type        "skill" | "protection"
 //   title       short lesson name
 //   learn       plain-language teaching text (read aloud on the Learn screen)
@@ -15,6 +16,7 @@
 
 export const lessons = [
   {
+    id: "fake-irs-calls",
     type: "protection",
     title: "Fake IRS Calls",
     learn:
@@ -28,6 +30,7 @@ export const lessons = [
       "This is a scam. The IRS never calls to demand instant payment, never asks for gift cards, and never threatens arrest. When someone rushes and scares you, that's the biggest warning sign. Hang up — you did the right thing.",
   },
   {
+    id: "attach-photo-email",
     type: "skill",
     title: "Attach a photo to an email",
     learn:
@@ -41,6 +44,7 @@ export const lessons = [
       "The paperclip attaches a file, like a photo. The trash can deletes your email instead. Remember: paperclip means “attach.” Now you can share photos with family any time.",
   },
   {
+    id: "grandkid-in-trouble",
     type: "protection",
     title: "Grandkid in trouble",
     learn:
@@ -54,6 +58,7 @@ export const lessons = [
       "This is a scam. Pressure, secrecy, and an urgent money request are the signs. Real family won't mind you double-checking. Hang up and call your grandchild's real number — you'll almost always find they're safe at home.",
   },
   {
+    id: "join-video-call",
     type: "skill",
     title: "Join a video call",
     learn:
@@ -67,6 +72,7 @@ export const lessons = [
       "Just tap the link — it opens the call and connects you. You never need to send a password to join a video call. If anyone asks for your password to “let you in,” that's a scam. Enjoy seeing the family!",
   },
   {
+    id: "you-won-a-prize",
     type: "protection",
     title: "You won a prize",
     learn:

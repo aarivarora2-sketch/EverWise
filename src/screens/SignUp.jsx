@@ -1,22 +1,29 @@
 import { useState } from "react";
 import Field from "../components/Field";
 import BackButton from "../components/BackButton";
+import { authErrorMessage } from "../utils/authErrors";
 
-export default function SignUp({ onCreate, onGoToLogIn, onBack }) {
+export default function SignUp({ onSignUp, onGoToLogIn, onBack }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  // No real auth yet — just make sure nothing is left blank, then continue.
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !password.trim()) {
       setError("Please fill in all three fields to continue.");
       return;
     }
     setError("");
-    onCreate(name.trim());
+    setBusy(true);
+    try {
+      await onSignUp(name.trim(), email.trim(), password);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setBusy(false);
+    }
   };
 
   return (
@@ -69,8 +76,8 @@ export default function SignUp({ onCreate, onGoToLogIn, onBack }) {
         )}
 
         <div className="mt-auto pt-10">
-          <button type="submit" className="btn-primary">
-            Create account
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? "Creating account…" : "Create account"}
           </button>
           <p className="mt-6 text-center text-lg text-ink-soft">
             Already have an account?{" "}

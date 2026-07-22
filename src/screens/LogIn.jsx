@@ -1,21 +1,28 @@
 import { useState } from "react";
 import Field from "../components/Field";
 import BackButton from "../components/BackButton";
+import { authErrorMessage } from "../utils/authErrors";
 
 export default function LogIn({ onLogIn, onGoToSignUp, onBack }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  // No real auth yet — just check the fields aren't empty, then continue.
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
       setError("Please enter your email and password.");
       return;
     }
     setError("");
-    onLogIn();
+    setBusy(true);
+    try {
+      await onLogIn(email.trim(), password);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setBusy(false);
+    }
   };
 
   return (
@@ -60,8 +67,8 @@ export default function LogIn({ onLogIn, onGoToSignUp, onBack }) {
         )}
 
         <div className="mt-auto pt-10">
-          <button type="submit" className="btn-primary">
-            Log In
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? "Logging in…" : "Log In"}
           </button>
           <p className="mt-6 text-center text-lg text-ink-soft">
             New here?{" "}

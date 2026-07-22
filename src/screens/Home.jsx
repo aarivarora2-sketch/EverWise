@@ -1,20 +1,36 @@
 import { FlameIcon, StarIcon } from "../components/Icons";
 
-export default function Home({ name, streak, scamsCaught, allDone, onStart }) {
+export default function Home({
+  name,
+  streak,
+  scamsCaught,
+  allDone,
+  onStart,
+  onLogOut,
+}) {
   const firstName = name ? name.trim().split(" ")[0] : "";
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
-      <div className="flex items-center gap-3">
-        <img
-          src="/everwise-icon.svg"
-          alt=""
-          aria-hidden="true"
-          className="h-10 w-10 rounded-[9px]"
-        />
-        <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
-          Everwise
-        </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img
+            src="/everwise-icon.svg"
+            alt=""
+            aria-hidden="true"
+            className="h-10 w-10 rounded-[9px]"
+          />
+          <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
+            Everwise
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onLogOut}
+          className="rounded-full px-4 py-2 text-lg font-semibold text-ink-soft transition-colors hover:bg-cream-deep"
+        >
+          Log out
+        </button>
       </div>
 
       {firstName && (
