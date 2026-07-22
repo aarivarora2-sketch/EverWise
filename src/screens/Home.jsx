@@ -44,7 +44,7 @@ export default function Home({ name, streak, scamsCaught, allDone, onStart }) {
         <p className="mt-6 text-xl text-ink-soft">
           {allDone
             ? "Great work. Come back tomorrow for the next one."
-            : "Two minutes. One scam to learn."}
+            : "One lesson at a time."}
         </p>
       </div>
 
