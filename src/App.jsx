@@ -47,17 +47,29 @@ export default function App() {
 
   // Watch auth state: a returning, logged-in user skips Landing and lands on Home.
   useEffect(() => {
+    console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
     const unsub = onAuthStateChanged(auth, async (u) => {
+      console.log(
+        "[Everwise][auth] state changed:",
+        u ? `logged in (uid: ${u.uid})` : "no user logged in"
+      );
       setUser(u);
       if (u) {
         try {
+          console.log("[Everwise][firestore] getDoc users/", u.uid);
           const snap = await getDoc(doc(db, "users", u.uid));
           if (snap.exists()) {
+            console.log("[Everwise][firestore] profile loaded:", snap.data());
             setProfile(snap.data());
             setScreen("home");
+          } else {
+            console.warn(
+              "[Everwise][firestore] No profile doc for this user yet (uid:",
+              u.uid + ")."
+            );
           }
-        } catch {
-          // ignore — a fresh sign-up populates the profile explicitly below
+        } catch (err) {
+          console.error("[Everwise][firestore] Failed to load profile:", err);
         }
       } else {
         setProfile(null);
@@ -78,32 +90,63 @@ export default function App() {
   // --- Auth actions (screens await these and surface any error) ---
 
   const signUp = async (name, email, password) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const initial = {
-      name,
-      email,
-      streak: 0,
-      scamsCaught: 0,
-      completedLessons: [],
-      lastCompletedDate: null,
-    };
-    await setDoc(doc(db, "users", cred.user.uid), initial);
-    setUser(cred.user);
-    setProfile(initial);
-    setScreen("home");
+    try {
+      console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      console.log("[Everwise][auth] account created, uid:", cred.user.uid);
+
+      const initial = {
+        name,
+        email,
+        streak: 0,
+        scamsCaught: 0,
+        completedLessons: [],
+        lastCompletedDate: null,
+      };
+      console.log("[Everwise][firestore] setDoc users/", cred.user.uid, initial);
+      await setDoc(doc(db, "users", cred.user.uid), initial);
+      console.log("[Everwise][firestore] profile document created.");
+
+      setUser(cred.user);
+      setProfile(initial);
+      setScreen("home");
+    } catch (err) {
+      console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
+      throw err; // let the Sign Up screen show a friendly message
+    }
   };
 
   const logIn = async (email, password) => {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    const snap = await getDoc(doc(db, "users", cred.user.uid));
-    if (snap.exists()) setProfile(snap.data());
-    setUser(cred.user);
-    setScreen("home");
+    try {
+      console.log("[Everwise][auth] signInWithEmailAndPassword:", email);
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      console.log("[Everwise][auth] signed in, uid:", cred.user.uid);
+
+      console.log("[Everwise][firestore] getDoc users/", cred.user.uid);
+      const snap = await getDoc(doc(db, "users", cred.user.uid));
+      if (snap.exists()) {
+        console.log("[Everwise][firestore] profile loaded:", snap.data());
+        setProfile(snap.data());
+      } else {
+        console.warn("[Everwise][firestore] Signed in but no profile doc found.");
+      }
+      setUser(cred.user);
+      setScreen("home");
+    } catch (err) {
+      console.error("[Everwise][auth] Log in failed:", err.code, err.message);
+      throw err; // let the Log In screen show a friendly message
+    }
   };
 
   const logOut = async () => {
-    await signOut(auth);
-    // onAuthStateChanged clears profile and returns to Landing.
+    try {
+      console.log("[Everwise][auth] signOut");
+      await signOut(auth);
+      console.log("[Everwise][auth] signed out.");
+      // onAuthStateChanged clears profile and returns to Landing.
+    } catch (err) {
+      console.error("[Everwise][auth] Sign out failed:", err);
+    }
   };
 
   // --- Lesson flow ---
@@ -137,9 +180,12 @@ export default function App() {
 
       setProfile((p) => ({ ...p, ...updates }));
       try {
+        console.log("[Everwise][firestore] updateDoc users/", user.uid, updates);
         await updateDoc(doc(db, "users", user.uid), updates);
-      } catch {
+        console.log("[Everwise][firestore] progress saved.");
+      } catch (err) {
         // Keep the optimistic local update even if the write fails offline.
+        console.error("[Everwise][firestore] Failed to save progress:", err);
       }
     }
     setScreen("complete");
