@@ -130,10 +130,8 @@ export default function LessonPath({
 
   return (
     <div className="flex flex-1 flex-col">
-      <header
-        className="flex items-center justify-between rounded-t-none px-5 py-4 text-cream-card sm:rounded-t-[40px]"
-        style={{ backgroundColor: activePhase.color }}
-      >
+      {/* Fixed neutral chrome — biome color only appears on phase bands/nodes */}
+      <header className="flex items-center justify-between rounded-t-none bg-[#2C2A26] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -145,8 +143,9 @@ export default function LessonPath({
           </button>
           <div>
             <h1 className="font-serif text-2xl font-semibold">Your path</h1>
-            <p className="text-sm font-semibold text-cream-card/85">
+            <p className="text-sm font-semibold text-cream-card/75">
               Phase {activePhase.number} · {activePhase.biome}
+              <span className="text-cream-card/50"> · {activePhase.title}</span>
             </p>
           </div>
         </div>
