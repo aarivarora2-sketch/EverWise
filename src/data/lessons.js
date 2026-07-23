@@ -1,10 +1,12 @@
-// Everwise - Phase 1: Foundations
-// All lessons exactly as written by the team.
+// Everwise - Digital Literacy track
+// Phase 1: Foundations (this file) + Phase 2: Safe Internet Habits (phase2-lessons.js)
 // NOTE: Lesson 6 (What is Wi-Fi?) is referenced in the curriculum but was not in
 // the source document. Add it here when written.
 //
 // BLOCK TYPES: learn, multiselect, flashcards, match, fillblank, sort,
-//              scenario, truefalse, choice
+//              scenario, truefalse, choice, builder
+
+import { phase2Lessons } from "./phase2-lessons";
 
 export const lessons = [
   // ============================================================
@@ -1498,6 +1500,8 @@ export const lessons = [
 
 export default lessons;
 
+// Full Digital Literacy track: Phase 1 Foundations, then Phase 2 Safe Internet Habits.
+export const allLessons = [...lessons, ...phase2Lessons];
 
 // Lessons sorted by curriculum order for the path and player.
-export const lessonsByOrder = [...lessons].sort((a, b) => a.order - b.order);
+export const lessonsByOrder = [...allLessons].sort((a, b) => a.order - b.order);

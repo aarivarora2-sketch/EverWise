@@ -7,6 +7,7 @@ import SortBlock from "./SortBlock";
 import ScenarioBlock from "./ScenarioBlock";
 import TrueFalseBlock from "./TrueFalseBlock";
 import ChoiceBlock from "./ChoiceBlock";
+import BuilderBlock from "./BuilderBlock";
 
 const BLOCKS = {
   learn: LearnBlock,
@@ -18,6 +19,7 @@ const BLOCKS = {
   scenario: ScenarioBlock,
   truefalse: TrueFalseBlock,
   choice: ChoiceBlock,
+  builder: BuilderBlock,
 };
 
 export default function BlockRenderer({

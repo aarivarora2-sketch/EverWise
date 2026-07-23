@@ -1,4 +1,5 @@
 import { lessonsByOrder as lessons } from "../data/lessons";
+import { getPhase } from "../data/phases";
 import {
   CheckIcon,
   LockIcon,
@@ -10,16 +11,13 @@ import {
 
 // Layout constants for the winding trail.
 const TOP_PAD = 44;
-const GAP = 158; // vertical distance between node centers
-const NODE_HALF = 56; // half of a standard 112px node
-const AMP = 17; // how far nodes swing left/right of center (%)
+const GAP = 158;
+const PHASE_GAP = 120; // vertical space for a phase header band
+const NODE_HALF = 56;
+const AMP = 17;
 
-// Nodes gently swing side to side to form the calmed-down "snake".
 function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
-}
-function centerY(i) {
-  return TOP_PAD + i * GAP + NODE_HALF;
 }
 
 export default function LessonPath({
@@ -30,31 +28,63 @@ export default function LessonPath({
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
-  // The current lesson is the first one that isn't done yet (-1 = all done).
   const currentIndex = lessons.findIndex((l) => !doneSet.has(l.id));
+  const activePhaseNumber =
+    currentIndex === -1
+      ? lessons[lessons.length - 1]?.phase ?? 1
+      : lessons[currentIndex].phase;
+  const activePhase = getPhase(activePhaseNumber);
 
-  // Path nodes: every lesson, plus a final reward node at the end.
-  const nodes = [
-    ...lessons.map((lesson, i) => ({
+  // Build a flat list of path items: phase headers + lesson nodes + reward.
+  const items = [];
+  let lastPhase = null;
+  lessons.forEach((lesson, i) => {
+    if (lesson.phase !== lastPhase) {
+      items.push({ kind: "phase", phase: getPhase(lesson.phase) });
+      lastPhase = lesson.phase;
+    }
+    items.push({
       kind: "lesson",
       title: lesson.title,
       index: i,
-    })),
-    { kind: "reward", title: "All done", index: lessons.length },
-  ];
+      phase: lesson.phase,
+      phaseColor: getPhase(lesson.phase).accent || getPhase(lesson.phase).color,
+    });
+  });
+  items.push({ kind: "reward", title: "All done", index: lessons.length });
 
-  const containerHeight = TOP_PAD + nodes.length * GAP + 40;
+  // Assign vertical positions, giving phase headers their own band height.
+  let y = TOP_PAD;
+  const positioned = items.map((item) => {
+    if (item.kind === "phase") {
+      const pos = { ...item, top: y, height: PHASE_GAP };
+      y += PHASE_GAP;
+      return pos;
+    }
+    const pos = { ...item, top: y };
+    y += GAP;
+    return pos;
+  });
+  const containerHeight = y + 40;
 
-  // Dotted "footprint" trail connecting consecutive nodes.
+  // Dotted trail only between consecutive lesson/reward nodes.
+  const trailNodes = positioned.filter(
+    (n) => n.kind === "lesson" || n.kind === "reward"
+  );
   const dots = [];
-  for (let i = 0; i < nodes.length - 1; i++) {
-    const x1 = xPercent(i);
-    const y1 = centerY(i);
-    const x2 = xPercent(i + 1);
-    const y2 = centerY(i + 1);
+  for (let i = 0; i < trailNodes.length - 1; i++) {
+    const a = trailNodes[i];
+    const b = trailNodes[i + 1];
+    // Use sequential swing index based on lesson index for x.
+    const ai = a.kind === "lesson" ? a.index : lessons.length;
+    const bi = b.kind === "lesson" ? b.index : lessons.length;
+    const x1 = xPercent(ai);
+    const y1 = a.top + NODE_HALF;
+    const x2 = xPercent(bi);
+    const y2 = b.top + NODE_HALF;
     for (const t of [0.22, 0.4, 0.58, 0.76]) {
       dots.push({
-        key: `${i}-${t}`,
+        key: `${ai}-${bi}-${t}`,
         x: x1 + (x2 - x1) * t,
         y: y1 + (y2 - y1) * t,
       });
@@ -63,8 +93,11 @@ export default function LessonPath({
 
   return (
     <div className="flex flex-1 flex-col">
-      {/* Header banner */}
-      <header className="flex items-center justify-between rounded-t-none bg-sage px-5 py-4 text-cream-card sm:rounded-t-[40px]">
+      {/* Header banner — tinted with the active phase color */}
+      <header
+        className="flex items-center justify-between rounded-t-none px-5 py-4 text-cream-card sm:rounded-t-[40px]"
+        style={{ backgroundColor: activePhase.color }}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -74,7 +107,12 @@ export default function LessonPath({
           >
             <ArrowLeftIcon className="h-7 w-7" />
           </button>
-          <h1 className="font-serif text-2xl font-semibold">Your path</h1>
+          <div>
+            <h1 className="font-serif text-2xl font-semibold">Your path</h1>
+            <p className="text-sm font-semibold text-cream-card/85">
+              Phase {activePhase.number} · {activePhase.biome}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-4 text-lg font-semibold">
           <span className="flex items-center gap-1.5">
@@ -87,9 +125,33 @@ export default function LessonPath({
       </header>
 
       {/* Winding trail */}
-      <div className="flex-1 overflow-y-auto px-4 pb-6">
+      <div
+        className="flex-1 overflow-y-auto px-4 pb-6"
+        style={{
+          background: `linear-gradient(180deg, ${activePhase.color}14 0%, transparent 220px)`,
+        }}
+      >
         <div className="relative mx-auto w-full" style={{ height: containerHeight }}>
-          {/* dotted trail */}
+          {/* Phase section background tints */}
+          {positioned
+            .filter((n) => n.kind === "phase")
+            .map((band, i, bands) => {
+              const next = bands[i + 1];
+              const end = next ? next.top : containerHeight;
+              return (
+                <div
+                  key={`tint-${band.phase.number}`}
+                  aria-hidden="true"
+                  className="absolute left-0 right-0 rounded-3xl"
+                  style={{
+                    top: band.top,
+                    height: end - band.top,
+                    backgroundColor: `${band.phase.color}12`,
+                  }}
+                />
+              );
+            })}
+
           {dots.map((d) => (
             <span
               key={d.key}
@@ -103,40 +165,66 @@ export default function LessonPath({
             />
           ))}
 
-          {/* nodes */}
-          {nodes.map((node, i) => {
+          {positioned.map((node, i) => {
+            if (node.kind === "phase") {
+              return (
+                <div
+                  key={`phase-${node.phase.number}`}
+                  className="absolute left-1/2 z-10 w-[90%] -translate-x-1/2"
+                  style={{ top: node.top + 24 }}
+                >
+                  <div
+                    className="rounded-2xl px-5 py-4 text-cream-card shadow-card"
+                    style={{ backgroundColor: node.phase.color }}
+                  >
+                    <p className="text-sm font-bold uppercase tracking-wide text-cream-card/80">
+                      Phase {node.phase.number} · {node.phase.biome}
+                    </p>
+                    <p className="mt-0.5 font-serif text-2xl font-semibold">
+                      {node.phase.title}
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
             const state =
               node.kind === "reward"
                 ? currentIndex === -1
                   ? "reward-done"
                   : "locked"
-                : doneSet.has(lessons[i].id)
+                : doneSet.has(lessons[node.index].id)
                 ? "done"
-                : i === currentIndex
+                : node.index === currentIndex
                 ? "current"
                 : "locked";
+
+            const accent =
+              node.kind === "lesson" ? node.phaseColor : activePhase.color;
 
             return (
               <div
                 key={i}
-                className="absolute flex flex-col items-center"
+                className="absolute z-10 flex flex-col items-center"
                 style={{
-                  left: `${xPercent(i)}%`,
-                  top: TOP_PAD + i * GAP,
+                  left: `${xPercent(
+                    node.kind === "lesson" ? node.index : lessons.length
+                  )}%`,
+                  top: node.top,
                   transform: "translateX(-50%)",
                 }}
               >
                 <PathNode
                   state={state}
+                  accent={accent}
                   onClick={
-                    // Current and already-completed lessons are both playable.
                     state === "current" || state === "done"
                       ? () => onSelectLesson(node.index)
                       : undefined
                   }
                   title={node.title}
                 />
-                <Label state={state} title={node.title} />
+                <Label state={state} title={node.title} accent={accent} />
               </div>
             );
           })}
@@ -146,16 +234,23 @@ export default function LessonPath({
   );
 }
 
-function PathNode({ state, onClick, title }) {
+function PathNode({ state, onClick, title, accent }) {
   if (state === "current") {
     return (
       <div className="relative">
-        <span className="absolute inset-0 rounded-full bg-clay/40 animate-pulse-ring" />
+        <span
+          className="absolute inset-0 rounded-full animate-pulse-ring"
+          style={{ backgroundColor: `${accent}66` }}
+        />
         <button
           type="button"
           onClick={onClick}
           aria-label={`Start lesson: ${title}`}
-          className="relative flex h-32 w-32 items-center justify-center rounded-full bg-clay font-serif text-2xl font-bold text-cream-card shadow-node-clay transition-transform active:translate-y-1 active:shadow-none"
+          className="relative flex h-32 w-32 items-center justify-center rounded-full font-serif text-2xl font-bold text-cream-card transition-transform active:translate-y-1"
+          style={{
+            backgroundColor: accent,
+            boxShadow: `0 7px 0 ${shade(accent, -25)}`,
+          }}
         >
           START
         </button>
@@ -187,7 +282,6 @@ function PathNode({ state, onClick, title }) {
     );
   }
 
-  // locked
   return (
     <div
       className="flex h-28 w-28 items-center justify-center rounded-full bg-locked text-ink-faint shadow-node-locked"
@@ -198,23 +292,38 @@ function PathNode({ state, onClick, title }) {
   );
 }
 
-function Label({ state, title }) {
-  const color =
+function Label({ state, title, accent }) {
+  const style =
     state === "done" || state === "reward-done"
-      ? "text-sage"
+      ? { color: undefined, className: "text-sage" }
       : state === "current"
-      ? "text-clay"
-      : "text-ink-faint";
+      ? { color: accent, className: "" }
+      : { color: undefined, className: "text-ink-faint" };
+
   return (
     <p
-      className={`mt-3 max-w-[9rem] text-center text-lg font-semibold leading-tight ${color}`}
+      className={`mt-3 max-w-[9rem] text-center text-lg font-semibold leading-tight ${style.className}`}
+      style={style.color ? { color: style.color } : undefined}
     >
       {title}
       {state === "current" && (
-        <span className="mt-0.5 block text-sm font-bold uppercase tracking-wide text-clay/80">
+        <span
+          className="mt-0.5 block text-sm font-bold uppercase tracking-wide"
+          style={{ color: accent, opacity: 0.8 }}
+        >
           Today
         </span>
       )}
     </p>
   );
+}
+
+// Darken a hex color slightly for the node "press" shadow.
+function shade(hex, amount) {
+  const h = hex.replace("#", "");
+  const num = parseInt(h, 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }

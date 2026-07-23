@@ -13,6 +13,9 @@ export default function TrueFalseBlock({
   const questions = block.questions || [];
   const [qIndex, setQIndex] = useState(0);
   const [selected, setSelected] = useState(null); // true | false | null
+  const safeUnsafe = block.variant === "safeunsafe";
+  const yesLabel = safeUnsafe ? "Safe" : "True";
+  const noLabel = safeUnsafe ? "Unsafe" : "False";
 
   const q = questions[qIndex];
   const answered = selected != null;
@@ -34,7 +37,7 @@ export default function TrueFalseBlock({
 
   return (
     <BlockShell
-      label={block.title || "True or False"}
+      label={block.title || (safeUnsafe ? "Safe or Unsafe" : "True or False")}
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
@@ -57,8 +60,10 @@ export default function TrueFalseBlock({
       </div>
 
       <div className="mt-8 grid grid-cols-2 gap-4">
-        {[true, false].map((value) => {
-          const label = value ? "True" : "False";
+        {[
+          { value: true, label: yesLabel },
+          { value: false, label: noLabel },
+        ].map(({ value, label }) => {
           let style =
             "border-ink/15 bg-cream-card text-ink hover:border-clay hover:bg-clay/5";
           if (answered) {

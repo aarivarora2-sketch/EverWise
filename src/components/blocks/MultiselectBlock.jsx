@@ -13,6 +13,16 @@ export default function MultiselectBlock({
   const [picked, setPicked] = useState(() => new Set());
   const [checked, setChecked] = useState(false);
 
+  const fullyCorrect =
+    checked &&
+    block.options.every((opt, i) =>
+      opt.correct ? picked.has(i) : !picked.has(i)
+    );
+
+  const resultMessage = fullyCorrect
+    ? block.feedback
+    : block.incorrectFeedback || block.feedback;
+
   const toggle = (i) => {
     if (checked) return;
     setPicked((prev) => {
@@ -90,9 +100,13 @@ export default function MultiselectBlock({
         })}
       </div>
 
-      {checked && block.feedback && (
-        <p className="mt-8 rounded-3xl bg-sage/15 px-5 py-5 text-xl leading-relaxed text-ink">
-          {block.feedback}
+      {checked && resultMessage && (
+        <p
+          className={`mt-8 rounded-3xl px-5 py-5 text-xl leading-relaxed text-ink ${
+            fullyCorrect ? "bg-sage/15" : "bg-alert/12"
+          }`}
+        >
+          {resultMessage}
         </p>
       )}
     </BlockShell>
