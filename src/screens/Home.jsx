@@ -13,11 +13,17 @@ export default function Home({
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
       <div className="flex items-center justify-between gap-3">
-        <img
-          src="/everwise-icon.svg"
-          alt="Everwise"
-          className="h-11 w-11"
-        />
+        <div className="flex items-center gap-3">
+          <img
+            src="/everwise-logo-192.png"
+            alt=""
+            aria-hidden="true"
+            className="h-11 w-11 object-contain"
+          />
+          <p className="font-serif text-2xl font-semibold tracking-tight text-ink">
+            Everwise
+          </p>
+        </div>
         <button
           type="button"
           onClick={onLogOut}

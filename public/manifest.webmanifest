@@ -1,0 +1,29 @@
+{
+  "name": "Everwise",
+  "short_name": "Everwise",
+  "description": "Get wiser online — one short lesson a day.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EFE9DC",
+  "theme_color": "#B5502E",
+  "icons": [
+    {
+      "src": "/everwise-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/everwise-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/everwise-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
