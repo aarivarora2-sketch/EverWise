@@ -83,17 +83,19 @@ export default function LessonPath({
       phaseColor: getPhase(c.phase).accent || getPhase(c.phase).color,
       biomeColor: getPhase(c.phase).color,
     })),
-    ...examsByOrder.map((e) => ({
-      kind: "exam",
-      id: e.id,
-      order: e.order,
-      phase: e.phase,
-      title: "Phase Exam",
-      fullTitle: e.title,
-      exam: e,
-      phaseColor: getPhase(e.phase).accent || getPhase(e.phase).color,
-      biomeColor: getPhase(e.phase).color,
-    })),
+    ...examsByOrder
+      .filter((e) => e && e.id && Array.isArray(e.questions))
+      .map((e) => ({
+        kind: "exam",
+        id: e.id,
+        order: e.order,
+        phase: e.phase,
+        title: "Phase Exam",
+        fullTitle: e.title,
+        exam: e,
+        phaseColor: getPhase(e.phase).accent || getPhase(e.phase).color,
+        biomeColor: getPhase(e.phase).color,
+      })),
   ].sort((a, b) => a.order - b.order);
 
   // First incomplete playable item that is unlocked.

@@ -14,6 +14,7 @@ import {
   phase4Exam,
 } from "./phase4-lessons";
 import { phase5Lessons, phase5Exam } from "./phase5-lessons";
+import { phase6Lessons } from "./phase6-lessons";
 
 export const lessons = [
   // ============================================================
@@ -1515,26 +1516,27 @@ export const lessons = [
 
 export default lessons;
 
-// Full Digital Literacy track: Phase 1 → 2 → 3 → 4 → 5.
+// Full Digital Literacy track: Phase 1 → 2 → 3 → 4 → 5 → 6.
 export const allLessons = [
   ...lessons,
   ...phase2Lessons,
   ...phase3Lessons,
   ...phase4Lessons,
   ...phase5Lessons,
+  ...phase6Lessons,
 ];
 
 // Lessons sorted by curriculum order for the path and player.
 export const lessonsByOrder = [...allLessons].sort((a, b) => a.order - b.order);
 
 // Ungraded phase challenges (after the phase's last lesson, before the exam).
-export const challengesByOrder = [phase4Challenge].sort(
+export const challengesByOrder = [phase4Challenge].filter(Boolean).sort(
   (a, b) => a.order - b.order
 );
 
-// Phase exams (after the challenge, or after the last lesson if none).
-export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam].sort(
-  (a, b) => a.order - b.order
-);
+// Phase exams — only real exam objects (phases without an exam simply omit one).
+export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam]
+  .filter((exam) => exam && exam.id && Array.isArray(exam.questions))
+  .sort((a, b) => a.order - b.order);
 
 export { phase3Exam, phase4Challenge, phase4Exam, phase5Exam };
