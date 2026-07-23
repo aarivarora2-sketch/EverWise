@@ -131,7 +131,7 @@ export default function LessonPath({
   return (
     <div className="flex flex-1 flex-col">
       {/* Fixed neutral chrome — biome color only appears on phase bands/nodes */}
-      <header className="flex items-center justify-between rounded-t-none bg-[#2C2A26] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
+      <header className="flex items-center justify-between rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
         <div className="flex items-center gap-3">
           <button
             type="button"
