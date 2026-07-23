@@ -16,12 +16,12 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
   const total = exam.totalQuestions || exam.questions.length;
   const accent = phaseColor || "#4A6FA5";
   const tier = pickTier(exam.results, score);
-  // Any qualifying tier counts as a pass; below the lowest minScore → retry.
-  const passed = tier != null;
-  const minPass =
-    exam.results?.length > 0
-      ? Math.min(...exam.results.map((r) => r.minScore))
-      : (exam.passingScore ?? 0);
+  const passingScore = exam.passingScore ?? 0;
+  const metPass = score >= passingScore;
+  // Exams with a minScore: 0 tier always have a result; otherwise require a tier.
+  const alwaysHasTier = (exam.results || []).some((r) => r.minScore === 0);
+  const canComplete = alwaysHasTier ? metPass : tier != null;
+  const earnedPhaseBadge = metPass && Boolean(exam.phaseBadge);
 
   const restart = () => {
     setPhase("intro");
@@ -52,7 +52,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
           {exam.title}
         </h1>
         <p className="mt-4 text-center text-xl text-ink-soft">
-          Pass with {minPass} of {total} correct.
+          Pass with {passingScore} of {total} correct.
         </p>
 
         <div className="mt-8">
@@ -95,10 +95,10 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
         <div className="mx-auto mt-6 animate-pop-in">
           <div
             className={`flex h-32 w-32 items-center justify-center rounded-full text-cream-card ${
-              tier?.trophy ? "" : "bg-sage shadow-node-sage"
+              tier?.trophy || earnedPhaseBadge ? "" : "bg-sage shadow-node-sage"
             }`}
             style={
-              tier?.trophy
+              tier?.trophy || earnedPhaseBadge
                 ? {
                     backgroundColor: accent,
                     boxShadow: `0 7px 0 ${accent}99`,
@@ -111,7 +111,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
         </div>
 
         <h1 className="mt-8 font-serif text-5xl font-semibold text-ink">
-          {passed ? "Exam complete!" : "Keep practicing"}
+          {canComplete ? "Exam complete!" : "Keep practicing"}
         </h1>
         <p className="mt-4 text-2xl text-ink-soft">
           You scored {score} of {total}.
@@ -125,10 +125,17 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
             <p className="mt-2 font-serif text-3xl font-semibold text-clay">
               {tier.title}
             </p>
-            <p className="mt-3 font-serif text-4xl font-bold text-sage">
-              +{tier.xp} XP
-            </p>
-            {exam.nextPhase ? (
+            {tier.message ? (
+              <p className="mt-3 text-xl leading-snug text-ink-soft">
+                {tier.message}
+              </p>
+            ) : null}
+            {canComplete && tier.xp > 0 ? (
+              <p className="mt-3 font-serif text-4xl font-bold text-sage">
+                +{tier.xp} XP
+              </p>
+            ) : null}
+            {exam.nextPhase && canComplete ? (
               <p className="mt-4 text-xl text-ink-soft">
                 Unlocks next:{" "}
                 <span className="font-semibold text-ink">{exam.nextPhase}</span>
@@ -141,24 +148,48 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
               Not quite there yet
             </p>
             <p className="mt-2 text-xl text-ink-soft">
-              You need {minPass} correct to pass. Review the topics and try
+              You need {passingScore} correct to pass. Review the topics and try
               again.
             </p>
           </div>
         )}
 
+        {earnedPhaseBadge ? (
+          <div className="mt-6 rounded-3xl bg-cream-card px-7 py-8 text-left shadow-card">
+            <p className="text-lg font-semibold uppercase tracking-wide text-ink-faint">
+              Phase achievement
+            </p>
+            <p className="mt-2 font-serif text-4xl font-semibold leading-tight text-clay">
+              {exam.phaseBadge}
+            </p>
+            {exam.phaseBadgeXp > 0 ? (
+              <p className="mt-3 font-serif text-5xl font-bold text-sage">
+                +{exam.phaseBadgeXp} XP
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mt-auto space-y-3 pt-10">
-          {passed ? (
+          {canComplete ? (
             <button
               className="btn-primary"
-              onClick={() => onPass({ score, tier })}
+              onClick={() =>
+                onPass({
+                  score,
+                  tier,
+                  earnedPhaseBadge,
+                  phaseBadge: earnedPhaseBadge ? exam.phaseBadge : null,
+                  phaseBadgeXp: earnedPhaseBadge ? exam.phaseBadgeXp ?? 0 : 0,
+                })
+              }
             >
               Back to your path
             </button>
           ) : (
             <>
               <button className="btn-primary" onClick={restart}>
-                Try again
+                {exam.phaseBadge ? "Retake exam" : "Try again"}
               </button>
               <button className="btn-secondary" onClick={onBack}>
                 Back to path

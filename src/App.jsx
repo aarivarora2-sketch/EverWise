@@ -233,22 +233,41 @@ export default function App() {
     setScreen("complete");
   };
 
-  const finishExam = async ({ score, tier }) => {
+  const finishExam = async ({
+    score,
+    tier,
+    earnedPhaseBadge,
+    phaseBadge,
+    phaseBadgeXp = 0,
+  }) => {
     if (user && profile && activeExam && tier) {
       const already = completedLessons.includes(activeExam.id);
       const today = dayString(new Date());
       const prevBadges = profile.badges ?? [];
       const prevXp = profile.totalXp ?? 0;
 
+      let nextBadges = [...prevBadges];
+      if (!already && tier.title && !nextBadges.includes(tier.title)) {
+        nextBadges.push(tier.title);
+      }
+      if (
+        earnedPhaseBadge &&
+        phaseBadge &&
+        !nextBadges.includes(phaseBadge)
+      ) {
+        nextBadges.push(phaseBadge);
+      }
+
+      const xpGain = already
+        ? 0
+        : (tier.xp ?? 0) + (earnedPhaseBadge ? phaseBadgeXp : 0);
+
       const updates = {
         completedLessons: already
           ? completedLessons
           : [...completedLessons, activeExam.id],
-        totalXp: already ? prevXp : prevXp + (tier.xp ?? 0),
-        badges:
-          already || prevBadges.includes(tier.title)
-            ? prevBadges
-            : [...prevBadges, tier.title],
+        totalXp: prevXp + xpGain,
+        badges: nextBadges,
         streak: nextStreak(
           profile.streak ?? 0,
           profile.lastCompletedDate,
