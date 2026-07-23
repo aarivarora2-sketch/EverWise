@@ -16,7 +16,11 @@ const PHASE_BAND = 88;
 const PHASE_BOTTOM = 56;
 const PHASE_SLOT = PHASE_TOP + PHASE_BAND + PHASE_BOTTOM;
 const NODE_CENTER = 56;
+const NODE_RADIUS = 56; // START node is h-28; clear trails past this
+const TRAIL_END_PAD = NODE_RADIUS + 12; // no dots under/behind a circle
+const PATH_WIDTH_EST = 390; // approx path column width for clearance math
 const AMP = 11;
+const TRAIL_T = [0.22, 0.4, 0.58, 0.76]; // same spacing as before
 
 function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
@@ -117,7 +121,17 @@ export default function LessonPath({
     const y1 = a.top + NODE_CENTER;
     const x2 = xPercent(i + 1);
     const y2 = b.top + NODE_CENTER;
-    for (const t of [0.22, 0.4, 0.58, 0.76]) {
+    // Convert to a rough pixel length so end padding clears both circles.
+    const dx = ((x2 - x1) / 100) * PATH_WIDTH_EST;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const tMin = TRAIL_END_PAD / len;
+    const tMax = 1 - TRAIL_END_PAD / len;
+    if (tMax <= tMin) continue;
+
+    for (const t of TRAIL_T) {
+      // Only render dots that sit fully between the padded ends.
+      if (t < tMin || t > tMax) continue;
       dots.push({
         key: `${i}-${t}`,
         x: x1 + (x2 - x1) * t,
