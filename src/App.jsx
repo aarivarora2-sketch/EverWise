@@ -8,6 +8,7 @@ import {
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { lessonsByOrder } from "./data/lessons";
+import { getPhase } from "./data/phases";
 import PhoneShell from "./components/PhoneShell";
 import Landing from "./screens/Landing";
 import SignUp from "./screens/SignUp";
@@ -16,9 +17,9 @@ import Loading from "./screens/Loading";
 import Home from "./screens/Home";
 import LessonPath from "./screens/LessonPath";
 import LessonPlayer from "./screens/LessonPlayer";
+import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 
-// Local calendar-day string (YYYY-MM-DD) so streaks track the user's own day.
 function dayString(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -26,7 +27,6 @@ function dayString(date) {
   return `${y}-${m}-${d}`;
 }
 
-// Given the last completed day, decide the new streak value for a completion today.
 function nextStreak(prevStreak, lastCompletedDate, today) {
   if (lastCompletedDate === today) return prevStreak;
   const yesterday = new Date();
@@ -41,6 +41,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [screen, setScreen] = useState("landing");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [activeExam, setActiveExam] = useState(null);
 
   useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
@@ -81,7 +82,10 @@ export default function App() {
   const allDone = completedLessons.length >= lessonsByOrder.length;
 
   const goHome = () => setScreen("home");
-  const goPath = () => setScreen("path");
+  const goPath = () => {
+    setActiveExam(null);
+    setScreen("path");
+  };
 
   const signUp = async (name, email, password) => {
     try {
@@ -145,8 +149,14 @@ export default function App() {
   };
 
   const startLesson = (index) => {
+    setActiveExam(null);
     setActiveIndex(index);
     setScreen("lesson");
+  };
+
+  const startExam = (exam) => {
+    setActiveExam(exam);
+    setScreen("exam");
   };
 
   const finishLesson = async () => {
@@ -183,6 +193,46 @@ export default function App() {
       }
     }
     setScreen("complete");
+  };
+
+  const finishExam = async ({ score, tier }) => {
+    if (user && profile && activeExam && tier) {
+      const already = completedLessons.includes(activeExam.id);
+      const today = dayString(new Date());
+      const prevBadges = profile.badges ?? [];
+      const prevXp = profile.totalXp ?? 0;
+
+      const updates = {
+        completedLessons: already
+          ? completedLessons
+          : [...completedLessons, activeExam.id],
+        totalXp: already ? prevXp : prevXp + (tier.xp ?? 0),
+        badges:
+          already || prevBadges.includes(tier.title)
+            ? prevBadges
+            : [...prevBadges, tier.title],
+        streak: nextStreak(
+          profile.streak ?? 0,
+          profile.lastCompletedDate,
+          today
+        ),
+        lastCompletedDate: today,
+      };
+
+      setProfile((p) => ({ ...p, ...updates }));
+      try {
+        console.log(
+          "[Everwise][firestore] exam pass update users/",
+          user.uid,
+          { score, ...updates }
+        );
+        await updateDoc(doc(db, "users", user.uid), updates);
+        console.log("[Everwise][firestore] exam progress saved.");
+      } catch (err) {
+        console.error("[Everwise][firestore] Failed to save exam:", err);
+      }
+    }
+    goPath();
   };
 
   if (!authChecked) {
@@ -240,6 +290,7 @@ export default function App() {
           streak={profile?.streak ?? 0}
           scamsCaught={profile?.scamsCaught ?? 0}
           onSelectLesson={startLesson}
+          onSelectExam={startExam}
           onBack={goHome}
         />
       );
@@ -251,6 +302,17 @@ export default function App() {
           lesson={activeLesson}
           onBack={goPath}
           onComplete={() => finishLesson()}
+        />
+      );
+      break;
+    case "exam":
+      content = (
+        <ExamPlayer
+          key={activeExam.id}
+          exam={activeExam}
+          phaseColor={getPhase(activeExam.phase).accent}
+          onBack={goPath}
+          onPass={finishExam}
         />
       );
       break;

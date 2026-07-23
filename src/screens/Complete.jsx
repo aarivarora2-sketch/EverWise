@@ -2,6 +2,7 @@ import { TrophyIcon } from "../components/Icons";
 
 export default function Complete({ lesson, onDone }) {
   const info = lesson.complete || {};
+  const isPhaseBadge = Boolean(lesson.phaseBadge);
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
@@ -40,14 +41,26 @@ export default function Complete({ lesson, onDone }) {
         </div>
       )}
 
-      <div className="mt-8 rounded-3xl bg-cream-card px-6 py-6 shadow-card">
+      <div
+        className={`mt-8 rounded-3xl bg-cream-card shadow-card ${
+          isPhaseBadge ? "px-7 py-8" : "px-6 py-6"
+        }`}
+      >
         <p className="text-lg font-semibold uppercase tracking-wide text-ink-faint">
-          Badge earned
+          {isPhaseBadge ? "Phase achievement" : "Badge earned"}
         </p>
-        <p className="mt-2 font-serif text-3xl font-semibold text-clay">
+        <p
+          className={`mt-2 font-serif font-semibold text-clay ${
+            isPhaseBadge ? "text-4xl leading-tight" : "text-3xl"
+          }`}
+        >
           {lesson.badge}
         </p>
-        <p className="mt-3 font-serif text-4xl font-bold text-sage">
+        <p
+          className={`mt-3 font-serif font-bold text-sage ${
+            isPhaseBadge ? "text-5xl" : "text-4xl"
+          }`}
+        >
           +{lesson.xp ?? 20} XP
         </p>
       </div>

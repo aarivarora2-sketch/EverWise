@@ -16,6 +16,13 @@ export const phases = [
     color: "#3F5E45",
     accent: "#3F5E45",
   },
+  {
+    number: 3,
+    title: "Communication",
+    biome: "Coast",
+    color: "#4A6FA5",
+    accent: "#4A6FA5",
+  },
 ];
 
 export function getPhase(number) {

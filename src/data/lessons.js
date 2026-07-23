@@ -7,6 +7,7 @@
 //              scenario, truefalse, choice, builder
 
 import { phase2Lessons } from "./phase2-lessons";
+import { phase3Lessons, phase3Exam } from "./phase3-lessons";
 
 export const lessons = [
   // ============================================================
@@ -1508,8 +1509,13 @@ export const lessons = [
 
 export default lessons;
 
-// Full Digital Literacy track: Phase 1 Foundations, then Phase 2 Safe Internet Habits.
-export const allLessons = [...lessons, ...phase2Lessons];
+// Full Digital Literacy track: Phase 1 → Phase 2 → Phase 3.
+export const allLessons = [...lessons, ...phase2Lessons, ...phase3Lessons];
 
 // Lessons sorted by curriculum order for the path and player.
 export const lessonsByOrder = [...allLessons].sort((a, b) => a.order - b.order);
+
+// Phase exams (placed on the path after that phase's last lesson).
+export const examsByOrder = [phase3Exam].sort((a, b) => a.order - b.order);
+
+export { phase3Exam };

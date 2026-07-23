@@ -1,4 +1,4 @@
-import { lessonsByOrder as lessons } from "../data/lessons";
+import { lessonsByOrder as lessons, examsByOrder } from "../data/lessons";
 import { getPhase } from "../data/phases";
 import {
   CheckIcon,
@@ -9,18 +9,23 @@ import {
   ArrowLeftIcon,
 } from "../components/Icons";
 
-// Layout: each lesson owns a fixed-height slot (node + label) so nothing overlaps.
 const TOP_PAD = 28;
-const NODE_SLOT = 220; // was ~158; +62px so labels clear the next node
-const PHASE_TOP = 56; // margin above every phase header (≥48)
-const PHASE_BAND = 88; // header card height
-const PHASE_BOTTOM = 56; // margin below header before first node
+const NODE_SLOT = 220;
+const PHASE_TOP = 56;
+const PHASE_BAND = 88;
+const PHASE_BOTTOM = 56;
 const PHASE_SLOT = PHASE_TOP + PHASE_BAND + PHASE_BOTTOM;
-const NODE_CENTER = 56; // center of the START node (h-28) for the trail
-const AMP = 11; // reduced swing so labels stay on-screen
+const NODE_CENTER = 56;
+const AMP = 11;
 
 function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
+}
+
+function examUnlocked(exam, doneSet) {
+  return lessons
+    .filter((l) => l.phase === exam.phase)
+    .every((l) => doneSet.has(l.id));
 }
 
 export default function LessonPath({
@@ -28,33 +33,65 @@ export default function LessonPath({
   streak,
   scamsCaught,
   onSelectLesson,
+  onSelectExam,
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
-  const currentIndex = lessons.findIndex((l) => !doneSet.has(l.id));
+
+  // Lessons + exams in curriculum order for progress / path nodes.
+  const playables = [
+    ...lessons.map((l, i) => ({
+      kind: "lesson",
+      id: l.id,
+      order: l.order,
+      phase: l.phase,
+      title: l.pathTitle || l.title,
+      fullTitle: l.title,
+      lessonIndex: i,
+      phaseColor: getPhase(l.phase).accent || getPhase(l.phase).color,
+    })),
+    ...examsByOrder.map((e) => ({
+      kind: "exam",
+      id: e.id,
+      order: e.order,
+      phase: e.phase,
+      title: "Phase Exam",
+      fullTitle: e.title,
+      exam: e,
+      phaseColor: getPhase(e.phase).accent || getPhase(e.phase).color,
+    })),
+  ].sort((a, b) => a.order - b.order);
+
+  // First incomplete playable item that is unlocked.
+  let currentId = null;
+  for (const p of playables) {
+    if (doneSet.has(p.id)) continue;
+    if (p.kind === "exam" && !examUnlocked(p.exam, doneSet)) break;
+    currentId = p.id;
+    break;
+  }
+
   const activePhaseNumber =
-    currentIndex === -1
-      ? lessons[lessons.length - 1]?.phase ?? 1
-      : lessons[currentIndex].phase;
+    playables.find((p) => p.id === currentId)?.phase ??
+    playables[playables.length - 1]?.phase ??
+    1;
   const activePhase = getPhase(activePhaseNumber);
 
   const items = [];
   let lastPhase = null;
-  lessons.forEach((lesson, i) => {
-    if (lesson.phase !== lastPhase) {
-      items.push({ kind: "phase", phase: getPhase(lesson.phase) });
-      lastPhase = lesson.phase;
+  playables.forEach((p) => {
+    if (p.phase !== lastPhase) {
+      items.push({ kind: "phase", phase: getPhase(p.phase) });
+      lastPhase = p.phase;
     }
-    items.push({
-      kind: "lesson",
-      title: lesson.pathTitle || lesson.title,
-      fullTitle: lesson.title,
-      index: i,
-      phase: lesson.phase,
-      phaseColor: getPhase(lesson.phase).accent || getPhase(lesson.phase).color,
-    });
+    items.push(p);
   });
-  items.push({ kind: "reward", title: "All done", fullTitle: "All done", index: lessons.length });
+  items.push({
+    kind: "reward",
+    id: "path-reward",
+    title: "All done",
+    fullTitle: "All done",
+  });
 
   let y = TOP_PAD;
   const positioned = items.map((item) => {
@@ -70,26 +107,26 @@ export default function LessonPath({
   const containerHeight = y + 48;
 
   const trailNodes = positioned.filter(
-    (n) => n.kind === "lesson" || n.kind === "reward"
+    (n) => n.kind === "lesson" || n.kind === "exam" || n.kind === "reward"
   );
   const dots = [];
   for (let i = 0; i < trailNodes.length - 1; i++) {
     const a = trailNodes[i];
     const b = trailNodes[i + 1];
-    const ai = a.kind === "lesson" ? a.index : lessons.length;
-    const bi = b.kind === "lesson" ? b.index : lessons.length;
-    const x1 = xPercent(ai);
+    const x1 = xPercent(i);
     const y1 = a.top + NODE_CENTER;
-    const x2 = xPercent(bi);
+    const x2 = xPercent(i + 1);
     const y2 = b.top + NODE_CENTER;
     for (const t of [0.22, 0.4, 0.58, 0.76]) {
       dots.push({
-        key: `${ai}-${bi}-${t}`,
+        key: `${i}-${t}`,
         x: x1 + (x2 - x1) * t,
         y: y1 + (y2 - y1) * t,
       });
     }
   }
+
+  const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -129,7 +166,6 @@ export default function LessonPath({
           background: `linear-gradient(180deg, ${activePhase.color}14 0%, transparent 220px)`,
         }}
       >
-        {/* Wider path column — less side padding so L/R nodes have room */}
         <div
           className="relative mx-auto w-full max-w-none px-2"
           style={{ height: containerHeight }}
@@ -189,28 +225,43 @@ export default function LessonPath({
               );
             }
 
-            const state =
-              node.kind === "reward"
-                ? currentIndex === -1
-                  ? "reward-done"
-                  : "locked"
-                : doneSet.has(lessons[node.index].id)
-                ? "done"
-                : node.index === currentIndex
-                ? "current"
-                : "locked";
+            let state;
+            if (node.kind === "reward") {
+              state = allPlayablesDone ? "reward-done" : "locked";
+            } else if (doneSet.has(node.id)) {
+              state = "done";
+            } else if (node.id === currentId) {
+              state = "current";
+            } else if (
+              node.kind === "exam" &&
+              !examUnlocked(node.exam, doneSet)
+            ) {
+              state = "locked";
+            } else {
+              state = "locked";
+            }
 
             const accent =
-              node.kind === "lesson" ? node.phaseColor : activePhase.color;
-            const swingIndex =
-              node.kind === "lesson" ? node.index : lessons.length;
+              node.kind === "reward"
+                ? activePhase.color
+                : node.phaseColor || activePhase.color;
+            const swingIndex = trailNodes.findIndex((t) => t === node);
+
+            const onClick =
+              state === "current" || state === "done"
+                ? node.kind === "exam"
+                  ? () => onSelectExam?.(node.exam)
+                  : node.kind === "lesson"
+                  ? () => onSelectLesson(node.lessonIndex)
+                  : undefined
+                : undefined;
 
             return (
               <div
-                key={i}
+                key={node.id || i}
                 className="absolute z-10 flex flex-col items-center"
                 style={{
-                  left: `${xPercent(swingIndex)}%`,
+                  left: `${xPercent(Math.max(0, swingIndex))}%`,
                   top: node.top,
                   width: "9.5rem",
                   height: NODE_SLOT,
@@ -219,12 +270,9 @@ export default function LessonPath({
               >
                 <PathNode
                   state={state}
+                  kind={node.kind}
                   accent={accent}
-                  onClick={
-                    state === "current" || state === "done"
-                      ? () => onSelectLesson(node.index)
-                      : undefined
-                  }
+                  onClick={onClick}
                   title={node.fullTitle || node.title}
                 />
                 <Label state={state} title={node.title} accent={accent} />
@@ -237,7 +285,9 @@ export default function LessonPath({
   );
 }
 
-function PathNode({ state, onClick, title, accent }) {
+function PathNode({ state, kind, onClick, title, accent }) {
+  const isExam = kind === "exam";
+
   if (state === "current") {
     return (
       <div className="relative shrink-0">
@@ -248,14 +298,14 @@ function PathNode({ state, onClick, title, accent }) {
         <button
           type="button"
           onClick={onClick}
-          aria-label={`Start lesson: ${title}`}
+          aria-label={isExam ? `Start exam: ${title}` : `Start lesson: ${title}`}
           className="relative flex h-28 w-28 items-center justify-center rounded-full font-serif text-xl font-bold text-cream-card transition-transform active:translate-y-1"
           style={{
             backgroundColor: accent,
             boxShadow: `0 7px 0 ${shade(accent, -25)}`,
           }}
         >
-          START
+          {isExam ? <TrophyIcon className="h-12 w-12" /> : "START"}
         </button>
       </div>
     );
@@ -266,10 +316,24 @@ function PathNode({ state, onClick, title, accent }) {
       <button
         type="button"
         onClick={onClick}
-        aria-label={`Redo completed lesson: ${title}`}
-        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage transition-transform active:translate-y-1 active:shadow-none"
+        aria-label={isExam ? `Redo exam: ${title}` : `Redo completed lesson: ${title}`}
+        className={`flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-cream-card transition-transform active:translate-y-1 active:shadow-none ${
+          isExam ? "" : "bg-sage shadow-node-sage"
+        }`}
+        style={
+          isExam
+            ? {
+                backgroundColor: accent,
+                boxShadow: `0 5px 0 ${shade(accent, -25)}`,
+              }
+            : undefined
+        }
       >
-        <CheckIcon className="h-11 w-11" />
+        {isExam ? (
+          <TrophyIcon className="h-11 w-11" />
+        ) : (
+          <CheckIcon className="h-11 w-11" />
+        )}
       </button>
     );
   }
@@ -290,7 +354,7 @@ function PathNode({ state, onClick, title, accent }) {
       className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-locked text-ink-faint shadow-node-locked"
       aria-label={`Locked: ${title}`}
     >
-      <LockIcon className="h-10 w-10" />
+      {isExam ? <TrophyIcon className="h-10 w-10" /> : <LockIcon className="h-10 w-10" />}
     </div>
   );
 }
