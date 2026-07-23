@@ -53,6 +53,7 @@ export default function LessonPath({
       fullTitle: l.title,
       lessonIndex: i,
       phaseColor: getPhase(l.phase).accent || getPhase(l.phase).color,
+      biomeColor: getPhase(l.phase).color,
     })),
     ...examsByOrder.map((e) => ({
       kind: "exam",
@@ -63,6 +64,7 @@ export default function LessonPath({
       fullTitle: e.title,
       exam: e,
       phaseColor: getPhase(e.phase).accent || getPhase(e.phase).color,
+      biomeColor: getPhase(e.phase).color,
     })),
   ].sort((a, b) => a.order - b.order);
 
@@ -258,6 +260,10 @@ export default function LessonPath({
               node.kind === "reward"
                 ? activePhase.color
                 : node.phaseColor || activePhase.color;
+            const biome =
+              node.kind === "reward"
+                ? activePhase.color
+                : node.biomeColor || activePhase.color;
             const swingIndex = trailNodes.findIndex((t) => t === node);
 
             const onClick =
@@ -285,10 +291,16 @@ export default function LessonPath({
                   state={state}
                   kind={node.kind}
                   accent={accent}
+                  biome={biome}
                   onClick={onClick}
                   title={node.fullTitle || node.title}
                 />
-                <Label state={state} title={node.title} accent={accent} />
+                <Label
+                  state={state}
+                  title={node.title}
+                  accent={accent}
+                  biome={biome}
+                />
               </div>
             );
           })}
@@ -298,7 +310,7 @@ export default function LessonPath({
   );
 }
 
-function PathNode({ state, kind, onClick, title, accent }) {
+function PathNode({ state, kind, onClick, title, accent, biome }) {
   const isExam = kind === "exam";
 
   if (state === "current") {
@@ -362,9 +374,19 @@ function PathNode({ state, kind, onClick, title, accent }) {
     );
   }
 
+  // Locked: desaturated biome tint (25% phase / 75% grey) — not active, but phase-readable
+  const lockedFill = mixHex(biome, "#C9C3B6", 0.25);
+  const lockedShadow = shade(lockedFill, -28);
+  const lockedIcon = mixHex(biome, "#4A463F", 0.45);
+
   return (
     <div
-      className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-locked text-ink-faint shadow-node-locked"
+      className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
+      style={{
+        backgroundColor: lockedFill,
+        boxShadow: `0 5px 0 ${lockedShadow}`,
+        color: lockedIcon,
+      }}
       aria-label={`Locked: ${title}`}
     >
       {isExam ? <TrophyIcon className="h-10 w-10" /> : <LockIcon className="h-10 w-10" />}
@@ -372,19 +394,26 @@ function PathNode({ state, kind, onClick, title, accent }) {
   );
 }
 
-function Label({ state, title, accent }) {
+function Label({ state, title, accent, biome }) {
+  const lockedText = mixHex(biome || accent, "#4A463F", 0.4);
   const className =
     state === "done" || state === "reward-done"
       ? "text-sage"
       : state === "current"
       ? ""
-      : "text-ink-faint";
+      : "";
 
   return (
     <div className="mt-3 w-full px-1 text-center">
       <p
         className={`mx-auto line-clamp-2 max-w-[8.5rem] text-center text-base font-semibold leading-snug ${className}`}
-        style={state === "current" ? { color: accent } : undefined}
+        style={
+          state === "current"
+            ? { color: accent }
+            : state === "locked"
+            ? { color: lockedText }
+            : undefined
+        }
         title={title}
       >
         {title}
@@ -408,4 +437,20 @@ function shade(hex, amount) {
   const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
   const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
+// Mix color A into color B by weight (0–1 = how much of A).
+function mixHex(a, b, weightA) {
+  const parse = (hex) => {
+    const h = hex.replace("#", "");
+    const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const w = Math.min(1, Math.max(0, weightA));
+  const r = Math.round(ar * w + br * (1 - w));
+  const g = Math.round(ag * w + bg * (1 - w));
+  const bl = Math.round(ab * w + bb * (1 - w));
+  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, "0")}`;
 }
