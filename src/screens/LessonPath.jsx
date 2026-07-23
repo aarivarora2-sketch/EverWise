@@ -40,7 +40,7 @@ export default function LessonPath({
       title: lesson.title,
       index: i,
     })),
-    { kind: "reward", title: "Prize you won", index: lessons.length },
+    { kind: "reward", title: "All done", index: lessons.length },
   ];
 
   const containerHeight = TOP_PAD + nodes.length * GAP + 40;

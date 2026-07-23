@@ -1,10 +1,16 @@
 import LessonTopBar from "../components/LessonTopBar";
 import ReadAloud from "../components/ReadAloud";
 
-export default function Learn({ lesson, onContinue, onBack }) {
+export default function Learn({ lesson, progress, progressTotal, onContinue, onBack }) {
   return (
     <div className="flex flex-1 flex-col">
-      <LessonTopBar type={lesson.type} step={0} onBack={onBack} />
+      <LessonTopBar
+        type={lesson.type}
+        label="Learn"
+        progress={progress}
+        progressTotal={progressTotal}
+        onBack={onBack}
+      />
 
       <div className="flex flex-1 flex-col px-6 pb-8 pt-8">
         <div className="animate-fade-up">
@@ -13,11 +19,11 @@ export default function Learn({ lesson, onContinue, onBack }) {
           </h1>
 
           <p className="mt-6 text-2xl leading-relaxed text-ink-soft">
-            {lesson.learn}
+            {lesson.learnText}
           </p>
 
           <div className="mt-8">
-            <ReadAloud text={`${lesson.title}. ${lesson.learn}`} />
+            <ReadAloud text={`${lesson.title}. ${lesson.learnText}`} />
           </div>
         </div>
 

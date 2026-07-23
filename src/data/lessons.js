@@ -1,88 +1,228 @@
-// Everwise lessons.
-// Each lesson alternates between "skill" (how to do everyday online things)
-// and "protection" (how to spot the tricks). Kept to a single tap-answer so
-// both lesson types live in one consistent, easy flow.
+// Everwise lesson data
+// Phase 1: Foundations (digital literacy)
 //
-// Shape of each lesson:
-//   id          stable unique identifier (used to track completion)
-//   type        "skill" | "protection"
-//   title       short lesson name
-//   learn       plain-language teaching text (read aloud on the Learn screen)
-//   question    the one-tap quiz question
-//   scenario    the situation the learner is judging
-//   options     exactly two answer options [a, b]
-//   correct     index (0 or 1) of the correct option
-//   explanation the "why" — what to remember
+// FORMAT NOTES FOR THE TEAM:
+// - Each lesson = 1 teach screen + 3 practice questions + 4 quiz questions
+// - That is about 5 minutes, which matches what we promise users
+// - Every question is multiple choice so the app only needs ONE question component
+// - options can be 2, 3, or 4 items. correctIndex is zero-based (0 = first option)
+// - Add new lessons by copying an object and changing the content
 
 export const lessons = [
   {
-    id: "fake-irs-calls",
-    type: "protection",
-    title: "Fake IRS Calls",
-    learn:
-      "The government will never call you and demand money over the phone. Real agencies like the IRS send letters by mail. A caller who says you owe taxes and must pay right now — or you'll be arrested — is a scammer. They use fear to rush you. It is always safe to hang up.",
-    question: "Is this a real call, or a scam?",
-    scenario:
-      "Your phone rings. A stern voice says: “This is the IRS. You owe back taxes. Pay $500 in gift cards today or the police will arrest you tonight.”",
-    options: ["It's a scam — hang up", "It's real — I should pay"],
-    correct: 0,
-    explanation:
-      "This is a scam. The IRS never calls to demand instant payment, never asks for gift cards, and never threatens arrest. When someone rushes and scares you, that's the biggest warning sign. Hang up — you did the right thing.",
-  },
-  {
-    id: "attach-photo-email",
+    id: "internet",
+    phase: 1,
     type: "skill",
-    title: "Attach a photo to an email",
-    learn:
-      "To send a picture in an email, look for the paperclip icon. The paperclip always means “attach a file.” Tap it, choose your photo, and it gets added to your message. The paperclip is the same in almost every email app, so once you know it, you can send photos anywhere.",
-    question: "Which button attaches a photo?",
-    scenario:
-      "You're writing an email to your granddaughter and want to send her a photo from your last visit. You see two buttons at the bottom of the message.",
-    options: ["The paperclip icon", "The trash can icon"],
-    correct: 0,
-    explanation:
-      "The paperclip attaches a file, like a photo. The trash can deletes your email instead. Remember: paperclip means “attach.” Now you can share photos with family any time.",
+    title: "What is the Internet?",
+    badge: "Internet Explorer",
+    xp: 20,
+
+    learnText:
+      "The internet is a worldwide network that connects millions of phones, computers, and tablets. Think of it like a system of roads. Instead of cars, information travels between devices. It lets you send email, watch videos, video call family, read news, and shop. The internet is not inside your phone. Your phone connects to it using Wi-Fi or cellular data.",
+
+    practice: [
+      {
+        question: "Which one of these uses the internet?",
+        options: ["Reading a printed newspaper", "Watching a video on YouTube"],
+        correctIndex: 1,
+        explanation: "Videos are sent to your device over the internet. A printed newspaper is already in your hands, so it needs no connection."
+      },
+      {
+        question: "Susan wants to look up a cookie recipe. What should she use?",
+        options: ["Television", "The internet", "A calculator"],
+        correctIndex: 1,
+        explanation: "Recipes live on websites, and you reach websites through the internet."
+      },
+      {
+        question: "True or false: the internet only works on computers.",
+        options: ["True", "False"],
+        correctIndex: 1,
+        explanation: "Phones, tablets, TVs, and even some doorbells connect to the internet."
+      }
+    ],
+
+    quiz: [
+      {
+        question: "What is the internet?",
+        options: [
+          "A phone",
+          "A worldwide network that connects devices",
+          "A password"
+        ],
+        correctIndex: 1,
+        explanation: "It connects devices all over the world so they can share information."
+      },
+      {
+        question: "What is a website?",
+        options: [
+          "A page you visit on the internet",
+          "A Wi-Fi password",
+          "A charger"
+        ],
+        correctIndex: 0,
+        explanation: "A website is one place on the internet, like one building in a city."
+      },
+      {
+        question: "What app do you use to visit websites?",
+        options: ["Calculator", "Camera", "A browser like Chrome or Safari"],
+        correctIndex: 2,
+        explanation: "A browser is the app that opens websites for you."
+      },
+      {
+        question: "Linda wants to send an email. What does she need?",
+        options: ["A television", "An internet connection", "A calculator"],
+        correctIndex: 1,
+        explanation: "Email travels over the internet, so she needs Wi-Fi or cellular data."
+      }
+    ]
   },
+
   {
-    id: "grandkid-in-trouble",
-    type: "protection",
-    title: "Grandkid in trouble",
-    learn:
-      "In this scam, someone calls pretending to be your grandchild — or a lawyer for them — saying they're in trouble and need money fast, and to keep it secret. Scammers can even fake a familiar voice now. The safe move is to hang up and call your family member back on their real number to check.",
-    question: "Is this a real emergency, or a scam?",
-    scenario:
-      "A shaky voice says: “Grandma, it's me. I had an accident and I'm in jail. Please don't tell Mom. Send $2,000 right away.”",
-    options: ["It's a scam — call family to check", "It's real — send the money"],
-    correct: 0,
-    explanation:
-      "This is a scam. Pressure, secrecy, and an urgent money request are the signs. Real family won't mind you double-checking. Hang up and call your grandchild's real number — you'll almost always find they're safe at home.",
-  },
-  {
-    id: "join-video-call",
+    id: "ai",
+    phase: 1,
     type: "skill",
-    title: "Join a video call",
-    learn:
-      "When family sends a link for a video call, you don't need to set anything up. Just tap the link they sent. It opens the call and connects you. If it asks to use your camera and microphone, tap “Allow” so they can see and hear you. That's all it takes to be face-to-face.",
-    question: "How do you join the call?",
-    scenario:
-      "Your son texts: “Video call at 6pm! Here's the link.” It's 6pm now and you want to join so you can see the grandkids.",
-    options: ["Tap the link he sent", "Reply with your password"],
-    correct: 0,
-    explanation:
-      "Just tap the link — it opens the call and connects you. You never need to send a password to join a video call. If anyone asks for your password to “let you in,” that's a scam. Enjoy seeing the family!",
+    title: "What is AI?",
+    badge: "AI Explorer",
+    xp: 20,
+
+    learnText:
+      "AI stands for Artificial Intelligence. It is technology that can answer questions, help you write, translate languages, and recognize pictures. Think of it as a very smart assistant. You already use it: Siri, Netflix suggestions, and Google Maps picking your route all use AI. But AI can be wrong, and it can sound confident even when it is. For anything about your health, money, or legal matters, always check with a real professional.",
+
+    practice: [
+      {
+        question: "Which of these uses AI?",
+        options: ["A printed cookbook", "Netflix recommending a movie", "A flashlight"],
+        correctIndex: 1,
+        explanation: "Netflix uses AI to look at what you have watched and suggest something similar."
+      },
+      {
+        question: "Margaret wants help writing a birthday card. Is AI a good tool for that?",
+        options: ["Yes", "No"],
+        correctIndex: 0,
+        explanation: "Writing help is one of the things AI does best. You can always edit what it gives you."
+      },
+      {
+        question: "Nancy has chest pain and asks AI whether it is serious. What should she do?",
+        options: [
+          "Follow whatever the AI says",
+          "Call a doctor or emergency services"
+        ],
+        correctIndex: 1,
+        explanation: "AI can explain general information, but it cannot examine you. Chest pain needs a real doctor right away."
+      }
+    ],
+
+    quiz: [
+      {
+        question: "What does AI stand for?",
+        options: ["Automatic Internet", "Artificial Intelligence", "Advanced Information"],
+        correctIndex: 1,
+        explanation: "Artificial Intelligence: technology that learns patterns and helps with tasks."
+      },
+      {
+        question: "True or false: AI is always correct.",
+        options: ["True", "False"],
+        correctIndex: 1,
+        explanation: "AI makes mistakes and can sound sure of itself while being wrong."
+      },
+      {
+        question: "Which is a good use of AI?",
+        options: [
+          "Sharing your banking password with it",
+          "Asking it to help write an email",
+          "Letting it make your medical decisions"
+        ],
+        correctIndex: 1,
+        explanation: "Writing, explaining, and brainstorming are safe. Never give it passwords or account numbers."
+      },
+      {
+        question: "When should you double-check what AI tells you?",
+        options: [
+          "Never",
+          "When it involves your health, money, or legal matters",
+          "Only on weekends"
+        ],
+        correctIndex: 1,
+        explanation: "Anything that could cost you money or affect your health is worth confirming with a real person."
+      }
+    ]
   },
+
   {
-    id: "you-won-a-prize",
-    type: "protection",
-    title: "You won a prize",
-    learn:
-      "A real prize never costs you money. If someone says you've won a lottery, a gift card, or a vacation — but you must first pay a fee, taxes, or “shipping” — it's a scam. You cannot win a contest you never entered. When a prize asks you to pay to collect it, the answer is always no.",
-    question: "Is this a real prize, or a scam?",
-    scenario:
-      "A message says: “Congratulations! You've won a $1,000 gift card. To claim it, just pay a $50 processing fee with your card.”",
-    options: ["It's a scam — ignore it", "It's real — pay the fee"],
-    correct: 0,
-    explanation:
-      "This is a scam. A genuine prize never asks you to pay to receive it, and you can't win something you didn't enter. Paying the “fee” just hands a scammer your money and card number. Ignore it and delete the message.",
-  },
+    id: "chatgpt",
+    phase: 1,
+    type: "skill",
+    title: "What is ChatGPT?",
+    badge: "ChatGPT Communicator",
+    xp: 20,
+
+    learnText:
+      "ChatGPT is an AI assistant you can have a conversation with. You type a question, and it answers in seconds. It can help write emails, explain confusing topics, suggest recipes, and plan trips. What you type is called a prompt. The clearer your prompt, the better the answer. Instead of typing 'help', try 'help me write a thank-you note to my neighbor'. Never give it passwords, your Social Security number, or bank information.",
+
+    practice: [
+      {
+        question: "Which prompt would get a better answer?",
+        options: ["Help", "Explain how to connect my phone to Wi-Fi"],
+        correctIndex: 1,
+        explanation: "The more specific you are, the more useful the answer. One word gives it nothing to work with."
+      },
+      {
+        question: "Carol wants help writing an email inviting friends to lunch. Should she ask ChatGPT?",
+        options: ["Yes", "No"],
+        correctIndex: 0,
+        explanation: "Writing invitations and emails is exactly what it is good at."
+      },
+      {
+        question: "Which of these should you never type into ChatGPT?",
+        options: [
+          "A recipe question",
+          "Your bank password",
+          "A request to explain a news story"
+        ],
+        correctIndex: 1,
+        explanation: "Never share passwords, account numbers, or Social Security numbers with any AI service."
+      }
+    ],
+
+    quiz: [
+      {
+        question: "What is ChatGPT?",
+        options: [
+          "A search engine",
+          "An AI assistant that answers questions",
+          "A Wi-Fi network"
+        ],
+        correctIndex: 1,
+        explanation: "It is an assistant you can have a back-and-forth conversation with."
+      },
+      {
+        question: "What is a prompt?",
+        options: [
+          "A password",
+          "The question or instruction you type in",
+          "A website"
+        ],
+        correctIndex: 1,
+        explanation: "Your prompt is your message to it. Clear prompts get better answers."
+      },
+      {
+        question: "True or false: ChatGPT always gives perfect answers.",
+        options: ["True", "False"],
+        correctIndex: 1,
+        explanation: "It makes mistakes. Check anything important."
+      },
+      {
+        question: "You need help writing to your insurance company. What is the best approach?",
+        options: [
+          "Give ChatGPT your password so it can log in",
+          "Ask it to draft the email, then read it over before sending",
+          "Avoid it completely"
+        ],
+        correctIndex: 1,
+        explanation: "Let it write the first draft, then you check it. It cannot and should not log into your accounts."
+      }
+    ]
+  }
 ];
+
+export default lessons;

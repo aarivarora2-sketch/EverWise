@@ -16,8 +16,7 @@ import Loading from "./screens/Loading";
 import Home from "./screens/Home";
 import LessonPath from "./screens/LessonPath";
 import Learn from "./screens/Learn";
-import Quiz from "./screens/Quiz";
-import Result from "./screens/Result";
+import Question from "./screens/Question";
 import Complete from "./screens/Complete";
 
 // Local calendar-day string (YYYY-MM-DD) so streaks track the user's own day.
@@ -37,13 +36,22 @@ function nextStreak(prevStreak, lastCompletedDate, today) {
   return 1; // first ever, or the streak was broken
 }
 
+// Total steps in a lesson: Learn + every practice + every quiz question.
+function lessonStepTotal(lesson) {
+  return 1 + lesson.practice.length + lesson.quiz.length;
+}
+
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null); // Firestore users/{uid} data
   const [screen, setScreen] = useState("landing");
   const [activeIndex, setActiveIndex] = useState(0);
+
+  // In-lesson progress: practice → quiz, one question at a time.
+  const [questionIndex, setQuestionIndex] = useState(0);
   const [selected, setSelected] = useState(null);
+  const [score, setScore] = useState(0);
 
   // Watch auth state: a returning, logged-in user skips Landing and lands on Home.
   useEffect(() => {
@@ -83,6 +91,7 @@ export default function App() {
   const activeLesson = lessons[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = completedLessons.length >= lessons.length;
+  const progressTotal = activeLesson ? lessonStepTotal(activeLesson) : 1;
 
   const goHome = () => setScreen("home");
   const goPath = () => setScreen("path");
@@ -100,6 +109,8 @@ export default function App() {
         email,
         streak: 0,
         scamsCaught: 0,
+        totalXp: 0,
+        badges: [],
         completedLessons: [],
         lastCompletedDate: null,
       };
@@ -149,32 +160,48 @@ export default function App() {
     }
   };
 
-  // --- Lesson flow ---
+  // --- Lesson flow: Learn → Practice (each) → Quiz (each) → Complete ---
 
   const startLesson = (index) => {
     setActiveIndex(index);
+    setQuestionIndex(0);
     setSelected(null);
+    setScore(0);
     setScreen("learn");
   };
 
-  const answer = (choice) => {
+  const selectAnswer = (choice) => {
+    if (selected != null) return; // already answered this question
+    const items =
+      screen === "practice" ? activeLesson.practice : activeLesson.quiz;
+    const item = items[questionIndex];
+    if (choice === item.correctIndex) {
+      setScore((s) => s + 1);
+    }
     setSelected(choice);
-    setScreen("result");
   };
 
   const finishLesson = async () => {
     if (user && profile) {
-      const correct = selected === activeLesson.correct;
       const already = completedLessons.includes(activeLesson.id);
       const today = dayString(new Date());
+      const prevBadges = profile.badges ?? [];
+      const prevXp = profile.totalXp ?? 0;
 
       const updates = {
         completedLessons: already
           ? completedLessons
           : [...completedLessons, activeLesson.id],
-        // Count a caught scam once per lesson, only on a correct answer.
-        scamsCaught: profile.scamsCaught + (correct && !already ? 1 : 0),
-        streak: nextStreak(profile.streak, profile.lastCompletedDate, today),
+        totalXp: already ? prevXp : prevXp + (activeLesson.xp ?? 20),
+        badges:
+          already || prevBadges.includes(activeLesson.badge)
+            ? prevBadges
+            : [...prevBadges, activeLesson.badge],
+        streak: nextStreak(
+          profile.streak ?? 0,
+          profile.lastCompletedDate,
+          today
+        ),
         lastCompletedDate: today,
       };
 
@@ -189,6 +216,32 @@ export default function App() {
       }
     }
     setScreen("complete");
+  };
+
+  const continueAfterAnswer = () => {
+    if (screen === "practice") {
+      const next = questionIndex + 1;
+      if (next < activeLesson.practice.length) {
+        setQuestionIndex(next);
+        setSelected(null);
+      } else {
+        // Move into the quiz.
+        setQuestionIndex(0);
+        setSelected(null);
+        setScreen("quiz");
+      }
+      return;
+    }
+
+    if (screen === "quiz") {
+      const next = questionIndex + 1;
+      if (next < activeLesson.quiz.length) {
+        setQuestionIndex(next);
+        setSelected(null);
+      } else {
+        finishLesson();
+      }
+    }
   };
 
   if (!authChecked) {
@@ -254,36 +307,58 @@ export default function App() {
       content = (
         <Learn
           lesson={activeLesson}
-          onContinue={() => setScreen("quiz")}
+          progress={1}
+          progressTotal={progressTotal}
+          onContinue={() => {
+            setQuestionIndex(0);
+            setSelected(null);
+            setScreen("practice");
+          }}
+          onBack={goPath}
+        />
+      );
+      break;
+    case "practice":
+      content = (
+        <Question
+          key={`practice-${questionIndex}`}
+          item={activeLesson.practice[questionIndex]}
+          kind="practice"
+          type={activeLesson.type}
+          progress={1 + questionIndex + 1}
+          progressTotal={progressTotal}
+          selected={selected}
+          onSelect={selectAnswer}
+          onContinue={continueAfterAnswer}
           onBack={goPath}
         />
       );
       break;
     case "quiz":
       content = (
-        <Quiz
-          lesson={activeLesson}
-          onAnswer={answer}
-          onBack={() => setScreen("learn")}
-        />
-      );
-      break;
-    case "result":
-      content = (
-        <Result
-          lesson={activeLesson}
+        <Question
+          key={`quiz-${questionIndex}`}
+          item={activeLesson.quiz[questionIndex]}
+          kind="quiz"
+          type={activeLesson.type}
+          progress={1 + activeLesson.practice.length + questionIndex + 1}
+          progressTotal={progressTotal}
           selected={selected}
-          onContinue={finishLesson}
-          onBack={() => setScreen("quiz")}
+          onSelect={selectAnswer}
+          onContinue={continueAfterAnswer}
+          onBack={goPath}
         />
       );
       break;
     case "complete":
       content = (
         <Complete
+          lesson={activeLesson}
+          score={score}
+          scoreTotal={
+            activeLesson.practice.length + activeLesson.quiz.length
+          }
           streak={profile?.streak ?? 0}
-          scamsCaught={profile?.scamsCaught ?? 0}
-          wasProtection={activeLesson.type === "protection"}
           allDone={allDone}
           onDone={goPath}
         />

@@ -1,11 +1,19 @@
 import { ArrowLeftIcon, ShieldIcon, BookIcon } from "./Icons";
 
-// Top bar for the in-lesson screens: a back button, a type badge, and a
-// small step indicator (Learn -> Quiz -> Why). Keeps orientation clear
-// without competing with the single main action below.
-export default function LessonTopBar({ type, step, onBack }) {
+// Top bar for in-lesson screens: back, a type/kind badge, and a continuous
+// progress bar showing how far through the lesson the learner is.
+export default function LessonTopBar({
+  type,
+  label,
+  progress = 0,
+  progressTotal = 1,
+  onBack,
+}) {
   const isProtection = type === "protection";
-  const steps = ["Learn", "Quiz", "Why"];
+  const badgeLabel =
+    label || (isProtection ? "Spot the scam" : "Everyday skill");
+  const fraction =
+    progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
 
   return (
     <div className="px-6 pt-6">
@@ -31,22 +39,23 @@ export default function LessonTopBar({ type, step, onBack }) {
           ) : (
             <BookIcon className="h-5 w-5" />
           )}
-          {isProtection ? "Spot the scam" : "Everyday skill"}
+          {badgeLabel}
         </span>
       </div>
 
-      {step != null && (
-        <div className="mt-5 flex items-center gap-2" aria-hidden="true">
-          {steps.map((_, i) => (
-            <span
-              key={i}
-              className={`h-2.5 flex-1 rounded-full ${
-                i <= step ? "bg-clay" : "bg-ink/10"
-              }`}
-            />
-          ))}
-        </div>
-      )}
+      <div
+        className="mt-5 h-3 w-full overflow-hidden rounded-full bg-ink/10"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={progressTotal}
+        aria-valuenow={progress}
+        aria-label="Lesson progress"
+      >
+        <div
+          className="h-full rounded-full bg-clay transition-[width] duration-300 ease-out"
+          style={{ width: `${fraction * 100}%` }}
+        />
+      </div>
     </div>
   );
 }
