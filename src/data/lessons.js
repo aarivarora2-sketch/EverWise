@@ -17,6 +17,7 @@ export const lessons = [
     phase: 1,
     order: 1,
     title: "What is the Internet?",
+    pathTitle: "The Internet",
     badge: "Internet Explorer",
     xp: 20,
     goals: [
@@ -203,6 +204,7 @@ export const lessons = [
     phase: 1,
     order: 2,
     title: "What is AI?",
+    pathTitle: "AI",
     badge: "AI Explorer",
     xp: 20,
     goals: [
@@ -401,6 +403,7 @@ export const lessons = [
     phase: 1,
     order: 3,
     title: "What is ChatGPT?",
+    pathTitle: "ChatGPT",
     badge: "ChatGPT Communicator",
     xp: 20,
     goals: [
@@ -589,6 +592,7 @@ export const lessons = [
     phase: 1,
     order: 4,
     title: "What is a Search Engine?",
+    pathTitle: "Search Engines",
     badge: "Search Expert",
     xp: 20,
     goals: [
@@ -767,6 +771,7 @@ export const lessons = [
     phase: 1,
     order: 5,
     title: "What is an App?",
+    pathTitle: "Apps",
     badge: "App Explorer",
     xp: 20,
     goals: [
@@ -954,6 +959,7 @@ export const lessons = [
     phase: 1,
     order: 7,
     title: "What is a VPN?",
+    pathTitle: "VPNs",
     badge: "Connection Guard",
     xp: 20,
     goals: [
@@ -1123,6 +1129,7 @@ export const lessons = [
     phase: 1,
     order: 8,
     title: "What is Cybersecurity?",
+    pathTitle: "Cybersecurity",
     badge: "Cyber Guardian",
     xp: 20,
     goals: [
@@ -1301,6 +1308,7 @@ export const lessons = [
     phase: 1,
     order: 9,
     title: "What is Personal Information?",
+    pathTitle: "Personal Information",
     badge: "Privacy Protector",
     xp: 20,
     goals: [

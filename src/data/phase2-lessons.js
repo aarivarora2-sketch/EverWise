@@ -215,6 +215,7 @@ export const phase2Lessons = [
     order: 11,
     lessonNumber: "2.2",
     title: "What is a Password Manager?",
+    pathTitle: "Password Managers",
     badge: "Password Organizer",
     xp: 20,
     goals: [
@@ -396,6 +397,7 @@ export const phase2Lessons = [
     order: 12,
     lessonNumber: "2.3",
     title: "What is Two-Factor Authentication (2FA)?",
+    pathTitle: "Two-Factor Authentication",
     badge: "Security Shield",
     xp: 20,
     goals: [

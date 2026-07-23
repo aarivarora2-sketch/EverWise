@@ -9,12 +9,15 @@ import {
   ArrowLeftIcon,
 } from "../components/Icons";
 
-// Layout constants for the winding trail.
-const TOP_PAD = 44;
-const GAP = 158;
-const PHASE_GAP = 120; // vertical space for a phase header band
-const NODE_HALF = 56;
-const AMP = 17;
+// Layout: each lesson owns a fixed-height slot (node + label) so nothing overlaps.
+const TOP_PAD = 28;
+const NODE_SLOT = 220; // was ~158; +62px so labels clear the next node
+const PHASE_TOP = 56; // margin above every phase header (≥48)
+const PHASE_BAND = 88; // header card height
+const PHASE_BOTTOM = 56; // margin below header before first node
+const PHASE_SLOT = PHASE_TOP + PHASE_BAND + PHASE_BOTTOM;
+const NODE_CENTER = 56; // center of the START node (h-28) for the trail
+const AMP = 11; // reduced swing so labels stay on-screen
 
 function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
@@ -35,7 +38,6 @@ export default function LessonPath({
       : lessons[currentIndex].phase;
   const activePhase = getPhase(activePhaseNumber);
 
-  // Build a flat list of path items: phase headers + lesson nodes + reward.
   const items = [];
   let lastPhase = null;
   lessons.forEach((lesson, i) => {
@@ -45,29 +47,28 @@ export default function LessonPath({
     }
     items.push({
       kind: "lesson",
-      title: lesson.title,
+      title: lesson.pathTitle || lesson.title,
+      fullTitle: lesson.title,
       index: i,
       phase: lesson.phase,
       phaseColor: getPhase(lesson.phase).accent || getPhase(lesson.phase).color,
     });
   });
-  items.push({ kind: "reward", title: "All done", index: lessons.length });
+  items.push({ kind: "reward", title: "All done", fullTitle: "All done", index: lessons.length });
 
-  // Assign vertical positions, giving phase headers their own band height.
   let y = TOP_PAD;
   const positioned = items.map((item) => {
     if (item.kind === "phase") {
-      const pos = { ...item, top: y, height: PHASE_GAP };
-      y += PHASE_GAP;
+      const pos = { ...item, top: y, bandTop: y + PHASE_TOP };
+      y += PHASE_SLOT;
       return pos;
     }
     const pos = { ...item, top: y };
-    y += GAP;
+    y += NODE_SLOT;
     return pos;
   });
-  const containerHeight = y + 40;
+  const containerHeight = y + 48;
 
-  // Dotted trail only between consecutive lesson/reward nodes.
   const trailNodes = positioned.filter(
     (n) => n.kind === "lesson" || n.kind === "reward"
   );
@@ -75,13 +76,12 @@ export default function LessonPath({
   for (let i = 0; i < trailNodes.length - 1; i++) {
     const a = trailNodes[i];
     const b = trailNodes[i + 1];
-    // Use sequential swing index based on lesson index for x.
     const ai = a.kind === "lesson" ? a.index : lessons.length;
     const bi = b.kind === "lesson" ? b.index : lessons.length;
     const x1 = xPercent(ai);
-    const y1 = a.top + NODE_HALF;
+    const y1 = a.top + NODE_CENTER;
     const x2 = xPercent(bi);
-    const y2 = b.top + NODE_HALF;
+    const y2 = b.top + NODE_CENTER;
     for (const t of [0.22, 0.4, 0.58, 0.76]) {
       dots.push({
         key: `${ai}-${bi}-${t}`,
@@ -93,7 +93,6 @@ export default function LessonPath({
 
   return (
     <div className="flex flex-1 flex-col">
-      {/* Header banner — tinted with the active phase color */}
       <header
         className="flex items-center justify-between rounded-t-none px-5 py-4 text-cream-card sm:rounded-t-[40px]"
         style={{ backgroundColor: activePhase.color }}
@@ -124,15 +123,17 @@ export default function LessonPath({
         </div>
       </header>
 
-      {/* Winding trail */}
       <div
-        className="flex-1 overflow-y-auto px-4 pb-6"
+        className="flex-1 overflow-y-auto pb-8"
         style={{
           background: `linear-gradient(180deg, ${activePhase.color}14 0%, transparent 220px)`,
         }}
       >
-        <div className="relative mx-auto w-full" style={{ height: containerHeight }}>
-          {/* Phase section background tints */}
+        {/* Wider path column — less side padding so L/R nodes have room */}
+        <div
+          className="relative mx-auto w-full max-w-none px-2"
+          style={{ height: containerHeight }}
+        >
           {positioned
             .filter((n) => n.kind === "phase")
             .map((band, i, bands) => {
@@ -142,11 +143,11 @@ export default function LessonPath({
                 <div
                   key={`tint-${band.phase.number}`}
                   aria-hidden="true"
-                  className="absolute left-0 right-0 rounded-3xl"
+                  className="absolute inset-x-0 rounded-3xl"
                   style={{
                     top: band.top,
-                    height: end - band.top,
-                    backgroundColor: `${band.phase.color}12`,
+                    height: Math.max(0, end - band.top),
+                    backgroundColor: `${band.phase.color}10`,
                   }}
                 />
               );
@@ -170,8 +171,8 @@ export default function LessonPath({
               return (
                 <div
                   key={`phase-${node.phase.number}`}
-                  className="absolute left-1/2 z-10 w-[90%] -translate-x-1/2"
-                  style={{ top: node.top + 24 }}
+                  className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2"
+                  style={{ top: node.bandTop }}
                 >
                   <div
                     className="rounded-2xl px-5 py-4 text-cream-card shadow-card"
@@ -180,7 +181,7 @@ export default function LessonPath({
                     <p className="text-sm font-bold uppercase tracking-wide text-cream-card/80">
                       Phase {node.phase.number} · {node.phase.biome}
                     </p>
-                    <p className="mt-0.5 font-serif text-2xl font-semibold">
+                    <p className="mt-0.5 font-serif text-2xl font-semibold leading-tight">
                       {node.phase.title}
                     </p>
                   </div>
@@ -201,16 +202,18 @@ export default function LessonPath({
 
             const accent =
               node.kind === "lesson" ? node.phaseColor : activePhase.color;
+            const swingIndex =
+              node.kind === "lesson" ? node.index : lessons.length;
 
             return (
               <div
                 key={i}
                 className="absolute z-10 flex flex-col items-center"
                 style={{
-                  left: `${xPercent(
-                    node.kind === "lesson" ? node.index : lessons.length
-                  )}%`,
+                  left: `${xPercent(swingIndex)}%`,
                   top: node.top,
+                  width: "9.5rem",
+                  height: NODE_SLOT,
                   transform: "translateX(-50%)",
                 }}
               >
@@ -222,7 +225,7 @@ export default function LessonPath({
                       ? () => onSelectLesson(node.index)
                       : undefined
                   }
-                  title={node.title}
+                  title={node.fullTitle || node.title}
                 />
                 <Label state={state} title={node.title} accent={accent} />
               </div>
@@ -237,7 +240,7 @@ export default function LessonPath({
 function PathNode({ state, onClick, title, accent }) {
   if (state === "current") {
     return (
-      <div className="relative">
+      <div className="relative shrink-0">
         <span
           className="absolute inset-0 rounded-full animate-pulse-ring"
           style={{ backgroundColor: `${accent}66` }}
@@ -246,7 +249,7 @@ function PathNode({ state, onClick, title, accent }) {
           type="button"
           onClick={onClick}
           aria-label={`Start lesson: ${title}`}
-          className="relative flex h-32 w-32 items-center justify-center rounded-full font-serif text-2xl font-bold text-cream-card transition-transform active:translate-y-1"
+          className="relative flex h-28 w-28 items-center justify-center rounded-full font-serif text-xl font-bold text-cream-card transition-transform active:translate-y-1"
           style={{
             backgroundColor: accent,
             boxShadow: `0 7px 0 ${shade(accent, -25)}`,
@@ -264,9 +267,9 @@ function PathNode({ state, onClick, title, accent }) {
         type="button"
         onClick={onClick}
         aria-label={`Redo completed lesson: ${title}`}
-        className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage transition-transform active:translate-y-1 active:shadow-none"
+        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage transition-transform active:translate-y-1 active:shadow-none"
       >
-        <CheckIcon className="h-12 w-12" />
+        <CheckIcon className="h-11 w-11" />
       </button>
     );
   }
@@ -274,51 +277,53 @@ function PathNode({ state, onClick, title, accent }) {
   if (state === "reward-done") {
     return (
       <div
-        className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage"
+        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage"
         aria-label="Reward unlocked"
       >
-        <TrophyIcon className="h-14 w-14" />
+        <TrophyIcon className="h-12 w-12" />
       </div>
     );
   }
 
   return (
     <div
-      className="flex h-28 w-28 items-center justify-center rounded-full bg-locked text-ink-faint shadow-node-locked"
+      className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-locked text-ink-faint shadow-node-locked"
       aria-label={`Locked: ${title}`}
     >
-      <LockIcon className="h-11 w-11" />
+      <LockIcon className="h-10 w-10" />
     </div>
   );
 }
 
 function Label({ state, title, accent }) {
-  const style =
+  const className =
     state === "done" || state === "reward-done"
-      ? { color: undefined, className: "text-sage" }
+      ? "text-sage"
       : state === "current"
-      ? { color: accent, className: "" }
-      : { color: undefined, className: "text-ink-faint" };
+      ? ""
+      : "text-ink-faint";
 
   return (
-    <p
-      className={`mt-3 max-w-[9rem] text-center text-lg font-semibold leading-tight ${style.className}`}
-      style={style.color ? { color: style.color } : undefined}
-    >
-      {title}
+    <div className="mt-3 w-full px-1 text-center">
+      <p
+        className={`mx-auto line-clamp-2 max-w-[8.5rem] text-center text-base font-semibold leading-snug ${className}`}
+        style={state === "current" ? { color: accent } : undefined}
+        title={title}
+      >
+        {title}
+      </p>
       {state === "current" && (
         <span
-          className="mt-0.5 block text-sm font-bold uppercase tracking-wide"
+          className="mt-1 block text-xs font-bold uppercase tracking-wide"
           style={{ color: accent, opacity: 0.8 }}
         >
           Today
         </span>
       )}
-    </p>
+    </div>
   );
 }
 
-// Darken a hex color slightly for the node "press" shadow.
 function shade(hex, amount) {
   const h = hex.replace("#", "");
   const num = parseInt(h, 16);
