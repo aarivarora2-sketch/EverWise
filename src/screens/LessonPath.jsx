@@ -1,4 +1,8 @@
-import { lessonsByOrder as lessons, examsByOrder } from "../data/lessons";
+import {
+  lessonsByOrder as lessons,
+  examsByOrder,
+  challengesByOrder,
+} from "../data/lessons";
 import { getPhase } from "../data/phases";
 import {
   CheckIcon,
@@ -6,6 +10,7 @@ import {
   FlameIcon,
   StarIcon,
   TrophyIcon,
+  BookIcon,
   ArrowLeftIcon,
 } from "../components/Icons";
 
@@ -26,10 +31,21 @@ function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
 }
 
-function examUnlocked(exam, doneSet) {
+function phaseLessonsDone(phase, doneSet) {
   return lessons
-    .filter((l) => l.phase === exam.phase)
+    .filter((l) => l.phase === phase)
     .every((l) => doneSet.has(l.id));
+}
+
+function challengeUnlocked(challenge, doneSet) {
+  return phaseLessonsDone(challenge.phase, doneSet);
+}
+
+function examUnlocked(exam, doneSet) {
+  if (!phaseLessonsDone(exam.phase, doneSet)) return false;
+  const challenge = challengesByOrder.find((c) => c.phase === exam.phase);
+  if (challenge && !doneSet.has(challenge.id)) return false;
+  return true;
 }
 
 export default function LessonPath({
@@ -38,11 +54,12 @@ export default function LessonPath({
   scamsCaught,
   onSelectLesson,
   onSelectExam,
+  onSelectChallenge,
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
 
-  // Lessons + exams in curriculum order for progress / path nodes.
+  // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
     ...lessons.map((l, i) => ({
       kind: "lesson",
@@ -54,6 +71,17 @@ export default function LessonPath({
       lessonIndex: i,
       phaseColor: getPhase(l.phase).accent || getPhase(l.phase).color,
       biomeColor: getPhase(l.phase).color,
+    })),
+    ...challengesByOrder.map((c) => ({
+      kind: "challenge",
+      id: c.id,
+      order: c.order,
+      phase: c.phase,
+      title: "Final Challenge",
+      fullTitle: c.title,
+      challenge: c,
+      phaseColor: getPhase(c.phase).accent || getPhase(c.phase).color,
+      biomeColor: getPhase(c.phase).color,
     })),
     ...examsByOrder.map((e) => ({
       kind: "exam",
@@ -72,6 +100,9 @@ export default function LessonPath({
   let currentId = null;
   for (const p of playables) {
     if (doneSet.has(p.id)) continue;
+    if (p.kind === "challenge" && !challengeUnlocked(p.challenge, doneSet)) {
+      break;
+    }
     if (p.kind === "exam" && !examUnlocked(p.exam, doneSet)) break;
     currentId = p.id;
     break;
@@ -113,7 +144,11 @@ export default function LessonPath({
   const containerHeight = y + 48;
 
   const trailNodes = positioned.filter(
-    (n) => n.kind === "lesson" || n.kind === "exam" || n.kind === "reward"
+    (n) =>
+      n.kind === "lesson" ||
+      n.kind === "challenge" ||
+      n.kind === "exam" ||
+      n.kind === "reward"
   );
   const dots = [];
   for (let i = 0; i < trailNodes.length - 1; i++) {
@@ -248,6 +283,11 @@ export default function LessonPath({
             } else if (node.id === currentId) {
               state = "current";
             } else if (
+              node.kind === "challenge" &&
+              !challengeUnlocked(node.challenge, doneSet)
+            ) {
+              state = "locked";
+            } else if (
               node.kind === "exam" &&
               !examUnlocked(node.exam, doneSet)
             ) {
@@ -270,6 +310,8 @@ export default function LessonPath({
               state === "current" || state === "done"
                 ? node.kind === "exam"
                   ? () => onSelectExam?.(node.exam)
+                  : node.kind === "challenge"
+                  ? () => onSelectChallenge?.(node.challenge)
                   : node.kind === "lesson"
                   ? () => onSelectLesson(node.lessonIndex)
                   : undefined
@@ -312,25 +354,50 @@ export default function LessonPath({
 
 function PathNode({ state, kind, onClick, title, accent, biome }) {
   const isExam = kind === "exam";
+  const isChallenge = kind === "challenge";
+  // Challenge sits visually between lesson (START/check) and exam (trophy).
+  const nodeSizeCurrent = isChallenge ? "h-[6.5rem] w-[6.5rem]" : "h-28 w-28";
+  const nodeSizeDone = isChallenge ? "h-[5.5rem] w-[5.5rem]" : "h-24 w-24";
+
+  const ariaStart = isExam
+    ? `Start exam: ${title}`
+    : isChallenge
+    ? `Start challenge: ${title}`
+    : `Start lesson: ${title}`;
+  const ariaRedo = isExam
+    ? `Redo exam: ${title}`
+    : isChallenge
+    ? `Redo challenge: ${title}`
+    : `Redo completed lesson: ${title}`;
 
   if (state === "current") {
     return (
       <div className="relative shrink-0">
         <span
-          className="absolute inset-0 rounded-full animate-pulse-ring"
+          className={`absolute inset-0 rounded-full animate-pulse-ring ${
+            isChallenge ? "ring-4 ring-inset ring-cream-card/35" : ""
+          }`}
           style={{ backgroundColor: `${accent}66` }}
         />
         <button
           type="button"
           onClick={onClick}
-          aria-label={isExam ? `Start exam: ${title}` : `Start lesson: ${title}`}
-          className="relative flex h-28 w-28 items-center justify-center rounded-full font-serif text-xl font-bold text-cream-card transition-transform active:translate-y-1"
+          aria-label={ariaStart}
+          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-serif text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
+            isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
+          }`}
           style={{
             backgroundColor: accent,
             boxShadow: `0 7px 0 ${shade(accent, -25)}`,
           }}
         >
-          {isExam ? <TrophyIcon className="h-12 w-12" /> : "START"}
+          {isExam ? (
+            <TrophyIcon className="h-12 w-12" />
+          ) : isChallenge ? (
+            <BookIcon className="h-11 w-11" />
+          ) : (
+            "START"
+          )}
         </button>
       </div>
     );
@@ -341,21 +408,26 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
       <button
         type="button"
         onClick={onClick}
-        aria-label={isExam ? `Redo exam: ${title}` : `Redo completed lesson: ${title}`}
-        className={`flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-cream-card transition-transform active:translate-y-1 active:shadow-none ${
-          isExam ? "" : "bg-sage shadow-node-sage"
-        }`}
+        aria-label={ariaRedo}
+        className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full text-cream-card transition-transform active:translate-y-1 active:shadow-none ${
+          isExam || isChallenge ? "" : "bg-sage shadow-node-sage"
+        } ${isChallenge ? "ring-[3px] ring-inset ring-cream-card/35" : ""}`}
         style={
-          isExam
+          isExam || isChallenge
             ? {
-                backgroundColor: accent,
-                boxShadow: `0 5px 0 ${shade(accent, -25)}`,
+                backgroundColor: isChallenge ? mixHex(accent, "#6B8F71", 0.55) : accent,
+                boxShadow: `0 5px 0 ${shade(
+                  isChallenge ? mixHex(accent, "#6B8F71", 0.55) : accent,
+                  -25
+                )}`,
               }
             : undefined
         }
       >
         {isExam ? (
           <TrophyIcon className="h-11 w-11" />
+        ) : isChallenge ? (
+          <BookIcon className="h-10 w-10" />
         ) : (
           <CheckIcon className="h-11 w-11" />
         )}
@@ -381,7 +453,9 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
 
   return (
     <div
-      className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
+      className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full ${
+        isChallenge ? "ring-[3px] ring-inset ring-ink/10" : ""
+      }`}
       style={{
         backgroundColor: lockedFill,
         boxShadow: `0 5px 0 ${lockedShadow}`,
@@ -389,7 +463,13 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
       }}
       aria-label={`Locked: ${title}`}
     >
-      {isExam ? <TrophyIcon className="h-10 w-10" /> : <LockIcon className="h-10 w-10" />}
+      {isExam ? (
+        <TrophyIcon className="h-10 w-10" />
+      ) : isChallenge ? (
+        <BookIcon className="h-9 w-9" />
+      ) : (
+        <LockIcon className="h-10 w-10" />
+      )}
     </div>
   );
 }

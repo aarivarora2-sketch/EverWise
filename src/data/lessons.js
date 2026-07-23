@@ -8,6 +8,11 @@
 
 import { phase2Lessons } from "./phase2-lessons";
 import { phase3Lessons, phase3Exam } from "./phase3-lessons";
+import {
+  phase4Lessons,
+  phase4Challenge,
+  phase4Exam,
+} from "./phase4-lessons";
 
 export const lessons = [
   // ============================================================
@@ -1509,13 +1514,25 @@ export const lessons = [
 
 export default lessons;
 
-// Full Digital Literacy track: Phase 1 → Phase 2 → Phase 3.
-export const allLessons = [...lessons, ...phase2Lessons, ...phase3Lessons];
+// Full Digital Literacy track: Phase 1 → 2 → 3 → 4.
+export const allLessons = [
+  ...lessons,
+  ...phase2Lessons,
+  ...phase3Lessons,
+  ...phase4Lessons,
+];
 
 // Lessons sorted by curriculum order for the path and player.
 export const lessonsByOrder = [...allLessons].sort((a, b) => a.order - b.order);
 
-// Phase exams (placed on the path after that phase's last lesson).
-export const examsByOrder = [phase3Exam].sort((a, b) => a.order - b.order);
+// Ungraded phase challenges (after the phase's last lesson, before the exam).
+export const challengesByOrder = [phase4Challenge].sort(
+  (a, b) => a.order - b.order
+);
 
-export { phase3Exam };
+// Phase exams (after the challenge, or after the last lesson if none).
+export const examsByOrder = [phase3Exam, phase4Exam].sort(
+  (a, b) => a.order - b.order
+);
+
+export { phase3Exam, phase4Challenge, phase4Exam };

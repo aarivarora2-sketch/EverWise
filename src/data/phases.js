@@ -23,6 +23,13 @@ export const phases = [
     color: "#4A6FA5",
     accent: "#4A6FA5",
   },
+  {
+    number: 4,
+    title: "Digital Finance",
+    biome: "Harvest",
+    color: "#C08B3E",
+    accent: "#C08B3E",
+  },
 ];
 
 export function getPhase(number) {

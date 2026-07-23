@@ -16,7 +16,12 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
   const total = exam.totalQuestions || exam.questions.length;
   const accent = phaseColor || "#4A6FA5";
   const tier = pickTier(exam.results, score);
-  const passed = score >= (exam.passingScore ?? 0);
+  // Any qualifying tier counts as a pass; below the lowest minScore → retry.
+  const passed = tier != null;
+  const minPass =
+    exam.results?.length > 0
+      ? Math.min(...exam.results.map((r) => r.minScore))
+      : (exam.passingScore ?? 0);
 
   const restart = () => {
     setPhase("intro");
@@ -47,7 +52,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
           {exam.title}
         </h1>
         <p className="mt-4 text-center text-xl text-ink-soft">
-          Pass with {exam.passingScore} of {total} correct.
+          Pass with {minPass} of {total} correct.
         </p>
 
         <div className="mt-8">
@@ -123,6 +128,12 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
             <p className="mt-3 font-serif text-4xl font-bold text-sage">
               +{tier.xp} XP
             </p>
+            {exam.nextPhase ? (
+              <p className="mt-4 text-xl text-ink-soft">
+                Unlocks next:{" "}
+                <span className="font-semibold text-ink">{exam.nextPhase}</span>
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="mt-8 rounded-3xl bg-alert/12 px-6 py-6 text-left">
@@ -130,8 +141,8 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
               Not quite there yet
             </p>
             <p className="mt-2 text-xl text-ink-soft">
-              You need {exam.passingScore} correct to pass. Review the topics
-              and try again.
+              You need {minPass} correct to pass. Review the topics and try
+              again.
             </p>
           </div>
         )}

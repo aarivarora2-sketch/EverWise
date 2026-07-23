@@ -17,6 +17,7 @@ import Loading from "./screens/Loading";
 import Home from "./screens/Home";
 import LessonPath from "./screens/LessonPath";
 import LessonPlayer from "./screens/LessonPlayer";
+import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 
@@ -42,6 +43,7 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeExam, setActiveExam] = useState(null);
+  const [activeChallenge, setActiveChallenge] = useState(null);
 
   useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
@@ -84,6 +86,7 @@ export default function App() {
   const goHome = () => setScreen("home");
   const goPath = () => {
     setActiveExam(null);
+    setActiveChallenge(null);
     setScreen("path");
   };
 
@@ -150,13 +153,48 @@ export default function App() {
 
   const startLesson = (index) => {
     setActiveExam(null);
+    setActiveChallenge(null);
     setActiveIndex(index);
     setScreen("lesson");
   };
 
+  const startChallenge = (challenge) => {
+    setActiveExam(null);
+    setActiveChallenge(challenge);
+    setScreen("challenge");
+  };
+
   const startExam = (exam) => {
+    setActiveChallenge(null);
     setActiveExam(exam);
     setScreen("exam");
+  };
+
+  const finishChallenge = async () => {
+    if (user && profile && activeChallenge) {
+      const already = completedLessons.includes(activeChallenge.id);
+      if (!already) {
+        const updates = {
+          completedLessons: [...completedLessons, activeChallenge.id],
+        };
+        setProfile((p) => ({ ...p, ...updates }));
+        try {
+          console.log(
+            "[Everwise][firestore] challenge complete users/",
+            user.uid,
+            updates
+          );
+          await updateDoc(doc(db, "users", user.uid), updates);
+          console.log("[Everwise][firestore] challenge progress saved.");
+        } catch (err) {
+          console.error(
+            "[Everwise][firestore] Failed to save challenge:",
+            err
+          );
+        }
+      }
+    }
+    goPath();
   };
 
   const finishLesson = async () => {
@@ -290,6 +328,7 @@ export default function App() {
           streak={profile?.streak ?? 0}
           scamsCaught={profile?.scamsCaught ?? 0}
           onSelectLesson={startLesson}
+          onSelectChallenge={startChallenge}
           onSelectExam={startExam}
           onBack={goHome}
         />
@@ -302,6 +341,16 @@ export default function App() {
           lesson={activeLesson}
           onBack={goPath}
           onComplete={() => finishLesson()}
+        />
+      );
+      break;
+    case "challenge":
+      content = (
+        <ChallengePlayer
+          key={activeChallenge.id}
+          challenge={activeChallenge}
+          onBack={goPath}
+          onComplete={finishChallenge}
         />
       );
       break;
