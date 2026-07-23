@@ -46,6 +46,10 @@ export default function App() {
   const [activeChallenge, setActiveChallenge] = useState(null);
 
   useEffect(() => {
+    console.log("speech supported:", "speechSynthesis" in window);
+  }, []);
+
+  useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
     const unsub = onAuthStateChanged(auth, async (u) => {
       console.log(
