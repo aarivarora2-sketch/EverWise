@@ -1,4 +1,4 @@
-import { lessons } from "../data/lessons";
+import { lessonsByOrder as lessons } from "../data/lessons";
 import {
   CheckIcon,
   LockIcon,

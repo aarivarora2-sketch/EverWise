@@ -7,7 +7,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { lessons } from "./data/lessons";
+import { lessonsByOrder } from "./data/lessons";
 import PhoneShell from "./components/PhoneShell";
 import Landing from "./screens/Landing";
 import SignUp from "./screens/SignUp";
@@ -15,8 +15,7 @@ import LogIn from "./screens/LogIn";
 import Loading from "./screens/Loading";
 import Home from "./screens/Home";
 import LessonPath from "./screens/LessonPath";
-import Learn from "./screens/Learn";
-import Question from "./screens/Question";
+import LessonPlayer from "./screens/LessonPlayer";
 import Complete from "./screens/Complete";
 
 // Local calendar-day string (YYYY-MM-DD) so streaks track the user's own day.
@@ -29,31 +28,20 @@ function dayString(date) {
 
 // Given the last completed day, decide the new streak value for a completion today.
 function nextStreak(prevStreak, lastCompletedDate, today) {
-  if (lastCompletedDate === today) return prevStreak; // already counted today
+  if (lastCompletedDate === today) return prevStreak;
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   if (lastCompletedDate === dayString(yesterday)) return prevStreak + 1;
-  return 1; // first ever, or the streak was broken
-}
-
-// Total steps in a lesson: Learn + every practice + every quiz question.
-function lessonStepTotal(lesson) {
-  return 1 + lesson.practice.length + lesson.quiz.length;
+  return 1;
 }
 
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null); // Firestore users/{uid} data
+  const [profile, setProfile] = useState(null);
   const [screen, setScreen] = useState("landing");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // In-lesson progress: practice → quiz, one question at a time.
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [score, setScore] = useState(0);
-
-  // Watch auth state: a returning, logged-in user skips Landing and lands on Home.
   useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -88,15 +76,12 @@ export default function App() {
     return unsub;
   }, []);
 
-  const activeLesson = lessons[activeIndex];
+  const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
-  const allDone = completedLessons.length >= lessons.length;
-  const progressTotal = activeLesson ? lessonStepTotal(activeLesson) : 1;
+  const allDone = completedLessons.length >= lessonsByOrder.length;
 
   const goHome = () => setScreen("home");
   const goPath = () => setScreen("path");
-
-  // --- Auth actions (screens await these and surface any error) ---
 
   const signUp = async (name, email, password) => {
     try {
@@ -123,7 +108,7 @@ export default function App() {
       setScreen("home");
     } catch (err) {
       console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
-      throw err; // let the Sign Up screen show a friendly message
+      throw err;
     }
   };
 
@@ -145,7 +130,7 @@ export default function App() {
       setScreen("home");
     } catch (err) {
       console.error("[Everwise][auth] Log in failed:", err.code, err.message);
-      throw err; // let the Log In screen show a friendly message
+      throw err;
     }
   };
 
@@ -154,35 +139,18 @@ export default function App() {
       console.log("[Everwise][auth] signOut");
       await signOut(auth);
       console.log("[Everwise][auth] signed out.");
-      // onAuthStateChanged clears profile and returns to Landing.
     } catch (err) {
       console.error("[Everwise][auth] Sign out failed:", err);
     }
   };
 
-  // --- Lesson flow: Learn → Practice (each) → Quiz (each) → Complete ---
-
   const startLesson = (index) => {
     setActiveIndex(index);
-    setQuestionIndex(0);
-    setSelected(null);
-    setScore(0);
-    setScreen("learn");
-  };
-
-  const selectAnswer = (choice) => {
-    if (selected != null) return; // already answered this question
-    const items =
-      screen === "practice" ? activeLesson.practice : activeLesson.quiz;
-    const item = items[questionIndex];
-    if (choice === item.correctIndex) {
-      setScore((s) => s + 1);
-    }
-    setSelected(choice);
+    setScreen("lesson");
   };
 
   const finishLesson = async () => {
-    if (user && profile) {
+    if (user && profile && activeLesson) {
       const already = completedLessons.includes(activeLesson.id);
       const today = dayString(new Date());
       const prevBadges = profile.badges ?? [];
@@ -211,37 +179,10 @@ export default function App() {
         await updateDoc(doc(db, "users", user.uid), updates);
         console.log("[Everwise][firestore] progress saved.");
       } catch (err) {
-        // Keep the optimistic local update even if the write fails offline.
         console.error("[Everwise][firestore] Failed to save progress:", err);
       }
     }
     setScreen("complete");
-  };
-
-  const continueAfterAnswer = () => {
-    if (screen === "practice") {
-      const next = questionIndex + 1;
-      if (next < activeLesson.practice.length) {
-        setQuestionIndex(next);
-        setSelected(null);
-      } else {
-        // Move into the quiz.
-        setQuestionIndex(0);
-        setSelected(null);
-        setScreen("quiz");
-      }
-      return;
-    }
-
-    if (screen === "quiz") {
-      const next = questionIndex + 1;
-      if (next < activeLesson.quiz.length) {
-        setQuestionIndex(next);
-        setSelected(null);
-      } else {
-        finishLesson();
-      }
-    }
   };
 
   if (!authChecked) {
@@ -303,66 +244,18 @@ export default function App() {
         />
       );
       break;
-    case "learn":
+    case "lesson":
       content = (
-        <Learn
+        <LessonPlayer
+          key={activeLesson.id}
           lesson={activeLesson}
-          progress={1}
-          progressTotal={progressTotal}
-          onContinue={() => {
-            setQuestionIndex(0);
-            setSelected(null);
-            setScreen("practice");
-          }}
           onBack={goPath}
-        />
-      );
-      break;
-    case "practice":
-      content = (
-        <Question
-          key={`practice-${questionIndex}`}
-          item={activeLesson.practice[questionIndex]}
-          kind="practice"
-          type={activeLesson.type}
-          progress={1 + questionIndex + 1}
-          progressTotal={progressTotal}
-          selected={selected}
-          onSelect={selectAnswer}
-          onContinue={continueAfterAnswer}
-          onBack={goPath}
-        />
-      );
-      break;
-    case "quiz":
-      content = (
-        <Question
-          key={`quiz-${questionIndex}`}
-          item={activeLesson.quiz[questionIndex]}
-          kind="quiz"
-          type={activeLesson.type}
-          progress={1 + activeLesson.practice.length + questionIndex + 1}
-          progressTotal={progressTotal}
-          selected={selected}
-          onSelect={selectAnswer}
-          onContinue={continueAfterAnswer}
-          onBack={goPath}
+          onComplete={() => finishLesson()}
         />
       );
       break;
     case "complete":
-      content = (
-        <Complete
-          lesson={activeLesson}
-          score={score}
-          scoreTotal={
-            activeLesson.practice.length + activeLesson.quiz.length
-          }
-          streak={profile?.streak ?? 0}
-          allDone={allDone}
-          onDone={goPath}
-        />
-      );
+      content = <Complete lesson={activeLesson} onDone={goPath} />;
       break;
     default:
       content = null;
@@ -370,7 +263,6 @@ export default function App() {
 
   return (
     <PhoneShell>
-      {/* key on screen so entrance animations replay on each navigation */}
       <div key={screen} className="flex flex-1 flex-col">
         {content}
       </div>

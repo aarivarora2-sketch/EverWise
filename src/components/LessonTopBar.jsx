@@ -1,17 +1,13 @@
-import { ArrowLeftIcon, ShieldIcon, BookIcon } from "./Icons";
+import { ArrowLeftIcon, BookIcon } from "./Icons";
 
-// Top bar for in-lesson screens: back, a type/kind badge, and a continuous
+// Top bar for in-lesson screens: back, a label badge, and a continuous
 // progress bar showing how far through the lesson the learner is.
 export default function LessonTopBar({
-  type,
-  label,
+  label = "Lesson",
   progress = 0,
   progressTotal = 1,
   onBack,
 }) {
-  const isProtection = type === "protection";
-  const badgeLabel =
-    label || (isProtection ? "Spot the scam" : "Everyday skill");
   const fraction =
     progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
 
@@ -27,19 +23,9 @@ export default function LessonTopBar({
           <ArrowLeftIcon className="h-7 w-7" />
         </button>
 
-        <span
-          className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-base font-bold ${
-            isProtection
-              ? "bg-clay/12 text-clay"
-              : "bg-sage/15 text-sage-dark"
-          }`}
-        >
-          {isProtection ? (
-            <ShieldIcon className="h-5 w-5" />
-          ) : (
-            <BookIcon className="h-5 w-5" />
-          )}
-          {badgeLabel}
+        <span className="inline-flex items-center gap-2 rounded-full bg-sage/15 px-4 py-1.5 text-base font-bold text-sage-dark">
+          <BookIcon className="h-5 w-5" />
+          {label}
         </span>
       </div>
 
