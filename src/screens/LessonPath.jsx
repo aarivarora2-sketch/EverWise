@@ -339,7 +339,7 @@ export default function LessonPath({
                   >
                     Phase {node.phase.number} · {node.phase.biome}
                   </p>
-                  <p className="mt-1 font-serif text-2xl font-semibold leading-tight text-ink">
+                  <p className="mt-1 font-serif text-[30px] font-bold leading-tight text-ink">
                     {node.phase.title}
                   </p>
                 </div>
