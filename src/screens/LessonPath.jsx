@@ -14,13 +14,13 @@ import {
   ArrowLeftIcon,
 } from "../components/Icons";
 
-const TOP_PAD = 28;
-const NODE_SLOT = 220;
+const TOP_PAD = 12; // first phase sits near the top of the scroll area
+const NODE_SLOT = 252; // room for 20px two-line labels under nodes
 // Generous space around the lighter phase headers (no filled block).
-const PHASE_TOP = 72;
+const PHASE_TOP = 72; // used between later phases only
+const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
 const PHASE_BAND = 72;
 const PHASE_BOTTOM = 72;
-const PHASE_SLOT = PHASE_TOP + PHASE_BAND + PHASE_BOTTOM;
 const NODE_CENTER = 56;
 const NODE_RADIUS = 56; // START node is h-28; clear trails past this
 const TRAIL_END_PAD = NODE_RADIUS + 12; // no dots under/behind a circle
@@ -136,10 +136,14 @@ export default function LessonPath({
   });
 
   let y = TOP_PAD;
+  let phaseCount = 0;
   const positioned = items.map((item) => {
     if (item.kind === "phase") {
-      const pos = { ...item, top: y, bandTop: y + PHASE_TOP };
-      y += PHASE_SLOT;
+      const isFirst = phaseCount === 0;
+      phaseCount += 1;
+      const topPad = isFirst ? PHASE_TOP_FIRST : PHASE_TOP;
+      const pos = { ...item, top: y, bandTop: y + topPad, isFirst };
+      y += topPad + PHASE_BAND + PHASE_BOTTOM;
       return pos;
     }
     const pos = { ...item, top: y };
@@ -271,7 +275,7 @@ export default function LessonPath({
                     aria-hidden="true"
                   />
                   <p
-                    className="mt-4 text-sm font-bold uppercase tracking-[0.12em]"
+                    className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em]"
                     style={{ color: node.phase.color }}
                   >
                     Phase {node.phase.number} · {node.phase.biome}
@@ -332,7 +336,7 @@ export default function LessonPath({
                 style={{
                   left: `${xPercent(Math.max(0, swingIndex))}%`,
                   top: node.top,
-                  width: "9.5rem",
+                  width: "10.5rem",
                   height: NODE_SLOT,
                   transform: "translateX(-50%)",
                 }}
@@ -488,7 +492,7 @@ function Label({ state, title, accent, biome }) {
   return (
     <div className="mt-3 w-full px-1 text-center">
       <p
-        className="mx-auto line-clamp-2 max-w-[8.5rem] text-center text-base font-semibold leading-snug"
+        className="mx-auto line-clamp-2 max-w-[10rem] text-center text-[20px] font-semibold leading-snug"
         style={
           state === "current"
             ? { color: CLAY }
@@ -504,7 +508,7 @@ function Label({ state, title, accent, biome }) {
       </p>
       {state === "current" && (
         <span
-          className="mt-1 block text-xs font-bold uppercase tracking-wide"
+          className="mt-1 block text-[13px] font-bold uppercase tracking-wide"
           style={{ color: CLAY, opacity: 0.8 }}
         >
           Today
