@@ -13,8 +13,6 @@ export default function Home({
 }) {
   const firstName = name ? name.trim().split(" ")[0] : "";
   const showTrialBanner = subscriptionStatus === "trial";
-  const showUpgrade =
-    subscriptionStatus === "trial" || subscriptionStatus === "expired";
 
   return (
     <div className="flex flex-1 flex-col pb-10">
@@ -107,16 +105,6 @@ export default function Home({
           <button className="btn-primary mt-5" onClick={onStart}>
             {allDone ? "See your path" : "Start today's lesson"}
           </button>
-
-          {showUpgrade ? (
-            <button
-              type="button"
-              onClick={onOpenPaywall}
-              className="btn-secondary mt-3"
-            >
-              Upgrade
-            </button>
-          ) : null}
         </div>
       </div>
     </div>
