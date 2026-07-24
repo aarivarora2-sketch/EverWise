@@ -1,213 +1,193 @@
 import { useEffect, useRef, useState } from "react";
 import { SpeakerIcon, StopIcon } from "./Icons";
+import { getNaturalNarrationUrl } from "../services/narration";
 
 function pickEnglishVoice(voices) {
-  return (voices || []).find((v) => v.lang && v.lang.startsWith("en")) || null;
+  return (voices || []).find((voice) => voice.lang?.startsWith("en")) || null;
 }
 
-function cancelSpeech(reason) {
+function cancelBrowserSpeech() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  console.log(
-    "[Everwise][speech] cancel()",
-    reason,
-    "\n",
-    new Error("cancel stack").stack
-  );
   window.speechSynthesis.cancel();
 }
 
-// Read-aloud button using the browser's built-in speech synthesis.
-// Big, clearly labeled, and toggles between "Read aloud" and "Stop".
-// Speech is only started from a direct click (never on mount).
 export default function ReadAloud({ text, label = "Read aloud" }) {
-  const [speaking, setSpeaking] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [announcement, setAnnouncement] = useState("");
   const voicesRef = useRef([]);
   const utteranceRef = useRef(null);
-  const speakTimerRef = useRef(null);
-  const prevTextRef = useRef(text);
-  const supported =
+  const audioRef = useRef(null);
+  const audioUrlRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const previousTextRef = useRef(text);
+
+  const browserSpeechSupported =
     typeof window !== "undefined" && "speechSynthesis" in window;
+  const naturalAudioSupported =
+    typeof window !== "undefined" && typeof window.Audio === "function";
+  const supported = browserSpeechSupported || naturalAudioSupported;
 
-  // Load voices asynchronously — getVoices() is often [] on the first call.
   useEffect(() => {
-    if (!supported) return;
+    if (!browserSpeechSupported) return undefined;
     const synth = window.speechSynthesis;
-
     const refreshVoices = () => {
-      const list = synth.getVoices() || [];
-      if (list.length > 0) {
-        voicesRef.current = list;
-        console.log(
-          "[Everwise][speech] voices loaded:",
-          list.length,
-          list.map((v) => `${v.name} (${v.lang})`)
-        );
-      }
-      return list;
+      const voices = synth.getVoices() || [];
+      if (voices.length > 0) voicesRef.current = voices;
     };
-
     refreshVoices();
-    const onVoices = () => refreshVoices();
-    synth.addEventListener("voiceschanged", onVoices);
-    return () => synth.removeEventListener("voiceschanged", onVoices);
-  }, [supported]);
+    synth.addEventListener("voiceschanged", refreshVoices);
+    return () => synth.removeEventListener("voiceschanged", refreshVoices);
+  }, [browserSpeechSupported]);
 
-  // Cancel ONLY on true unmount. Do not depend on `text` — that re-ran cleanup
-  // on re-renders/navigation churn and cancelled utterances right after speak().
-  useEffect(() => {
-    return () => {
-      if (speakTimerRef.current) {
-        clearTimeout(speakTimerRef.current);
-        speakTimerRef.current = null;
-      }
-      cancelSpeech("unmount cleanup");
-      utteranceRef.current = null;
-    };
-  }, []);
-
-  // If the lesson text actually changes (new block/question), stop current speech.
-  // Skip the first run so mount / StrictMode remount doesn't cancel needlessly.
-  useEffect(() => {
-    if (prevTextRef.current === text) return;
-    prevTextRef.current = text;
-
-    if (speakTimerRef.current) {
-      clearTimeout(speakTimerRef.current);
-      speakTimerRef.current = null;
+  const releaseNaturalAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+      audioRef.current = null;
     }
-
-    const synth = supported ? window.speechSynthesis : null;
-    if (synth && (synth.speaking || synth.pending)) {
-      cancelSpeech("text changed while speaking");
-    }
-    setSpeaking(false);
-    utteranceRef.current = null;
-  }, [text, supported]);
-
-  if (!supported) return null;
-
-  const clearSpeakTimer = () => {
-    if (speakTimerRef.current) {
-      clearTimeout(speakTimerRef.current);
-      speakTimerRef.current = null;
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
   };
 
   const stop = () => {
-    clearSpeakTimer();
-    cancelSpeech("user stop");
-    setSpeaking(false);
+    requestIdRef.current += 1;
+    releaseNaturalAudio();
+    cancelBrowserSpeech();
     utteranceRef.current = null;
+    setStatus("idle");
+    setAnnouncement("Reading stopped.");
   };
 
-  const startUtterance = (speakText) => {
+  useEffect(() => {
+    return () => {
+      requestIdRef.current += 1;
+      releaseNaturalAudio();
+      cancelBrowserSpeech();
+      utteranceRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (previousTextRef.current === text) return;
+    previousTextRef.current = text;
+    stop();
+  }, [text]);
+
+  if (!supported) return null;
+
+  const startBrowserVoice = (speakText) => {
+    if (!browserSpeechSupported) {
+      setStatus("idle");
+      setAnnouncement("Read aloud is temporarily unavailable.");
+      return;
+    }
+
     const synth = window.speechSynthesis;
-
-    let voices = voicesRef.current;
-    if (!voices.length) {
-      voices = synth.getVoices() || [];
-      if (voices.length) voicesRef.current = voices;
-    }
-
-    // Keep the utterance in a ref so it isn't garbage-collected mid-speech.
-    const utter = new SpeechSynthesisUtterance(speakText);
-    utteranceRef.current = utter;
-    utter.rate = 0.9;
-    utter.pitch = 1;
-    utter.lang = "en-US";
-
-    if (voices.length > 0) {
-      const enVoice = pickEnglishVoice(voices);
-      if (enVoice) {
-        utter.voice = enVoice;
-        console.log(
-          "[Everwise][speech] selected voice:",
-          enVoice.name,
-          enVoice.lang
-        );
-      } else {
-        console.log(
-          "[Everwise][speech] no English voice in list; using default"
-        );
-      }
-    } else {
-      console.log(
-        "[Everwise][speech] voices still empty; speaking with default voice"
-      );
-    }
-
-    utter.onstart = (event) => {
-      console.log("[Everwise][speech] onstart", event);
-      setSpeaking(true);
+    const voices = voicesRef.current.length
+      ? voicesRef.current
+      : synth.getVoices() || [];
+    const utterance = new SpeechSynthesisUtterance(speakText);
+    utteranceRef.current = utterance;
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    utterance.lang = "en-US";
+    utterance.voice = pickEnglishVoice(voices);
+    utterance.onstart = () => {
+      setStatus("speaking");
+      setAnnouncement("Reading aloud with your device voice.");
     };
-    utter.onend = () => {
-      console.log("[Everwise][speech] onend");
-      setSpeaking(false);
+    utterance.onend = () => {
+      setStatus("idle");
+      setAnnouncement("Reading finished.");
       utteranceRef.current = null;
     };
-    utter.onerror = (event) => {
-      console.log("[Everwise][speech] onerror", event?.error, event);
-      setSpeaking(false);
+    utterance.onerror = () => {
+      setStatus("idle");
+      setAnnouncement("Read aloud is temporarily unavailable.");
       utteranceRef.current = null;
     };
 
-    console.log("[Everwise][speech] calling speak()");
-    synth.speak(utter);
-    // Chrome sometimes starts paused after a prior cancel(); resume() unsticks it.
+    cancelBrowserSpeech();
+    synth.speak(utterance);
     synth.resume();
   };
 
-  const speak = () => {
-    const synth = window.speechSynthesis;
-    clearSpeakTimer();
-
+  const speak = async () => {
     const speakText =
       typeof text === "string" ? text.trim() : String(text ?? "").trim();
+    if (!speakText) return;
 
-    console.log(
-      "[Everwise][speech] speak clicked; raw text:",
-      text,
-      "| utterance string:",
-      JSON.stringify(speakText)
-    );
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    setStatus("loading");
+    setAnnouncement("Preparing a natural AI voice.");
 
-    if (!speakText) {
-      console.warn(
-        "[Everwise][speech] empty or undefined text — not speaking"
-      );
-      return;
+    try {
+      const audioUrl = await getNaturalNarrationUrl(speakText);
+      if (requestId !== requestIdRef.current) {
+        URL.revokeObjectURL(audioUrl);
+        return;
+      }
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audioUrlRef.current = audioUrl;
+      audio.onended = () => {
+        releaseNaturalAudio();
+        setStatus("idle");
+        setAnnouncement("Reading finished.");
+      };
+      audio.onerror = () => {
+        releaseNaturalAudio();
+        startBrowserVoice(speakText);
+      };
+
+      await audio.play();
+      setStatus("speaking");
+      setAnnouncement("Reading aloud with a natural AI voice.");
+    } catch {
+      if (requestId === requestIdRef.current) {
+        releaseNaturalAudio();
+        startBrowserVoice(speakText);
+      }
     }
-
-    const wasActive = synth.speaking || synth.pending;
-    if (wasActive) {
-      // Only cancel when something is actually queued/playing, then wait briefly
-      // so Chrome doesn't immediately cancel the new utterance.
-      cancelSpeech("before speak (queue was active)");
-      setSpeaking(true);
-      speakTimerRef.current = setTimeout(() => {
-        speakTimerRef.current = null;
-        startUtterance(speakText);
-      }, 100);
-      return;
-    }
-
-    setSpeaking(true);
-    startUtterance(speakText);
   };
 
+  const active = status !== "idle";
+  const buttonLabel =
+    status === "loading"
+      ? "Preparing voice…"
+      : status === "speaking"
+        ? "Stop"
+        : label;
+
   return (
-    <button
-      type="button"
-      onClick={speaking ? stop : speak}
-      aria-pressed={speaking}
-      className={`inline-flex items-center gap-3 rounded-full border-2 px-5 py-3 text-lg font-semibold transition-colors ${
-        speaking
-          ? "border-clay bg-clay text-cream-card"
-          : "border-clay/40 bg-cream-card text-clay hover:bg-clay/10"
-      }`}
-    >
-      {speaking ? <StopIcon /> : <SpeakerIcon />}
-      {speaking ? "Stop" : label}
-    </button>
+    <div className="inline-flex flex-col items-start gap-2">
+      <button
+        type="button"
+        onClick={active ? stop : speak}
+        aria-pressed={status === "speaking"}
+        aria-busy={status === "loading"}
+        className={`inline-flex min-h-14 items-center gap-3 rounded-full border-2 px-5 py-3 text-lg font-semibold transition-colors ${
+          active
+            ? "border-clay bg-clay text-cream-card"
+            : "border-clay/40 bg-cream-card text-clay hover:bg-clay/10"
+        }`}
+      >
+        {active ? <StopIcon /> : <SpeakerIcon />}
+        {buttonLabel}
+      </button>
+      <span className="pl-2 text-sm font-medium text-ink-faint">
+        Natural voice generated with AI
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {announcement}
+      </span>
+    </div>
   );
 }
