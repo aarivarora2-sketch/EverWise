@@ -26,7 +26,7 @@ const NODE_RADIUS = 56; // START node is h-28; clear trails past this
 const TRAIL_END_PAD = NODE_RADIUS + 12; // no dots under/behind a circle
 const PATH_WIDTH_EST = 390; // approx path column width for clearance math
 const AMP = 11;
-const TRAIL_T = [0.22, 0.4, 0.58, 0.76]; // same spacing as before
+const TRAIL_DOT_COUNT = 4; // evenly spaced between padded endpoints
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 
@@ -167,19 +167,20 @@ export default function LessonPath({
     const y1 = a.top + NODE_CENTER;
     const x2 = xPercent(i + 1);
     const y2 = b.top + NODE_CENTER;
-    // Convert to a rough pixel length so end padding clears both circles.
+    // Pixel length of the segment (x is %-based; scale to estimated path width).
     const dx = ((x2 - x1) / 100) * PATH_WIDTH_EST;
     const dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
+    // Pad each end by node radius + 12px so dots never touch either circle.
     const tMin = TRAIL_END_PAD / len;
     const tMax = 1 - TRAIL_END_PAD / len;
     if (tMax <= tMin) continue;
 
-    for (const t of TRAIL_T) {
-      // Only render dots that sit fully between the padded ends.
-      if (t < tMin || t > tMax) continue;
+    // Even gaps along the clear middle only — no continuous line, dots only.
+    for (let k = 1; k <= TRAIL_DOT_COUNT; k++) {
+      const t = tMin + (tMax - tMin) * (k / (TRAIL_DOT_COUNT + 1));
       dots.push({
-        key: `${i}-${t}`,
+        key: `${i}-${k}`,
         x: x1 + (x2 - x1) * t,
         y: y1 + (y2 - y1) * t,
       });
