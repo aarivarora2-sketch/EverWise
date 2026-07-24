@@ -367,14 +367,10 @@ export default function LessonPath({
               state = "locked";
             }
 
-            const accent =
+            const phaseColor =
               node.kind === "reward"
                 ? activePhase.color
-                : node.phaseColor || activePhase.color;
-            const biome =
-              node.kind === "reward"
-                ? activePhase.color
-                : node.biomeColor || activePhase.color;
+                : getPhase(Number(node.phase)).color;
 
             const onClick =
               state === "current" || state === "done"
@@ -402,16 +398,14 @@ export default function LessonPath({
                 <PathNode
                   state={state}
                   kind={node.kind}
-                  accent={accent}
-                  biome={biome}
+                  phaseColor={phaseColor}
                   onClick={onClick}
                   title={node.fullTitle || node.title}
                 />
                 <Label
                   state={state}
                   title={node.title}
-                  accent={accent}
-                  biome={biome}
+                  phaseColor={phaseColor}
                 />
               </div>
             );
@@ -422,10 +416,10 @@ export default function LessonPath({
   );
 }
 
-function PathNode({ state, kind, onClick, title, accent, biome }) {
+function PathNode({ state, kind, onClick, title, phaseColor }) {
   const isExam = kind === "exam";
   const isChallenge = kind === "challenge";
-  const phase = biome || accent;
+  const fill = phaseColor || CLAY;
   // Challenge sits visually between lesson (START/check) and exam (trophy).
   const nodeSizeCurrent = isChallenge ? "h-[6.5rem] w-[6.5rem]" : "h-28 w-28";
   const nodeSizeDone = isChallenge ? "h-[5.5rem] w-[5.5rem]" : "h-24 w-24";
@@ -441,7 +435,7 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
     ? `Redo challenge: ${title}`
     : `Redo completed lesson: ${title}`;
 
-  // Current lesson is always clay — biome color is reserved for done/locked.
+  // Current / active node keeps the clay START treatment.
   if (state === "current") {
     return (
       <div className="relative shrink-0">
@@ -475,6 +469,7 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
     );
   }
 
+  // Completed: solid phase/biome color (never clay) + white check/icon.
   if (state === "done") {
     return (
       <button
@@ -485,8 +480,8 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
           isChallenge ? "ring-[3px] ring-inset ring-white/35" : ""
         }`}
         style={{
-          backgroundColor: phase,
-          boxShadow: `0 5px 0 ${shade(phase, -25)}`,
+          backgroundColor: fill,
+          boxShadow: `0 5px 0 ${shade(fill, -25)}`,
         }}
       >
         {isExam ? (
@@ -505,8 +500,8 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
       <div
         className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-white"
         style={{
-          backgroundColor: phase,
-          boxShadow: `0 5px 0 ${shade(phase, -25)}`,
+          backgroundColor: fill,
+          boxShadow: `0 5px 0 ${shade(fill, -25)}`,
         }}
         aria-label="Reward unlocked"
       >
@@ -516,9 +511,9 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
   }
 
   // Locked: phase color ~35% over cream — biome-readable, clearly inactive.
-  const lockedFill = mixHex(phase, CREAM, 0.35);
+  const lockedFill = mixHex(fill, CREAM, 0.35);
   const lockedShadow = shade(lockedFill, -22);
-  const lockedIcon = mixHex(phase, "#4A463F", 0.4);
+  const lockedIcon = mixHex(fill, "#4A463F", 0.4);
 
   return (
     <div
@@ -543,9 +538,9 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
   );
 }
 
-function Label({ state, title, accent, biome }) {
-  const phase = biome || accent;
-  const lockedText = mixHex(phase, "#4A463F", 0.45);
+function Label({ state, title, phaseColor }) {
+  const fill = phaseColor || CLAY;
+  const lockedText = mixHex(fill, "#4A463F", 0.45);
 
   return (
     <div className="mt-3 w-full px-1 text-center">
@@ -555,7 +550,7 @@ function Label({ state, title, accent, biome }) {
           state === "current"
             ? { color: CLAY }
             : state === "done" || state === "reward-done"
-            ? { color: phase }
+            ? { color: fill }
             : state === "locked"
             ? { color: lockedText }
             : undefined
