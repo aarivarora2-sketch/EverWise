@@ -85,9 +85,20 @@ Designed for older eyes and hands — accessibility is the top priority:
 - **Big tap targets** (buttons are 60–68px+ tall).
 - **High contrast** near-black text on a calm cream background.
 - **One action per screen** — a single obvious next step every time.
-- **Read-aloud** on every lesson screen via the browser's speech synthesis.
+- **Natural read-aloud** on every lesson screen via GPT‑4o mini text-to-speech,
+  with the browser's speech synthesis as an automatic fallback.
 - **Color is never alone** — every state pairs color with an icon and words.
 - Visible keyboard focus rings and `prefers-reduced-motion` support.
+
+### Natural narration
+
+Natural narration runs in an authenticated Firebase callable function so the
+OpenAI API key is never included in the browser or iOS app. The function uses
+`gpt-4o-mini-tts` with a calm, respectful reading style and returns MP3 audio.
+
+To deploy it, use the Firebase project in `.firebaserc`, configure the
+`OPENAI_API_KEY` Functions secret, and deploy `narrateLesson`. If the function
+is unavailable, Everwise automatically uses the device's built-in voice.
 
 ## Design
 

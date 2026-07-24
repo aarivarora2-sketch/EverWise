@@ -96,7 +96,20 @@ export default function App() {
 
   useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
+    const authTimeout = window.setTimeout(() => {
+      console.warn(
+        "[Everwise][auth] Initial auth check timed out; showing Landing while Firebase reconnects."
+      );
+      setAuthChecked(true);
+      if (!auth.currentUser) {
+        setUser(null);
+        setProfile(null);
+        setScreen("landing");
+      }
+    }, 5000);
+
     const unsub = onAuthStateChanged(auth, async (u) => {
+      window.clearTimeout(authTimeout);
       console.log(
         "[Everwise][auth] state changed:",
         u ? `logged in (uid: ${u.uid})` : "no user logged in"
@@ -130,7 +143,10 @@ export default function App() {
       }
       setAuthChecked(true);
     });
-    return unsub;
+    return () => {
+      window.clearTimeout(authTimeout);
+      unsub();
+    };
   }, []);
 
   const activeLesson = lessonsByOrder[activeIndex];
