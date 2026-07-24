@@ -25,14 +25,41 @@ const PHASE_BOTTOM = 72;
 // Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
 const NODE_BOX_H = 214;
 const BOX_CLEARANCE = 16; // first/last dot ≥ 16px past the box edge
-const PATH_WIDTH_EST = 390; // approx path column width for length math
-const AMP = 11;
-const TRAIL_DOT_COUNT = 4; // evenly spaced along each clear segment
+const TRAIL_DOT_COUNT = 5; // evenly spaced along each curved segment
+// Snake wind within the column — clamped so 10.5rem nodes stay on-screen.
+const SNAKE_OFFSETS = [-56, 0, 56, 0];
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
+const DOT_LOCKED = "rgba(34, 32, 28, 0.10)"; // bg-ink/10
+const DOT_FILLED = "rgba(34, 32, 28, 0.38)";
 
-function xPercent(i) {
-  return 50 + (i % 2 === 0 ? AMP : -AMP);
+function snakeOffset(indexInPhase) {
+  return SNAKE_OFFSETS[indexInPhase % SNAKE_OFFSETS.length];
+}
+
+/** Point on a cubic Bézier (S-curve between two snake offsets). */
+function cubicPoint(t, p0, p1, p2, p3) {
+  const u = 1 - t;
+  const uu = u * u;
+  const tt = t * t;
+  return {
+    x: uu * u * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + tt * t * p3.x,
+    y: uu * u * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + tt * t * p3.y,
+  };
+}
+
+function snakeCurvePoints(x1, y1, x2, y2, count) {
+  const dy = y2 - y1;
+  const p0 = { x: x1, y: y1 };
+  const p3 = { x: x2, y: y2 };
+  // Control points: drop then slide, so the trail S-curves like a snake.
+  const p1 = { x: x1, y: y1 + dy * 0.45 };
+  const p2 = { x: x2, y: y2 - dy * 0.45 };
+  const pts = [];
+  for (let k = 1; k <= count; k++) {
+    pts.push(cubicPoint(k / (count + 1), p0, p1, p2, p3));
+  }
+  return pts;
 }
 
 function phaseLessonsDone(phase, doneSet) {
@@ -138,16 +165,21 @@ export default function LessonPath({
 
   let y = TOP_PAD;
   let phaseCount = 0;
+  let indexInPhase = 0;
   const positioned = items.map((item) => {
     if (item.kind === "phase") {
       const isFirst = phaseCount === 0;
       phaseCount += 1;
+      indexInPhase = 0;
       const topPad = isFirst ? PHASE_TOP_FIRST : PHASE_TOP;
       const pos = { ...item, top: y, bandTop: y + topPad, isFirst };
       y += topPad + PHASE_BAND + PHASE_BOTTOM;
       return pos;
     }
-    const pos = { ...item, top: y };
+    const offsetX =
+      item.kind === "reward" ? 0 : snakeOffset(indexInPhase);
+    if (item.kind !== "reward") indexInPhase += 1;
+    const pos = { ...item, top: y, offsetX };
     y += NODE_SLOT;
     return pos;
   });
@@ -161,37 +193,29 @@ export default function LessonPath({
       n.kind === "reward"
   );
 
-  // Trails are per same-phase segment only — never through a phase header.
+  // Curved trails per same-phase segment — never through a phase header.
   const dots = [];
   for (let i = 0; i < trailNodes.length - 1; i++) {
     const a = trailNodes[i];
     const b = trailNodes[i + 1];
     if (a.phase == null || b.phase == null || a.phase !== b.phase) continue;
 
-    const x1 = xPercent(i);
-    const x2 = xPercent(i + 1);
-    // Start below A's circle+label box; end above B's box (16px clear of each).
+    const x1 = a.offsetX ?? 0;
+    const x2 = b.offsetX ?? 0;
     const y1 = a.top + NODE_BOX_H + BOX_CLEARANCE;
     const y2 = b.top - BOX_CLEARANCE;
     if (y2 <= y1) continue;
 
-    const dx = ((x2 - x1) / 100) * PATH_WIDTH_EST;
-    const dy = y2 - y1;
-    const len = Math.hypot(dx, dy) || 1;
-    // Drop to fewer dots on short segments so gaps stay readable.
-    const count = Math.min(
-      TRAIL_DOT_COUNT,
-      Math.max(2, Math.floor(len / 28))
-    );
-
-    for (let k = 1; k <= count; k++) {
-      const t = k / (count + 1);
+    const filled = doneSet.has(b.id);
+    const pts = snakeCurvePoints(x1, y1, x2, y2, TRAIL_DOT_COUNT);
+    pts.forEach((pt, k) => {
       dots.push({
         key: `${a.id}-${b.id}-${k}`,
-        x: x1 + (x2 - x1) * t,
-        y: y1 + (y2 - y1) * t,
+        x: pt.x,
+        y: pt.y,
+        filled,
       });
-    }
+    });
   }
 
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
@@ -260,11 +284,12 @@ export default function LessonPath({
             <span
               key={d.key}
               aria-hidden="true"
-              className="absolute h-3.5 w-4 rounded-full bg-ink/10"
+              className="absolute h-3.5 w-4 rounded-full"
               style={{
-                left: `${d.x}%`,
+                left: `calc(50% + ${d.x}px)`,
                 top: d.y,
                 transform: "translate(-50%, -50%)",
+                backgroundColor: d.filled ? DOT_FILLED : DOT_LOCKED,
               }}
             />
           ))}
@@ -324,7 +349,6 @@ export default function LessonPath({
               node.kind === "reward"
                 ? activePhase.color
                 : node.biomeColor || activePhase.color;
-            const swingIndex = trailNodes.findIndex((t) => t === node);
 
             const onClick =
               state === "current" || state === "done"
@@ -342,7 +366,7 @@ export default function LessonPath({
                 key={node.id || i}
                 className="absolute z-10 flex flex-col items-center"
                 style={{
-                  left: `${xPercent(Math.max(0, swingIndex))}%`,
+                  left: `calc(50% + ${node.offsetX ?? 0}px)`,
                   top: node.top,
                   width: "10.5rem",
                   height: NODE_SLOT,
