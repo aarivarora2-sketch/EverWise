@@ -5,16 +5,29 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  Timestamp,
+} from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { lessonsByOrder } from "./data/lessons";
 import { getPhase } from "./data/phases";
+import {
+  hasFullAccess,
+  isTrialExpired,
+  trialDaysLeft,
+} from "./utils/subscription";
 import PhoneShell from "./components/PhoneShell";
 import Landing from "./screens/Landing";
 import SignUp from "./screens/SignUp";
 import LogIn from "./screens/LogIn";
 import Loading from "./screens/Loading";
 import Home from "./screens/Home";
+import Settings from "./screens/Settings";
+import Paywall from "./screens/Paywall";
 import LessonPath from "./screens/LessonPath";
 import LessonPlayer from "./screens/LessonPlayer";
 import ChallengePlayer from "./screens/ChallengePlayer";
@@ -34,6 +47,35 @@ function nextStreak(prevStreak, lastCompletedDate, today) {
   yesterday.setDate(yesterday.getDate() - 1);
   if (lastCompletedDate === dayString(yesterday)) return prevStreak + 1;
   return 1;
+}
+
+/** Ensure subscription fields exist and expire trials past 3 days. */
+async function normalizeSubscription(uid, data) {
+  const now = Timestamp.now();
+  let next = { ...data };
+  const updates = {};
+
+  if (!next.subscriptionStatus) {
+    updates.trialStartedAt = next.trialStartedAt || now;
+    updates.subscriptionStatus = "trial";
+    updates.plan = next.plan ?? null;
+  } else if (
+    next.subscriptionStatus === "trial" &&
+    isTrialExpired(next.trialStartedAt)
+  ) {
+    updates.subscriptionStatus = "expired";
+  }
+
+  if (Object.keys(updates).length === 0) return next;
+
+  next = { ...next, ...updates };
+  try {
+    console.log("[Everwise][firestore] subscription normalize users/", uid, updates);
+    await updateDoc(doc(db, "users", uid), updates);
+  } catch (err) {
+    console.error("[Everwise][firestore] Failed to normalize subscription:", err);
+  }
+  return next;
 }
 
 export default function App() {
@@ -63,7 +105,8 @@ export default function App() {
           const snap = await getDoc(doc(db, "users", u.uid));
           if (snap.exists()) {
             console.log("[Everwise][firestore] profile loaded:", snap.data());
-            setProfile(snap.data());
+            const normalized = await normalizeSubscription(u.uid, snap.data());
+            setProfile(normalized);
             setScreen("home");
           } else {
             console.warn(
@@ -86,12 +129,32 @@ export default function App() {
   const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = completedLessons.length >= lessonsByOrder.length;
+  const subscriptionStatus = profile?.subscriptionStatus ?? "trial";
+  const access = hasFullAccess(subscriptionStatus);
+  const daysLeft = trialDaysLeft(profile?.trialStartedAt);
 
   const goHome = () => setScreen("home");
   const goPath = () => {
     setActiveExam(null);
     setActiveChallenge(null);
     setScreen("path");
+  };
+  const goPaywall = () => setScreen("paywall");
+  const goSettings = () => setScreen("settings");
+
+  const updateSubscription = async (updates) => {
+    if (!user) return;
+    setProfile((p) => ({ ...p, ...updates }));
+    try {
+      console.log(
+        "[Everwise][firestore] subscription update users/",
+        user.uid,
+        updates
+      );
+      await updateDoc(doc(db, "users", user.uid), updates);
+    } catch (err) {
+      console.error("[Everwise][firestore] Failed to update subscription:", err);
+    }
   };
 
   const signUp = async (name, email, password) => {
@@ -109,6 +172,9 @@ export default function App() {
         badges: [],
         completedLessons: [],
         lastCompletedDate: null,
+        trialStartedAt: Timestamp.now(),
+        subscriptionStatus: "trial",
+        plan: null,
       };
       console.log("[Everwise][firestore] setDoc users/", cred.user.uid, initial);
       await setDoc(doc(db, "users", cred.user.uid), initial);
@@ -133,7 +199,11 @@ export default function App() {
       const snap = await getDoc(doc(db, "users", cred.user.uid));
       if (snap.exists()) {
         console.log("[Everwise][firestore] profile loaded:", snap.data());
-        setProfile(snap.data());
+        const normalized = await normalizeSubscription(
+          cred.user.uid,
+          snap.data()
+        );
+        setProfile(normalized);
       } else {
         console.warn("[Everwise][firestore] Signed in but no profile doc found.");
       }
@@ -156,6 +226,12 @@ export default function App() {
   };
 
   const startLesson = (index) => {
+    const lesson = lessonsByOrder[index];
+    const done = lesson && completedLessons.includes(lesson.id);
+    if (!access && !done) {
+      goPaywall();
+      return;
+    }
     setActiveExam(null);
     setActiveChallenge(null);
     setActiveIndex(index);
@@ -163,15 +239,34 @@ export default function App() {
   };
 
   const startChallenge = (challenge) => {
+    const done = completedLessons.includes(challenge.id);
+    if (!access && !done) {
+      goPaywall();
+      return;
+    }
     setActiveExam(null);
     setActiveChallenge(challenge);
     setScreen("challenge");
   };
 
   const startExam = (exam) => {
+    const done = completedLessons.includes(exam.id);
+    if (!access && !done) {
+      goPaywall();
+      return;
+    }
     setActiveChallenge(null);
     setActiveExam(exam);
     setScreen("exam");
+  };
+
+  const startSubscription = async () => {
+    // TODO: replace with Stripe checkout
+    await updateSubscription({
+      subscriptionStatus: "active",
+      plan: "monthly",
+    });
+    goHome();
   };
 
   const finishChallenge = async () => {
@@ -339,9 +434,49 @@ export default function App() {
           streak={profile?.streak ?? 0}
           scamsCaught={profile?.scamsCaught ?? 0}
           allDone={allDone}
+          subscriptionStatus={subscriptionStatus}
+          trialDaysLeft={daysLeft}
           onStart={goPath}
-          onLogOut={logOut}
+          onOpenPaywall={goPaywall}
+          onOpenSettings={goSettings}
         />
+      );
+      break;
+    case "settings":
+      content = (
+        <Settings
+          subscriptionStatus={subscriptionStatus}
+          trialStartedAt={profile?.trialStartedAt}
+          plan={profile?.plan ?? null}
+          onBack={goHome}
+          onLogOut={logOut}
+          onManageSubscription={() => {
+            /* placeholder — no Stripe portal yet */
+          }}
+          onDevResetTrial={() =>
+            updateSubscription({
+              trialStartedAt: Timestamp.now(),
+              subscriptionStatus: "trial",
+              plan: null,
+            })
+          }
+          onDevSetActive={() =>
+            updateSubscription({
+              subscriptionStatus: "active",
+              plan: "monthly",
+            })
+          }
+          onDevSetExpired={() =>
+            updateSubscription({
+              subscriptionStatus: "expired",
+            })
+          }
+        />
+      );
+      break;
+    case "paywall":
+      content = (
+        <Paywall onSubscribe={startSubscription} onMaybeLater={goHome} />
       );
       break;
     case "path":
