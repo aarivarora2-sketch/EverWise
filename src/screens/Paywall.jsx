@@ -89,56 +89,94 @@ function ProgressScreen({
   );
 }
 
-function TimelineScreen({ onStartTrial, onMaybeLater }) {
+function TimelineSteps() {
+  return (
+    <ol className="mt-8">
+      {TIMELINE.map((step, i) => {
+        const isLast = i === TIMELINE.length - 1;
+        return (
+          <li key={step.title} className="relative flex gap-4">
+            <div className="relative flex w-5 shrink-0 flex-col items-center">
+              <span
+                className="relative z-10 mt-1.5 h-4 w-4 rounded-full"
+                style={{ backgroundColor: step.color }}
+                aria-hidden="true"
+              />
+              {!isLast ? (
+                <span
+                  className="mt-1 w-1 flex-1 rounded-full"
+                  style={{
+                    backgroundColor: `${step.color}66`,
+                    minHeight: "2.5rem",
+                  }}
+                  aria-hidden="true"
+                />
+              ) : null}
+            </div>
+            <div className={`min-w-0 flex-1 ${isLast ? "pb-0" : "pb-7"}`}>
+              <p className="text-xl font-bold" style={{ color: step.color }}>
+                {step.title}
+              </p>
+              <p className="mt-1 text-xl leading-snug text-ink">{step.body}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function PlanCard() {
+  return (
+    <div className="mt-8 rounded-3xl bg-cream-card px-6 py-7 shadow-card">
+      <p className="font-serif text-4xl font-semibold text-ink">
+        $4.99 per month
+      </p>
+      <p className="mt-4 text-xl leading-relaxed text-ink">
+        Introductory price for your first 12 months. Renews at $9.99 per month
+        after that.
+      </p>
+      <p className="mt-4 text-lg text-ink-soft">That's about 16 cents a day.</p>
+    </div>
+  );
+}
+
+/** Post-signup intro: timeline + price, one "Start learning" action. */
+function IntroTimelineScreen({ onStartLearning }) {
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
+      <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
+        Your 3 free days start now.
+      </h1>
+      <p className="mt-4 text-xl leading-relaxed text-ink-soft">
+        Here's exactly what to expect, so nothing surprises you.
+      </p>
+
+      <TimelineSteps />
+      <PlanCard />
+
+      <div className="mt-auto space-y-3 pt-10">
+        <button type="button" className="btn-primary" onClick={onStartLearning}>
+          Start learning
+        </button>
+        <p className="text-center text-lg leading-snug text-ink-soft">
+          Cancel anytime. No charge during your trial.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Expired-trial options: subscribe CTA + Maybe later. */
+function SubscribeTimelineScreen({ onStartTrial, onMaybeLater }) {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
       <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
         Try Everwise free for 3 days.
       </h1>
 
-      <ol className="mt-8">
-        {TIMELINE.map((step, i) => {
-          const isLast = i === TIMELINE.length - 1;
-          return (
-            <li key={step.title} className="relative flex gap-4">
-              <div className="relative flex w-5 shrink-0 flex-col items-center">
-                <span
-                  className="relative z-10 mt-1.5 h-4 w-4 rounded-full"
-                  style={{ backgroundColor: step.color }}
-                  aria-hidden="true"
-                />
-                {!isLast ? (
-                  <span
-                    className="mt-1 w-1 flex-1 rounded-full"
-                    style={{ backgroundColor: `${step.color}66`, minHeight: "2.5rem" }}
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </div>
-              <div className={`min-w-0 flex-1 ${isLast ? "pb-0" : "pb-7"}`}>
-                <p
-                  className="text-xl font-bold"
-                  style={{ color: step.color }}
-                >
-                  {step.title}
-                </p>
-                <p className="mt-1 text-xl leading-snug text-ink">{step.body}</p>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-
-      <div className="mt-8 rounded-3xl bg-cream-card px-6 py-7 shadow-card">
-        <p className="font-serif text-4xl font-semibold text-ink">
-          $4.99 per month
-        </p>
-        <p className="mt-4 text-xl leading-relaxed text-ink">
-          Introductory price for your first 12 months. Renews at $9.99 per month
-          after that.
-        </p>
-        <p className="mt-4 text-lg text-ink-soft">That's about 16 cents a day.</p>
-      </div>
+      <TimelineSteps />
+      <PlanCard />
 
       <div className="mt-auto space-y-3 pt-10">
         <button type="button" className="btn-primary" onClick={onStartTrial}>
@@ -186,20 +224,34 @@ function ExitSheet({ onDismiss }) {
   );
 }
 
+/**
+ * variant:
+ * - "intro" — after signup; timeline only; Start learning → Home (no charge)
+ * - "subscribe" — after trial expires; full two-screen paywall
+ */
 export default function Paywall({
+  variant = "subscribe",
   lessonsCompleted = 0,
   streak = 0,
   badgesEarned = 0,
   onStartTrial,
   onMaybeLater,
+  onStartLearning,
 }) {
-  const [step, setStep] = useState("progress"); // progress | options
+  const isIntro = variant === "intro";
+  const [step, setStep] = useState(isIntro ? "options" : "progress");
   const [showExitSheet, setShowExitSheet] = useState(false);
 
+  if (isIntro) {
+    return (
+      <div className="relative flex flex-1 flex-col">
+        <IntroTimelineScreen onStartLearning={onStartLearning || onMaybeLater} />
+      </div>
+    );
+  }
+
   const leaveFromScreen1 = () => onMaybeLater();
-
   const leaveFromScreen2 = () => setShowExitSheet(true);
-
   const dismissExitSheet = () => {
     setShowExitSheet(false);
     onMaybeLater();
@@ -216,7 +268,7 @@ export default function Paywall({
           onMaybeLater={leaveFromScreen1}
         />
       ) : (
-        <TimelineScreen
+        <SubscribeTimelineScreen
           onStartTrial={onStartTrial}
           onMaybeLater={leaveFromScreen2}
         />

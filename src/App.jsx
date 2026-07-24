@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
@@ -83,9 +83,12 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [screen, setScreen] = useState("landing");
+  const [paywallVariant, setPaywallVariant] = useState("subscribe");
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeExam, setActiveExam] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
+  // After signup we route to the intro paywall; don't let auth state overwrite it.
+  const skipAuthHomeRef = useRef(false);
 
   useEffect(() => {
     console.log("speech supported:", "speechSynthesis" in window);
@@ -107,7 +110,11 @@ export default function App() {
             console.log("[Everwise][firestore] profile loaded:", snap.data());
             const normalized = await normalizeSubscription(u.uid, snap.data());
             setProfile(normalized);
-            setScreen("home");
+            if (skipAuthHomeRef.current) {
+              skipAuthHomeRef.current = false;
+            } else {
+              setScreen("home");
+            }
           } else {
             console.warn(
               "[Everwise][firestore] No profile doc for this user yet (uid:",
@@ -144,7 +151,10 @@ export default function App() {
     setActiveChallenge(null);
     setScreen("path");
   };
-  const goPaywall = () => setScreen("paywall");
+  const goPaywall = () => {
+    setPaywallVariant("subscribe");
+    setScreen("paywall");
+  };
   const goSettings = () => setScreen("settings");
 
   const updateSubscription = async (updates) => {
@@ -164,6 +174,8 @@ export default function App() {
 
   const signUp = async (name, email, password) => {
     try {
+      // Prevent onAuthStateChanged from jumping to Home before the intro paywall.
+      skipAuthHomeRef.current = true;
       console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       console.log("[Everwise][auth] account created, uid:", cred.user.uid);
@@ -187,8 +199,10 @@ export default function App() {
 
       setUser(cred.user);
       setProfile(initial);
-      setScreen("home");
+      setPaywallVariant("intro");
+      setScreen("paywall");
     } catch (err) {
+      skipAuthHomeRef.current = false;
       console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
       throw err;
     }
@@ -483,11 +497,13 @@ export default function App() {
     case "paywall":
       content = (
         <Paywall
-          key="paywall"
+          key={`paywall-${paywallVariant}`}
+          variant={paywallVariant}
           lessonsCompleted={lessonsCompletedCount}
           streak={profile?.streak ?? 0}
           badgesEarned={badgesEarnedCount}
           onStartTrial={startFreeTrial}
+          onStartLearning={goHome}
           onMaybeLater={goHome}
         />
       );
