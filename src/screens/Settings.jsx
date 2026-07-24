@@ -39,6 +39,7 @@ export default function Settings({
   plan,
   onBack,
   onLogOut,
+  onOpenPaywall,
   onManageSubscription,
   onDevResetTrial,
   onDevSetActive,
@@ -84,7 +85,13 @@ export default function Settings({
             onClick={onManageSubscription}
             hint="Coming soon"
           />
-        ) : null}
+        ) : (
+          <Row
+            label="Start free trial"
+            onClick={onOpenPaywall}
+            hint="See your options"
+          />
+        )}
       </div>
 
       <div className="mt-8 space-y-3">

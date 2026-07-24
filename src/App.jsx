@@ -132,6 +132,11 @@ export default function App() {
   const subscriptionStatus = profile?.subscriptionStatus ?? "trial";
   const access = hasFullAccess(subscriptionStatus);
   const daysLeft = trialDaysLeft(profile?.trialStartedAt);
+  const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
+  const lessonsCompletedCount = completedLessons.filter((id) =>
+    lessonIdSet.has(id)
+  ).length;
+  const badgesEarnedCount = (profile?.badges ?? []).length;
 
   const goHome = () => setScreen("home");
   const goPath = () => {
@@ -260,7 +265,7 @@ export default function App() {
     setScreen("exam");
   };
 
-  const startSubscription = async () => {
+  const startFreeTrial = async () => {
     // TODO: replace with Stripe checkout
     await updateSubscription({
       subscriptionStatus: "active",
@@ -450,6 +455,7 @@ export default function App() {
           plan={profile?.plan ?? null}
           onBack={goHome}
           onLogOut={logOut}
+          onOpenPaywall={goPaywall}
           onManageSubscription={() => {
             /* placeholder — no Stripe portal yet */
           }}
@@ -476,7 +482,14 @@ export default function App() {
       break;
     case "paywall":
       content = (
-        <Paywall onSubscribe={startSubscription} onMaybeLater={goHome} />
+        <Paywall
+          key="paywall"
+          lessonsCompleted={lessonsCompletedCount}
+          streak={profile?.streak ?? 0}
+          badgesEarned={badgesEarnedCount}
+          onStartTrial={startFreeTrial}
+          onMaybeLater={goHome}
+        />
       );
       break;
     case "path":
