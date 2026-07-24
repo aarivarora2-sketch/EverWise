@@ -15,18 +15,19 @@ import {
 } from "../components/Icons";
 
 const TOP_PAD = 12; // first phase sits near the top of the scroll area
-const NODE_SLOT = 252; // room for 20px two-line labels under nodes
+// Tall enough for circle + 20px two-line label + trail clearance to the next node.
+const NODE_SLOT = 288;
 // Generous space around the lighter phase headers (no filled block).
 const PHASE_TOP = 72; // used between later phases only
 const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
 const PHASE_BAND = 72;
 const PHASE_BOTTOM = 72;
-const NODE_CENTER = 56;
-const NODE_RADIUS = 56; // START node is h-28; clear trails past this
-const TRAIL_END_PAD = NODE_RADIUS + 12; // no dots under/behind a circle
-const PATH_WIDTH_EST = 390; // approx path column width for clearance math
+// Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
+const NODE_BOX_H = 214;
+const BOX_CLEARANCE = 16; // first/last dot ≥ 16px past the box edge
+const PATH_WIDTH_EST = 390; // approx path column width for length math
 const AMP = 11;
-const TRAIL_DOT_COUNT = 4; // evenly spaced between padded endpoints
+const TRAIL_DOT_COUNT = 4; // evenly spaced along each clear segment
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 
@@ -159,28 +160,34 @@ export default function LessonPath({
       n.kind === "exam" ||
       n.kind === "reward"
   );
+
+  // Trails are per same-phase segment only — never through a phase header.
   const dots = [];
   for (let i = 0; i < trailNodes.length - 1; i++) {
     const a = trailNodes[i];
     const b = trailNodes[i + 1];
+    if (a.phase == null || b.phase == null || a.phase !== b.phase) continue;
+
     const x1 = xPercent(i);
-    const y1 = a.top + NODE_CENTER;
     const x2 = xPercent(i + 1);
-    const y2 = b.top + NODE_CENTER;
-    // Pixel length of the segment (x is %-based; scale to estimated path width).
+    // Start below A's circle+label box; end above B's box (16px clear of each).
+    const y1 = a.top + NODE_BOX_H + BOX_CLEARANCE;
+    const y2 = b.top - BOX_CLEARANCE;
+    if (y2 <= y1) continue;
+
     const dx = ((x2 - x1) / 100) * PATH_WIDTH_EST;
     const dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
-    // Pad each end by node radius + 12px so dots never touch either circle.
-    const tMin = TRAIL_END_PAD / len;
-    const tMax = 1 - TRAIL_END_PAD / len;
-    if (tMax <= tMin) continue;
+    // Drop to fewer dots on short segments so gaps stay readable.
+    const count = Math.min(
+      TRAIL_DOT_COUNT,
+      Math.max(2, Math.floor(len / 28))
+    );
 
-    // Even gaps along the clear middle only — no continuous line, dots only.
-    for (let k = 1; k <= TRAIL_DOT_COUNT; k++) {
-      const t = tMin + (tMax - tMin) * (k / (TRAIL_DOT_COUNT + 1));
+    for (let k = 1; k <= count; k++) {
+      const t = k / (count + 1);
       dots.push({
-        key: `${i}-${k}`,
+        key: `${a.id}-${b.id}-${k}`,
         x: x1 + (x2 - x1) * t,
         y: y1 + (y2 - y1) * t,
       });
