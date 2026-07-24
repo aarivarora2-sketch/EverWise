@@ -133,7 +133,7 @@ function PlanCard() {
         $4.99 per month
       </p>
       <p className="mt-4 text-xl leading-relaxed text-ink">
-        Introductory price for your first 12 months. Renews at $9.99 per month
+        Introductory price for your first 3 months. Renews at $9.99 per month
         after that.
       </p>
       <p className="mt-4 text-lg text-ink-soft">That's about 16 cents a day.</p>
@@ -141,26 +141,76 @@ function PlanCard() {
   );
 }
 
-/** Post-signup intro: timeline + price, one "Start learning" action. */
+const INTRO_TIMELINE = [
+  { title: "Today", body: "Full access. No charge.", color: phases[0].color },
+  {
+    title: "Day 2",
+    body: "Reminder that your trial is ending.",
+    color: phases[1].color,
+  },
+  {
+    title: "Day 3",
+    body: "Trial ends. Subscribe only if you want to.",
+    color: phases[2].color,
+  },
+];
+
+/** Post-signup intro: condensed to fit one phone screen without scrolling. */
 function IntroTimelineScreen({ onStartLearning }) {
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
+    <div className="flex flex-1 flex-col overflow-hidden px-7 pb-8 pt-7">
       <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
         Your 3 free days start now.
       </h1>
-      <p className="mt-4 text-xl leading-relaxed text-ink-soft">
-        Here's exactly what to expect, so nothing surprises you.
-      </p>
 
-      <TimelineSteps />
-      <PlanCard />
+      <ol className="mt-5">
+        {INTRO_TIMELINE.map((step, i) => {
+          const isLast = i === INTRO_TIMELINE.length - 1;
+          return (
+            <li key={step.title} className="relative flex gap-3">
+              <div className="relative flex w-4 shrink-0 flex-col items-center">
+                <span
+                  className="relative z-10 mt-1.5 h-3.5 w-3.5 rounded-full"
+                  style={{ backgroundColor: step.color }}
+                  aria-hidden="true"
+                />
+                {!isLast ? (
+                  <span
+                    className="mt-1 w-1 flex-1 rounded-full"
+                    style={{
+                      backgroundColor: `${step.color}66`,
+                      minHeight: "1.25rem",
+                    }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </div>
+              <div className={`min-w-0 flex-1 ${isLast ? "pb-0" : "pb-3"}`}>
+                <p className="text-xl font-bold" style={{ color: step.color }}>
+                  {step.title}
+                </p>
+                <p className="mt-0.5 text-xl leading-snug text-ink">{step.body}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
 
-      <div className="mt-auto space-y-3 pt-10">
+      <div className="mt-5 rounded-3xl bg-cream-card px-5 py-5 shadow-card">
+        <p className="font-serif text-4xl font-semibold text-ink">
+          $4.99 / month
+        </p>
+        <p className="mt-2 text-xl leading-snug text-ink">
+          First 3 months, then $9.99 / month.
+        </p>
+      </div>
+
+      <div className="mt-auto space-y-2 pt-6">
         <button type="button" className="btn-primary" onClick={onStartLearning}>
           Start learning
         </button>
         <p className="text-center text-lg leading-snug text-ink-soft">
-          Cancel anytime. No charge during your trial.
+          Cancel anytime.
         </p>
       </div>
     </div>
