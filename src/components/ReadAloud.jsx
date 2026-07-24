@@ -11,7 +11,11 @@ function cancelBrowserSpeech() {
   window.speechSynthesis.cancel();
 }
 
-export default function ReadAloud({ text, label = "Read aloud" }) {
+export default function ReadAloud({
+  text,
+  label = "Read aloud",
+  getNarrationUrl = getNaturalNarrationUrl,
+}) {
   const [status, setStatus] = useState("idle");
   const [announcement, setAnnouncement] = useState("");
   const voicesRef = useRef([]);
@@ -128,7 +132,7 @@ export default function ReadAloud({ text, label = "Read aloud" }) {
     setAnnouncement("Preparing a natural AI voice.");
 
     try {
-      const audioUrl = await getNaturalNarrationUrl(speakText);
+      const audioUrl = await getNarrationUrl(speakText);
       if (requestId !== requestIdRef.current) {
         URL.revokeObjectURL(audioUrl);
         return;
