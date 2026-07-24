@@ -25,7 +25,8 @@ const PHASE_BOTTOM = 72;
 // Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
 const NODE_BOX_H = 214;
 const BOX_CLEARANCE = 16; // first/last dot ≥ 16px past the box edge
-const TRAIL_DOT_COUNT = 5; // evenly spaced along each curved segment
+// Two dots only when the clear gap is long enough; otherwise a single midpoint.
+const TWO_DOT_MIN_ARC = 90;
 // Snake wind within the column — clamped so 10.5rem nodes stay on-screen.
 const SNAKE_OFFSETS = [-56, 0, 56, 0];
 const CLAY = "#B5502E";
@@ -48,18 +49,48 @@ function cubicPoint(t, p0, p1, p2, p3) {
   };
 }
 
-function snakeCurvePoints(x1, y1, x2, y2, count) {
+/** Sample arc-length along the cubic, then place 1–2 dots at fixed fractions. */
+function snakeCurveDots(x1, y1, x2, y2) {
   const dy = y2 - y1;
   const p0 = { x: x1, y: y1 };
   const p3 = { x: x2, y: y2 };
-  // Control points: drop then slide, so the trail S-curves like a snake.
   const p1 = { x: x1, y: y1 + dy * 0.45 };
   const p2 = { x: x2, y: y2 - dy * 0.45 };
-  const pts = [];
-  for (let k = 1; k <= count; k++) {
-    pts.push(cubicPoint(k / (count + 1), p0, p1, p2, p3));
+
+  const SAMPLES = 48;
+  const samples = [];
+  let totalLen = 0;
+  let prev = cubicPoint(0, p0, p1, p2, p3);
+  samples.push({ t: 0, len: 0, ...prev });
+  for (let i = 1; i <= SAMPLES; i++) {
+    const t = i / SAMPLES;
+    const pt = cubicPoint(t, p0, p1, p2, p3);
+    totalLen += Math.hypot(pt.x - prev.x, pt.y - prev.y);
+    samples.push({ t, len: totalLen, ...pt });
+    prev = pt;
   }
-  return pts;
+
+  const pointAtFraction = (frac) => {
+    const target = totalLen * frac;
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i].len >= target) {
+        const a = samples[i - 1];
+        const b = samples[i];
+        const span = b.len - a.len || 1;
+        const u = (target - a.len) / span;
+        return {
+          x: a.x + (b.x - a.x) * u,
+          y: a.y + (b.y - a.y) * u,
+        };
+      }
+    }
+    return { x: p3.x, y: p3.y };
+  };
+
+  if (totalLen >= TWO_DOT_MIN_ARC) {
+    return [pointAtFraction(1 / 3), pointAtFraction(2 / 3)];
+  }
+  return [pointAtFraction(0.5)];
 }
 
 function phaseLessonsDone(phase, doneSet) {
@@ -207,7 +238,7 @@ export default function LessonPath({
     if (y2 <= y1) continue;
 
     const filled = doneSet.has(b.id);
-    const pts = snakeCurvePoints(x1, y1, x2, y2, TRAIL_DOT_COUNT);
+    const pts = snakeCurveDots(x1, y1, x2, y2);
     pts.forEach((pt, k) => {
       dots.push({
         key: `${a.id}-${b.id}-${k}`,
