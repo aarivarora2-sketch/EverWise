@@ -16,9 +16,10 @@ import {
 
 const TOP_PAD = 28;
 const NODE_SLOT = 220;
-const PHASE_TOP = 56;
-const PHASE_BAND = 88;
-const PHASE_BOTTOM = 56;
+// Generous space around the lighter phase headers (no filled block).
+const PHASE_TOP = 72;
+const PHASE_BAND = 72;
+const PHASE_BOTTOM = 72;
 const PHASE_SLOT = PHASE_TOP + PHASE_BAND + PHASE_BOTTOM;
 const NODE_CENTER = 56;
 const NODE_RADIUS = 56; // START node is h-28; clear trails past this
@@ -26,6 +27,8 @@ const TRAIL_END_PAD = NODE_RADIUS + 12; // no dots under/behind a circle
 const PATH_WIDTH_EST = 390; // approx path column width for clearance math
 const AMP = 11;
 const TRAIL_T = [0.22, 0.4, 0.58, 0.76]; // same spacing as before
+const CLAY = "#B5502E";
+const CREAM = "#EFE9DC";
 
 function xPercent(i) {
   return 50 + (i % 2 === 0 ? AMP : -AMP);
@@ -69,7 +72,7 @@ export default function LessonPath({
       title: l.pathTitle || l.title,
       fullTitle: l.title,
       lessonIndex: i,
-      phaseColor: getPhase(l.phase).accent || getPhase(l.phase).color,
+      phaseColor: getPhase(l.phase).color,
       biomeColor: getPhase(l.phase).color,
     })),
     ...challengesByOrder.map((c) => ({
@@ -80,7 +83,7 @@ export default function LessonPath({
       title: "Final Challenge",
       fullTitle: c.title,
       challenge: c,
-      phaseColor: getPhase(c.phase).accent || getPhase(c.phase).color,
+      phaseColor: getPhase(c.phase).color,
       biomeColor: getPhase(c.phase).color,
     })),
     ...examsByOrder
@@ -93,7 +96,7 @@ export default function LessonPath({
         title: "Phase Exam",
         fullTitle: e.title,
         exam: e,
-        phaseColor: getPhase(e.phase).accent || getPhase(e.phase).color,
+        phaseColor: getPhase(e.phase).color,
         biomeColor: getPhase(e.phase).color,
       })),
   ].sort((a, b) => a.order - b.order);
@@ -263,16 +266,19 @@ export default function LessonPath({
                   style={{ top: node.bandTop }}
                 >
                   <div
-                    className="rounded-2xl px-5 py-4 text-cream-card shadow-card"
+                    className="h-px w-full"
                     style={{ backgroundColor: node.phase.color }}
+                    aria-hidden="true"
+                  />
+                  <p
+                    className="mt-4 text-sm font-bold uppercase tracking-[0.12em]"
+                    style={{ color: node.phase.color }}
                   >
-                    <p className="text-sm font-bold uppercase tracking-wide text-cream-card/80">
-                      Phase {node.phase.number} · {node.phase.biome}
-                    </p>
-                    <p className="mt-0.5 font-serif text-2xl font-semibold leading-tight">
-                      {node.phase.title}
-                    </p>
-                  </div>
+                    Phase {node.phase.number} · {node.phase.biome}
+                  </p>
+                  <p className="mt-1 font-serif text-2xl font-semibold leading-tight text-ink">
+                    {node.phase.title}
+                  </p>
                 </div>
               );
             }
@@ -357,6 +363,7 @@ export default function LessonPath({
 function PathNode({ state, kind, onClick, title, accent, biome }) {
   const isExam = kind === "exam";
   const isChallenge = kind === "challenge";
+  const phase = biome || accent;
   // Challenge sits visually between lesson (START/check) and exam (trophy).
   const nodeSizeCurrent = isChallenge ? "h-[6.5rem] w-[6.5rem]" : "h-28 w-28";
   const nodeSizeDone = isChallenge ? "h-[5.5rem] w-[5.5rem]" : "h-24 w-24";
@@ -372,6 +379,7 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
     ? `Redo challenge: ${title}`
     : `Redo completed lesson: ${title}`;
 
+  // Current lesson is always clay — biome color is reserved for done/locked.
   if (state === "current") {
     return (
       <div className="relative shrink-0">
@@ -379,7 +387,7 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
           className={`absolute inset-0 rounded-full animate-pulse-ring ${
             isChallenge ? "ring-4 ring-inset ring-cream-card/35" : ""
           }`}
-          style={{ backgroundColor: `${accent}66` }}
+          style={{ backgroundColor: `${CLAY}66` }}
         />
         <button
           type="button"
@@ -389,8 +397,8 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
             isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
           }`}
           style={{
-            backgroundColor: accent,
-            boxShadow: `0 7px 0 ${shade(accent, -25)}`,
+            backgroundColor: CLAY,
+            boxShadow: `0 7px 0 ${shade(CLAY, -25)}`,
           }}
         >
           {isExam ? (
@@ -411,20 +419,13 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
         type="button"
         onClick={onClick}
         aria-label={ariaRedo}
-        className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full text-cream-card transition-transform active:translate-y-1 active:shadow-none ${
-          isExam || isChallenge ? "" : "bg-sage shadow-node-sage"
-        } ${isChallenge ? "ring-[3px] ring-inset ring-cream-card/35" : ""}`}
-        style={
-          isExam || isChallenge
-            ? {
-                backgroundColor: isChallenge ? mixHex(accent, "#6B8F71", 0.55) : accent,
-                boxShadow: `0 5px 0 ${shade(
-                  isChallenge ? mixHex(accent, "#6B8F71", 0.55) : accent,
-                  -25
-                )}`,
-              }
-            : undefined
-        }
+        className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full text-white transition-transform active:translate-y-1 active:shadow-none ${
+          isChallenge ? "ring-[3px] ring-inset ring-white/35" : ""
+        }`}
+        style={{
+          backgroundColor: phase,
+          boxShadow: `0 5px 0 ${shade(phase, -25)}`,
+        }}
       >
         {isExam ? (
           <TrophyIcon className="h-11 w-11" />
@@ -440,7 +441,11 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
   if (state === "reward-done") {
     return (
       <div
-        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage"
+        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-white"
+        style={{
+          backgroundColor: phase,
+          boxShadow: `0 5px 0 ${shade(phase, -25)}`,
+        }}
         aria-label="Reward unlocked"
       >
         <TrophyIcon className="h-12 w-12" />
@@ -448,10 +453,10 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
     );
   }
 
-  // Locked: desaturated biome tint (25% phase / 75% grey) — not active, but phase-readable
-  const lockedFill = mixHex(biome, "#C9C3B6", 0.25);
-  const lockedShadow = shade(lockedFill, -28);
-  const lockedIcon = mixHex(biome, "#4A463F", 0.45);
+  // Locked: phase color ~35% over cream — biome-readable, clearly inactive.
+  const lockedFill = mixHex(phase, CREAM, 0.35);
+  const lockedShadow = shade(lockedFill, -22);
+  const lockedIcon = mixHex(phase, "#4A463F", 0.4);
 
   return (
     <div
@@ -477,21 +482,18 @@ function PathNode({ state, kind, onClick, title, accent, biome }) {
 }
 
 function Label({ state, title, accent, biome }) {
-  const lockedText = mixHex(biome || accent, "#4A463F", 0.4);
-  const className =
-    state === "done" || state === "reward-done"
-      ? "text-sage"
-      : state === "current"
-      ? ""
-      : "";
+  const phase = biome || accent;
+  const lockedText = mixHex(phase, "#4A463F", 0.45);
 
   return (
     <div className="mt-3 w-full px-1 text-center">
       <p
-        className={`mx-auto line-clamp-2 max-w-[8.5rem] text-center text-base font-semibold leading-snug ${className}`}
+        className="mx-auto line-clamp-2 max-w-[8.5rem] text-center text-base font-semibold leading-snug"
         style={
           state === "current"
-            ? { color: accent }
+            ? { color: CLAY }
+            : state === "done" || state === "reward-done"
+            ? { color: phase }
             : state === "locked"
             ? { color: lockedText }
             : undefined
@@ -503,7 +505,7 @@ function Label({ state, title, accent, biome }) {
       {state === "current" && (
         <span
           className="mt-1 block text-xs font-bold uppercase tracking-wide"
-          style={{ color: accent, opacity: 0.8 }}
+          style={{ color: CLAY, opacity: 0.8 }}
         >
           Today
         </span>

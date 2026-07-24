@@ -1,48 +1,54 @@
 // Phase metadata for the Digital Literacy track.
-// `color` tints the path header band and section background.
-// `accent` is the current START node color (Phase 1 keeps clay).
+// `color` is the biome hue used on path nodes, headers, and section tints.
 export const phases = [
   {
     number: 1,
     title: "Foundations",
     biome: "Meadow",
-    color: "#5E7B4E", // existing sage header
-    accent: "#B5502E", // existing clay START node
+    color: "#6B8E5A",
+    accent: "#6B8E5A",
   },
   {
     number: 2,
     title: "Safe Internet Habits",
-    biome: "Forest",
-    color: "#3F5E45",
-    accent: "#3F5E45",
+    biome: "Tidepool",
+    color: "#2F7A85",
+    accent: "#2F7A85",
   },
   {
     number: 3,
     title: "Communication",
-    biome: "Coast",
-    color: "#4A6FA5",
-    accent: "#4A6FA5",
+    biome: "Lavender Fields",
+    color: "#7D6193",
+    accent: "#7D6193",
   },
   {
     number: 4,
     title: "Digital Finance",
-    biome: "Harvest",
-    color: "#C08B3E",
-    accent: "#C08B3E",
+    biome: "Savanna",
+    color: "#B8862F",
+    accent: "#B8862F",
   },
   {
     number: 5,
     title: "Health & Government",
-    biome: "River",
-    color: "#4E7C8A",
-    accent: "#4E7C8A",
+    biome: "Alpine",
+    color: "#4A6FA5",
+    accent: "#4A6FA5",
   },
   {
     number: 6,
     title: "Social Media",
-    biome: "Dune",
-    color: "#B8863F",
-    accent: "#B8863F",
+    biome: "Coral Reef",
+    color: "#C4676B",
+    accent: "#C4676B",
+  },
+  {
+    number: 7,
+    title: "Emergency Skills",
+    biome: "Twilight",
+    color: "#4E4A7D",
+    accent: "#4E4A7D",
   },
 ];
 
