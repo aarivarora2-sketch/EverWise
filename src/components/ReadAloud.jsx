@@ -1,61 +1,120 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SpeakerIcon, StopIcon } from "./Icons";
 
-// Read-aloud button using the browser's built-in speech synthesis.
-// Big, clearly labeled, and toggles between "Read aloud" and "Stop".
+const READ_ALOUD_ENDPOINT =
+  import.meta.env.VITE_READ_ALOUD_ENDPOINT || "/api/read-aloud";
+const AUDIO_PROFILE_VERSION = "older-adult-v1";
+const audioCache = new Map();
+
+async function getAudioBlob(text, signal) {
+  const cacheKey = `${AUDIO_PROFILE_VERSION}:${text}`;
+  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
+
+  const request = fetch(READ_ALOUD_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    signal,
+  }).then(async (response) => {
+    if (!response.ok) throw new Error("ElevenLabs audio was unavailable");
+    return response.blob();
+  });
+
+  audioCache.set(cacheKey, request);
+  try {
+    const blob = await request;
+    if (audioCache.size > 20) {
+      audioCache.delete(audioCache.keys().next().value);
+    }
+    return blob;
+  } catch (error) {
+    audioCache.delete(cacheKey);
+    throw error;
+  }
+}
+
 export default function ReadAloud({ text, label = "Read aloud" }) {
   const [speaking, setSpeaking] = useState(false);
-  const supported =
-    typeof window !== "undefined" && "speechSynthesis" in window;
+  const [loading, setLoading] = useState(false);
+  const audioRef = useRef(null);
+  const abortRef = useRef(null);
 
-  // Stop speaking if the underlying text changes (new block/question) or
-  // this component unmounts (navigating away mid-speech).
   useEffect(() => {
     return () => {
-      if (supported) window.speechSynthesis.cancel();
-      setSpeaking(false);
+      abortRef.current?.abort();
+      audioRef.current?.pause();
+      if (audioRef.current?.src) URL.revokeObjectURL(audioRef.current.src);
+      window.speechSynthesis?.cancel();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, supported]);
+  }, [text]);
 
-  if (!supported) return null;
+  const stop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    audioRef.current?.pause();
+    if (audioRef.current?.src) URL.revokeObjectURL(audioRef.current.src);
+    audioRef.current = null;
+    window.speechSynthesis?.cancel();
+    setLoading(false);
+    setSpeaking(false);
+  };
 
-  const speak = () => {
+  const speakWithDeviceVoice = (speakText) => {
+    if (!("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(speakText);
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const speak = async () => {
     const speakText = (text ?? "").toString().trim();
     if (!speakText) return;
 
-    // Always start clean — a stale queued/paused utterance is the most
-    // common reason speak() silently does nothing.
-    window.speechSynthesis.cancel();
+    stop();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
 
-    const utter = new SpeechSynthesisUtterance(speakText);
-    utter.rate = 0.9;
-    utter.pitch = 1;
-    utter.onend = () => setSpeaking(false);
-    utter.onerror = () => setSpeaking(false);
+    try {
+      const audioUrl = URL.createObjectURL(
+        await getAudioBlob(speakText, controller.signal),
+      );
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audio.onended = stop;
+      audio.onerror = () => {
+        stop();
+        speakWithDeviceVoice(speakText);
+      };
 
-    setSpeaking(true);
-    window.speechSynthesis.speak(utter);
-  };
-
-  const stop = () => {
-    window.speechSynthesis.cancel();
-    setSpeaking(false);
+      setLoading(false);
+      setSpeaking(true);
+      await audio.play();
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      setLoading(false);
+      speakWithDeviceVoice(speakText);
+    }
   };
 
   return (
     <button
       type="button"
-      onClick={speaking ? stop : speak}
+      onClick={speaking || loading ? stop : speak}
       aria-pressed={speaking}
+      aria-busy={loading}
       className={`inline-flex items-center gap-3 rounded-full border-2 px-5 py-3 text-lg font-semibold transition-colors ${
-        speaking
+        speaking || loading
           ? "border-clay bg-clay text-cream-card"
           : "border-clay/40 bg-cream-card text-clay hover:bg-clay/10"
       }`}
     >
-      {speaking ? <StopIcon /> : <SpeakerIcon />}
-      {speaking ? "Stop" : label}
+      {speaking || loading ? <StopIcon /> : <SpeakerIcon />}
+      {loading ? "Starting…" : speaking ? "Stop" : label}
     </button>
   );
 }
