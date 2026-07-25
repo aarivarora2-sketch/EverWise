@@ -4,6 +4,7 @@ import {
   challengesByOrder,
 } from "../data/lessons";
 import { getPhase } from "../data/phases";
+import BiomeScenery from "../components/BiomeScenery";
 import {
   CheckIcon,
   LockIcon,
@@ -16,76 +17,28 @@ import {
 
 const TOP_PAD = 12; // first phase sits near the top of the scroll area
 // Tall enough for circle + 20px two-line label + trail clearance to the next node.
-const NODE_SLOT = 288;
+const NODE_SLOT = 380;
 // Generous space around the lighter phase headers (no filled block).
-const PHASE_TOP = 72; // used between later phases only
+const PHASE_TOP = 32; // used between later phases only
 const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
-const PHASE_BAND = 72;
-const PHASE_BOTTOM = 72;
+const PHASE_BAND = 88;
+const PHASE_BOTTOM = 32;
 // Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
-const NODE_BOX_H = 214;
-const BOX_CLEARANCE = 16; // first/last dot ≥ 16px past the box edge
-// Snake wind within the column — clamped so 10.5rem nodes stay on-screen.
-const SNAKE_OFFSETS = [-56, 0, 56, 0];
+const NODE_BOX_H = 182;
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
-const DOT_LOCKED = "rgba(34, 32, 28, 0.10)"; // bg-ink/10
-const DOT_FILLED = "rgba(34, 32, 28, 0.38)";
+const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
 
-function snakeOffset(indexInPhase) {
-  return SNAKE_OFFSETS[indexInPhase % SNAKE_OFFSETS.length];
-}
-
-/** Point on a cubic Bézier (S-curve between two snake offsets). */
-function cubicPoint(t, p0, p1, p2, p3) {
-  const u = 1 - t;
-  const uu = u * u;
-  const tt = t * t;
-  return {
-    x: uu * u * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + tt * t * p3.x,
-    y: uu * u * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + tt * t * p3.y,
-  };
-}
-
-/** Always two dots at 1/3 and 2/3 along the cubic, by measured arc length. */
-function snakeCurveDots(x1, y1, x2, y2) {
-  const dy = y2 - y1;
-  const p0 = { x: x1, y: y1 };
-  const p3 = { x: x2, y: y2 };
-  const p1 = { x: x1, y: y1 + dy * 0.45 };
-  const p2 = { x: x2, y: y2 - dy * 0.45 };
-
-  const SAMPLES = 48;
-  const samples = [];
-  let totalLen = 0;
-  let prev = cubicPoint(0, p0, p1, p2, p3);
-  samples.push({ t: 0, len: 0, ...prev });
-  for (let i = 1; i <= SAMPLES; i++) {
-    const t = i / SAMPLES;
-    const pt = cubicPoint(t, p0, p1, p2, p3);
-    totalLen += Math.hypot(pt.x - prev.x, pt.y - prev.y);
-    samples.push({ t, len: totalLen, ...pt });
-    prev = pt;
-  }
-
-  const pointAtFraction = (frac) => {
-    const target = totalLen * frac;
-    for (let i = 1; i < samples.length; i++) {
-      if (samples[i].len >= target) {
-        const a = samples[i - 1];
-        const b = samples[i];
-        const span = b.len - a.len || 1;
-        const u = (target - a.len) / span;
-        return {
-          x: a.x + (b.x - a.x) * u,
-          y: a.y + (b.y - a.y) * u,
-        };
-      }
-    }
-    return { x: p3.x, y: p3.y };
-  };
-
-  return [pointAtFraction(1 / 3), pointAtFraction(2 / 3)];
+// Continuous sine wave instead of a fixed repeating cycle — never lands on
+// the exact same shape twice, so the path reads as a real winding road
+// instead of a mechanical zig-zag.
+function snakeOffset(indexInPhase, phaseNumber) {
+  // The first lesson of every phase always sits dead center under the
+  // "Foundations"-style title; the wave only kicks in after that.
+  if (indexInPhase === 0) return 0;
+  const seed = (phaseNumber ?? 1) * 0.83;
+  const wave = Math.sin(indexInPhase * 1.35 + seed) * 60;
+  return Math.round(wave);
 }
 
 function phaseLessonsDone(phase, doneSet) {
@@ -192,7 +145,7 @@ export default function LessonPath({
   let y = TOP_PAD;
   let phaseCount = 0;
   let indexInPhase = 0;
-  const positioned = items.map((item) => {
+  const positioned = items.map((item, idx) => {
     if (item.kind === "phase") {
       const isFirst = phaseCount === 0;
       phaseCount += 1;
@@ -203,15 +156,21 @@ export default function LessonPath({
       return pos;
     }
     const offsetX =
-      item.kind === "reward" ? 0 : snakeOffset(indexInPhase);
+      item.kind === "reward" ? 0 : snakeOffset(indexInPhase, item.phase);
     if (item.kind !== "reward") indexInPhase += 1;
     const pos = { ...item, top: y, offsetX };
-    y += NODE_SLOT;
+    // Only gaps that actually get connector dots need the tall slot. A gap
+    // into a phase header or into the final reward has none, so it can be
+    // compact; the very last node needs nothing below it at all.
+    const next = items[idx + 1];
+    const isLast = !next;
+    const nextHasDots = next && next.phase != null && next.phase === item.phase;
+    y += isLast ? NODE_BOX_H : nextHasDots ? NODE_SLOT : NODE_BOX_H + 44;
     return pos;
   });
-  const containerHeight = y + 48;
+  const containerHeight = y + 16;
 
-  const trailNodes = positioned.filter(
+  const pathNodes = positioned.filter(
     (n) =>
       n.kind === "lesson" ||
       n.kind === "challenge" ||
@@ -219,32 +178,39 @@ export default function LessonPath({
       n.kind === "reward"
   );
 
-  // Curved trails per same-phase segment — never through a phase header.
+  // Two evenly spaced stepping-stone dots in every same-phase gap. They sit
+  // on the straight line between the two nodes, so consecutive gaps read as
+  // one continuous winding path rather than isolated pairs.
   const dots = [];
-  for (let i = 0; i < trailNodes.length - 1; i++) {
-    const a = trailNodes[i];
-    const b = trailNodes[i + 1];
+  for (let i = 0; i < pathNodes.length - 1; i++) {
+    const a = pathNodes[i];
+    const b = pathNodes[i + 1];
     if (a.phase == null || b.phase == null || a.phase !== b.phase) continue;
 
-    const x1 = a.offsetX ?? 0;
-    const x2 = b.offsetX ?? 0;
-    const y1 = a.top + NODE_BOX_H + BOX_CLEARANCE;
-    const y2 = b.top - BOX_CLEARANCE;
-    if (y2 <= y1) continue;
+    const ax = a.offsetX ?? 0;
+    const bx = b.offsetX ?? 0;
+    const ay = a.top + NODE_BOX_H;
+    const by = b.top;
+    if (by <= ay) continue;
 
-    const filled = doneSet.has(b.id);
-    const pts = snakeCurveDots(x1, y1, x2, y2);
-    pts.forEach((pt, k) => {
+    // Lights up once the lesson before the dots is complete.
+    const color = doneSet.has(a.id) ? getPhase(a.phase).color : DOT_LOCKED;
+
+    [0.26, 0.74].forEach((t, k) => {
       dots.push({
         key: `${a.id}-${b.id}-${k}`,
-        x: pt.x,
-        y: pt.y,
-        filled,
+        x: ax + (bx - ax) * t,
+        y: ay + (by - ay) * t,
+        color,
       });
     });
   }
 
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
+
+  const phaseBands = positioned.filter((n) => n.kind === "phase");
+  const lastPhaseColor =
+    phaseBands[phaseBands.length - 1]?.phase.color ?? activePhase.color;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -278,9 +244,11 @@ export default function LessonPath({
       </header>
 
       <div
-        className="flex-1 overflow-y-auto pb-8"
+        className="hide-scrollbar flex-1 overflow-y-auto"
         style={{
-          background: `linear-gradient(180deg, ${activePhase.color}14 0%, transparent 220px)`,
+          // Solid color only. A gradient here has to be re-rasterized on every
+          // scroll frame, which showed up as a stutter partway down the path.
+          backgroundColor: `${lastPhaseColor}10`,
         }}
       >
         <div
@@ -291,18 +259,28 @@ export default function LessonPath({
             .filter((n) => n.kind === "phase")
             .map((band, i, bands) => {
               const next = bands[i + 1];
-              const end = next ? next.top : containerHeight;
+              const isLastBand = !next;
               return (
                 <div
                   key={`tint-${band.phase.number}`}
                   aria-hidden="true"
-                  className="absolute inset-x-0 rounded-3xl"
+                  className="absolute inset-x-0 overflow-hidden rounded-3xl"
                   style={{
                     top: band.top,
-                    height: Math.max(0, end - band.top),
+                    // The final band stretches to the true bottom so no bare
+                    // cream strip can appear under the last node.
+                    ...(isLastBand
+                      ? { bottom: 0 }
+                      : { height: Math.max(0, next.top - band.top) }),
                     backgroundColor: `${band.phase.color}10`,
                   }}
-                />
+                >
+                  <BiomeScenery
+                    biome={band.phase.biome}
+                    color={band.phase.color}
+                    className="bottom-0 h-[220px]"
+                  />
+                </div>
               );
             })}
 
@@ -310,12 +288,13 @@ export default function LessonPath({
             <span
               key={d.key}
               aria-hidden="true"
-              className="absolute h-3.5 w-4 rounded-full"
+              className="absolute h-5 w-5 rounded-full"
               style={{
                 left: `calc(50% + ${d.x}px)`,
                 top: d.y,
                 transform: "translate(-50%, -50%)",
-                backgroundColor: d.filled ? DOT_FILLED : DOT_LOCKED,
+                backgroundColor: d.color,
+                transition: "background-color 0.4s ease",
               }}
             />
           ))}
@@ -334,12 +313,12 @@ export default function LessonPath({
                     aria-hidden="true"
                   />
                   <p
-                    className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em]"
+                    className="mt-3 text-[18px] font-bold uppercase tracking-[0.12em]"
                     style={{ color: node.phase.color }}
                   >
                     Phase {node.phase.number} · {node.phase.biome}
                   </p>
-                  <p className="mt-1 font-serif text-[30px] font-bold leading-tight text-ink">
+                  <p className="mt-1 font-serif text-[34px] font-bold leading-tight text-ink">
                     {node.phase.title}
                   </p>
                 </div>
@@ -435,7 +414,7 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
     ? `Redo challenge: ${title}`
     : `Redo completed lesson: ${title}`;
 
-  // Current / active node keeps the clay START treatment.
+  // Current / active node uses the phase/biome color.
   if (state === "current") {
     return (
       <div className="relative shrink-0">
@@ -443,7 +422,7 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
           className={`absolute inset-0 rounded-full animate-pulse-ring ${
             isChallenge ? "ring-4 ring-inset ring-cream-card/35" : ""
           }`}
-          style={{ backgroundColor: `${CLAY}66` }}
+          style={{ backgroundColor: `${fill}66` }}
         />
         <button
           type="button"
@@ -453,8 +432,8 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
             isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
           }`}
           style={{
-            backgroundColor: CLAY,
-            boxShadow: `0 7px 0 ${shade(CLAY, -25)}`,
+            backgroundColor: fill,
+            boxShadow: `0 7px 0 ${shade(fill, -25)}`,
           }}
         >
           {isExam ? (
@@ -548,7 +527,7 @@ function Label({ state, title, phaseColor }) {
         className="mx-auto line-clamp-2 max-w-[10rem] text-center text-[20px] font-semibold leading-snug"
         style={
           state === "current"
-            ? { color: CLAY }
+            ? { color: fill }
             : state === "done" || state === "reward-done"
             ? { color: fill }
             : state === "locked"
@@ -562,7 +541,7 @@ function Label({ state, title, phaseColor }) {
       {state === "current" && (
         <span
           className="mt-1 block text-[13px] font-bold uppercase tracking-wide"
-          style={{ color: CLAY, opacity: 0.8 }}
+          style={{ color: fill, opacity: 0.8 }}
         >
           Today
         </span>

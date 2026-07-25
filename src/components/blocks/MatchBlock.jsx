@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { shuffle } from "../../utils/shuffle";
+import ReadAloud from "../ReadAloud";
 import BlockShell from "./BlockShell";
 
 export default function MatchBlock({
@@ -65,6 +66,18 @@ export default function MatchBlock({
       <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
         {block.title || "Match the Word"}
       </h1>
+
+      <div className="mt-5">
+        <ReadAloud
+          text={[
+            "Tap a word, then tap its matching definition.",
+            "Words:",
+            pairs.map((p) => p.word).join(", "),
+            "Meanings:",
+            definitions.join(". "),
+          ].join(". ")}
+        />
+      </div>
 
       <div className="mt-8 grid grid-cols-2 gap-4">
         <div className="space-y-3">

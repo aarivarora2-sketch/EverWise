@@ -1,5 +1,6 @@
 import { useState } from "react";
 import BlockShell from "../components/blocks/BlockShell";
+import ReadAloud from "../components/ReadAloud";
 import { TrophyIcon } from "../components/Icons";
 
 function pickTier(results, score) {
@@ -244,6 +245,10 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
       <h1 className="mt-3 font-serif text-3xl font-semibold leading-tight text-ink">
         {q.question}
       </h1>
+
+      <div className="mt-5">
+        <ReadAloud text={q.question} label="Read this aloud" />
+      </div>
 
       <div className="mt-8 space-y-4">
         {q.options.map((option, i) => {

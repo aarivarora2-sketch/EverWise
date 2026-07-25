@@ -20,7 +20,17 @@ import {
   isTrialExpired,
   trialDaysLeft,
 } from "./utils/subscription";
+import {
+  dayString,
+  addDays,
+  nextStreak,
+  liveStreak,
+  isDoneToday,
+  streakAtRisk,
+  milestoneReached,
+} from "./utils/streak";
 import PhoneShell from "./components/PhoneShell";
+import Badges from "./screens/Badges";
 import Landing from "./screens/Landing";
 import SignUp from "./screens/SignUp";
 import LogIn from "./screens/LogIn";
@@ -34,19 +44,10 @@ import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 
-function dayString(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function nextStreak(prevStreak, lastCompletedDate, today) {
-  if (lastCompletedDate === today) return prevStreak;
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (lastCompletedDate === dayString(yesterday)) return prevStreak + 1;
-  return 1;
+/** Keep the last 60 practice days for the week strip, newest first. */
+function nextPracticeDays(prev = [], today) {
+  if (prev.includes(today)) return prev;
+  return [today, ...prev].slice(0, 60);
 }
 
 /** Ensure subscription fields exist and expire trials past 3 days. */
@@ -87,6 +88,8 @@ export default function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeExam, setActiveExam] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
+  // Streak milestone to celebrate on the next Complete screen, if any.
+  const [celebrateStreak, setCelebrateStreak] = useState(null);
   // After signup we route to the intro paywall; don't let auth state overwrite it.
   const skipAuthHomeRef = useRef(false);
 
@@ -145,6 +148,14 @@ export default function App() {
   ).length;
   const badgesEarnedCount = (profile?.badges ?? []).length;
 
+  // A streak only counts if the last lesson was today or yesterday.
+  const rawStreak = profile?.streak ?? 0;
+  const lastCompletedDate = profile?.lastCompletedDate ?? null;
+  const currentStreak = liveStreak(rawStreak, lastCompletedDate);
+  const doneToday = isDoneToday(lastCompletedDate);
+  const atRisk = streakAtRisk(rawStreak, lastCompletedDate);
+  const practiceDays = profile?.practiceDays ?? [];
+
   const goHome = () => setScreen("home");
   const goPath = () => {
     setActiveExam(null);
@@ -156,6 +167,27 @@ export default function App() {
     setScreen("paywall");
   };
   const goSettings = () => setScreen("settings");
+  const goBadges = () => setScreen("badges");
+
+  /** Dev only: force a streak value and backfill matching practice days. */
+  const devSetStreak = async (n) => {
+    if (!user) return;
+    const today = new Date();
+    const days = [];
+    for (let i = 0; i < n; i++) days.push(dayString(addDays(today, -i)));
+    const updates = {
+      streak: n,
+      lastCompletedDate: n > 0 ? dayString(today) : null,
+      practiceDays: days,
+    };
+    setProfile((p) => ({ ...p, ...updates }));
+    try {
+      console.log("[Everwise][firestore] dev set streak users/", user.uid, updates);
+      await updateDoc(doc(db, "users", user.uid), updates);
+    } catch (err) {
+      console.error("[Everwise][firestore] Failed to set streak:", err);
+    }
+  };
 
   const updateSubscription = async (updates) => {
     if (!user) return;
@@ -189,6 +221,7 @@ export default function App() {
         badges: [],
         completedLessons: [],
         lastCompletedDate: null,
+        practiceDays: [],
         trialStartedAt: Timestamp.now(),
         subscriptionStatus: "trial",
         plan: null,
@@ -332,12 +365,20 @@ export default function App() {
             ? prevBadges
             : [...prevBadges, activeLesson.badge],
         streak: nextStreak(
-          profile.streak ?? 0,
+          liveStreak(profile.streak ?? 0, profile.lastCompletedDate),
           profile.lastCompletedDate,
           today
         ),
         lastCompletedDate: today,
+        practiceDays: nextPracticeDays(profile.practiceDays, today),
       };
+
+      // Only celebrate the first lesson of the day, when the streak ticks up.
+      setCelebrateStreak(
+        profile.lastCompletedDate === today
+          ? null
+          : milestoneReached(updates.streak)
+      );
 
       setProfile((p) => ({ ...p, ...updates }));
       try {
@@ -387,11 +428,12 @@ export default function App() {
         totalXp: prevXp + xpGain,
         badges: nextBadges,
         streak: nextStreak(
-          profile.streak ?? 0,
+          liveStreak(profile.streak ?? 0, profile.lastCompletedDate),
           profile.lastCompletedDate,
           today
         ),
         lastCompletedDate: today,
+        practiceDays: nextPracticeDays(profile.practiceDays, today),
       };
 
       setProfile((p) => ({ ...p, ...updates }));
@@ -450,15 +492,26 @@ export default function App() {
       content = (
         <Home
           name={profile?.name ?? ""}
-          streak={profile?.streak ?? 0}
+          streak={currentStreak}
           scamsCaught={profile?.scamsCaught ?? 0}
+          badgesEarned={badgesEarnedCount}
+          practiceDays={practiceDays}
+          lastCompletedDate={lastCompletedDate}
+          doneToday={doneToday}
+          atRisk={atRisk}
           allDone={allDone}
           subscriptionStatus={subscriptionStatus}
           trialDaysLeft={daysLeft}
           onStart={goPath}
+          onOpenBadges={goBadges}
           onOpenPaywall={goPaywall}
           onOpenSettings={goSettings}
         />
+      );
+      break;
+    case "badges":
+      content = (
+        <Badges badges={profile?.badges ?? []} onBack={goHome} />
       );
       break;
     case "settings":
@@ -491,6 +544,8 @@ export default function App() {
               subscriptionStatus: "expired",
             })
           }
+          streak={currentStreak}
+          onDevSetStreak={devSetStreak}
         />
       );
       break;
@@ -500,7 +555,7 @@ export default function App() {
           key={`paywall-${paywallVariant}`}
           variant={paywallVariant}
           lessonsCompleted={lessonsCompletedCount}
-          streak={profile?.streak ?? 0}
+          streak={currentStreak}
           badgesEarned={badgesEarnedCount}
           onStartTrial={startFreeTrial}
           onStartLearning={goHome}
@@ -512,7 +567,7 @@ export default function App() {
       content = (
         <LessonPath
           completedLessons={completedLessons}
-          streak={profile?.streak ?? 0}
+          streak={currentStreak}
           scamsCaught={profile?.scamsCaught ?? 0}
           onSelectLesson={startLesson}
           onSelectChallenge={startChallenge}
@@ -553,7 +608,16 @@ export default function App() {
       );
       break;
     case "complete":
-      content = <Complete lesson={activeLesson} onDone={goPath} />;
+      content = (
+        <Complete
+          lesson={activeLesson}
+          streakMilestone={celebrateStreak}
+          onDone={() => {
+            setCelebrateStreak(null);
+            goPath();
+          }}
+        />
+      );
       break;
     default:
       content = null;

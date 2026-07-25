@@ -1,18 +1,74 @@
-import { FlameIcon, StarIcon } from "../components/Icons";
+import { FlameIcon, ShieldIcon, StarIcon } from "../components/Icons";
+import { weekDays, nextMilestone } from "../utils/streak";
+
+function WeekStrip({ days }) {
+  return (
+    <div className="mt-5 flex items-end justify-between gap-1.5">
+      {days.map((day, i) => (
+        <div key={day.key} className="flex flex-1 flex-col items-center gap-2">
+          <div
+            className={`flex h-10 w-full max-w-[42px] items-center justify-center rounded-xl transition-colors ${
+              day.done
+                ? "bg-clay text-cream-card"
+                : day.isToday
+                ? "border-2 border-dashed border-clay/45 bg-transparent text-clay/60"
+                : "bg-ink/[0.07] text-ink-faint"
+            }`}
+            aria-hidden="true"
+          >
+            {day.done ? <FlameIcon className="h-5 w-5" /> : null}
+          </div>
+          <span
+            className={`text-[15px] font-bold ${
+              day.isToday ? "text-clay" : "text-ink-faint"
+            }`}
+          >
+            {day.letter}
+          </span>
+          <span className="sr-only">
+            {day.key}
+            {day.done ? " practiced" : " not practiced"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Home({
   name,
-  streak,
-  scamsCaught,
+  streak = 0,
+  scamsCaught = 0,
+  badgesEarned = 0,
+  practiceDays = [],
+  lastCompletedDate = null,
+  doneToday = false,
+  atRisk = false,
   allDone,
   subscriptionStatus,
   trialDaysLeft,
   onStart,
+  onOpenBadges,
   onOpenPaywall,
   onOpenSettings,
 }) {
   const firstName = name ? name.trim().split(" ")[0] : "";
   const showTrialBanner = subscriptionStatus === "trial";
+  const days = weekDays(streak, lastCompletedDate, practiceDays);
+  const upcoming = nextMilestone(streak);
+  const toGo = upcoming ? upcoming - streak : null;
+
+  let streakCaption;
+  if (streak === 0) {
+    streakCaption = "Start your streak today.";
+  } else if (doneToday) {
+    streakCaption =
+      toGo && toGo <= 5
+        ? `${toGo} more day${toGo === 1 ? "" : "s"} to ${upcoming}.`
+        : "Come back tomorrow to keep it going.";
+  } else {
+    streakCaption = "Finish a lesson today to keep it.";
+  }
 
   return (
     <div className="flex flex-1 flex-col pb-10">
@@ -26,7 +82,7 @@ export default function Home({
         </button>
       ) : null}
 
-      <div className="flex flex-1 flex-col px-7 pt-8">
+      <div className="flex flex-1 flex-col px-7 pt-7">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
@@ -49,47 +105,68 @@ export default function Home({
         </div>
 
         {firstName && (
-          <p className="mt-8 text-2xl text-ink-soft animate-fade-up">
+          <p className="mt-6 text-2xl text-ink-soft animate-fade-up">
             Hello, <span className="font-semibold text-ink">{firstName}</span>.
           </p>
         )}
 
-        <div className={`${firstName ? "mt-6" : "mt-16"} animate-fade-up`}>
-          <h1 className="font-serif text-6xl font-semibold leading-[1.05] tracking-tight text-ink">
-            {allDone ? (
-              <>
-                All done
-                <br />
-                for today.
-              </>
-            ) : (
-              <>
-                Today's
-                <br />
-                lesson is
-                <br />
-                ready.
-              </>
-            )}
-          </h1>
-          <p className="mt-6 text-xl text-ink-soft">
-            {allDone
-              ? "Great work. Come back tomorrow for the next one."
-              : "One lesson at a time."}
+        {/* Streak hero — the main event on this screen. */}
+        <div className="mt-5 animate-fade-up rounded-3xl bg-cream-card px-6 py-7 shadow-card">
+          <div className="flex items-center justify-center gap-4">
+            <FlameIcon
+              className={`h-16 w-16 ${streak > 0 ? "text-clay" : "text-ink/20"}`}
+            />
+            <div>
+              <p
+                className={`font-serif text-7xl font-bold leading-none ${
+                  streak > 0 ? "text-clay" : "text-ink/25"
+                }`}
+              >
+                {streak}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-center text-2xl font-semibold text-ink">
+            {streak === 1 ? "day streak" : "day streak"}
           </p>
+          <p className="mt-1 text-center text-lg text-ink-soft">
+            {streakCaption}
+          </p>
+
+          <WeekStrip days={days} />
         </div>
 
-        <div className="mt-auto pt-14">
+        {atRisk && (
+          <div
+            className="mt-4 animate-fade-up rounded-3xl border-2 border-clay/35 bg-clay/10 px-6 py-5"
+            role="status"
+          >
+            <p className="text-xl font-bold leading-snug text-clay">
+              Your {streak}-day streak ends tonight.
+            </p>
+            <p className="mt-1 text-lg leading-snug text-ink-soft">
+              One lesson keeps it alive.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-auto pt-8">
           <div className="grid grid-cols-2 gap-4">
-            <div className="stat-card">
+            <button
+              type="button"
+              onClick={onOpenBadges}
+              className="stat-card text-left transition-transform active:translate-y-0.5"
+            >
               <div className="flex items-center gap-2">
-                <FlameIcon className="h-7 w-7 text-clay" />
+                <ShieldIcon className="h-7 w-7 text-clay" />
                 <span className="font-serif text-4xl font-bold text-clay">
-                  {streak}
+                  {badgesEarned}
                 </span>
               </div>
-              <p className="mt-1 text-lg text-ink-soft">days in a row</p>
-            </div>
+              <p className="mt-1 text-lg text-ink-soft">
+                badges <span className="font-semibold text-ink">· view</span>
+              </p>
+            </button>
 
             <div className="stat-card">
               <div className="flex items-center gap-2">
@@ -103,7 +180,13 @@ export default function Home({
           </div>
 
           <button className="btn-primary mt-5" onClick={onStart}>
-            {allDone ? "See your path" : "Start today's lesson"}
+            {allDone
+              ? "See your path"
+              : doneToday
+              ? "Keep learning"
+              : streak > 0
+              ? "Keep your streak"
+              : "Start today's lesson"}
           </button>
         </div>
       </div>

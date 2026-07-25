@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowLeftIcon } from "../Icons";
+import ReadAloud from "../ReadAloud";
 import BlockShell from "./BlockShell";
 
 export default function FlashcardsBlock({
@@ -56,6 +57,10 @@ export default function FlashcardsBlock({
           {flipped ? card.back : card.front}
         </p>
       </button>
+
+      <div className="mt-6">
+        <ReadAloud text={flipped ? card.back : card.front} />
+      </div>
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <button

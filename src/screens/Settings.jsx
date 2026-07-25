@@ -44,6 +44,8 @@ export default function Settings({
   onDevResetTrial,
   onDevSetActive,
   onDevSetExpired,
+  streak = 0,
+  onDevSetStreak,
 }) {
   const daysLeft = trialDaysLeft(trialStartedAt);
   const statusText = statusLabel(subscriptionStatus);
@@ -111,6 +113,48 @@ export default function Settings({
         <Row label="Reset trial (dev)" onClick={onDevResetTrial} />
         <Row label="Set active (dev)" onClick={onDevSetActive} />
         <Row label="Set expired (dev)" onClick={onDevSetExpired} />
+
+        <div className="rounded-2xl bg-cream-card px-5 py-5 shadow-card">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xl font-semibold text-ink">Streak (dev)</p>
+            <p className="shrink-0 text-2xl font-bold text-clay">{streak}</p>
+          </div>
+          <p className="mt-1 text-lg text-ink-soft">
+            Counts today as practiced.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[0, 1, 3, 7, 14, 30, 100].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onDevSetStreak?.(n)}
+                className={`rounded-xl border-2 px-4 py-2.5 text-lg font-bold transition-colors ${
+                  streak === n
+                    ? "border-clay bg-clay text-cream-card"
+                    : "border-ink/15 bg-cream-card text-ink hover:bg-cream-deep"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => onDevSetStreak?.(Math.max(0, streak - 1))}
+              className="flex-1 rounded-xl border-2 border-ink/15 bg-cream-card py-2.5 text-lg font-bold text-ink hover:bg-cream-deep"
+            >
+              −1
+            </button>
+            <button
+              type="button"
+              onClick={() => onDevSetStreak?.(streak + 1)}
+              className="flex-1 rounded-xl border-2 border-ink/15 bg-cream-card py-2.5 text-lg font-bold text-ink hover:bg-cream-deep"
+            >
+              +1
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

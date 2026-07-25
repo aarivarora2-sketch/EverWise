@@ -14,9 +14,71 @@ import {
   phase4Exam,
 } from "./phase4-lessons";
 import { phase5Lessons, phase5Exam } from "./phase5-lessons";
-import { phase6Lessons } from "./phase6-lessons";
+import { phase6Lessons, phase6Exam } from "./phase6-lessons";
+import { phase7Lessons, phase7Exam } from "./phase7-lessons";
 
 export const lessons = [
+  // ============================================================
+  // LESSON 0 — Welcome video
+  // Order 0 keeps it first without renumbering every other lesson.
+  // Swap `videoId` below for the real YouTube ID when the video is ready:
+  // https://www.youtube.com/watch?v=XXXXXXXXXXX  →  videoId: "XXXXXXXXXXX"
+  // ============================================================
+  {
+    id: "welcome",
+    phase: 1,
+    order: 0,
+    title: "Welcome to Everwise",
+    pathTitle: "Welcome",
+    badge: "Welcome Aboard",
+    xp: 20,
+    goals: [
+      "Understand what Everwise is for.",
+      "Know how the lessons work.",
+      "Feel ready to start learning."
+    ],
+    blocks: [
+      {
+        type: "video",
+        label: "Welcome",
+        heading: "Welcome to Everwise",
+        text: "Watch this short video to hear why we built Everwise and how it works.",
+        videoId: "",
+        footer: "When you're ready, tap Continue to start your first lesson.",
+        continueLabel: "I'm ready"
+      },
+      {
+        type: "learn",
+        heading: "How Everwise Works",
+        text: "Everwise teaches you to use the internet safely, one short lesson at a time.",
+        bullets: [
+          "Each lesson takes about 5 to 7 minutes",
+          "You'll read a little, then practice what you learned",
+          "Every lesson ends with a short quiz",
+          "You earn a badge for each lesson you finish"
+        ],
+        footer: "There's no rush and no wrong pace. One lesson a day is plenty."
+      },
+      {
+        type: "learn",
+        heading: "Your Streak",
+        text: "Coming back each day builds a streak. The streak isn't a score to chase — it's just a gentle reminder that a few minutes a day adds up. If you miss a day, you can always start again.",
+        footer: "Ready? Let's begin."
+      }
+    ],
+    quiz: [],
+    complete: {
+      title: "Welcome Aboard!",
+      subtitle: "You're all set to begin.",
+      learned: [
+        "Understand what Everwise is for.",
+        "Know how the lessons work.",
+        "Know what a streak means."
+      ],
+      next: "What is the Internet?"
+    }
+  },
+
   // ============================================================
   // LESSON 1
   // ============================================================
@@ -117,8 +179,25 @@ export const lessons = [
         title: "Internet or Not?",
         prompt: "Drag each activity into the correct box.",
         categories: [
-          { label: "Uses the Internet", items: ["Watch YouTube", "Send an email", "Video call family", "Use Google Maps", "Check the weather"] },
-          { label: "Does NOT Need the Internet", items: ["Read a paper book", "Write in a notebook", "Play with a deck of cards", "Solve a crossword puzzle"] }
+          {
+            label: "Uses the Internet",
+            items: [
+              { text: "Watch YouTube", why: "streams video from YouTube's computers to yours, which needs a connection." },
+              { text: "Send an email", why: "has to travel across the internet to reach the other person's inbox." },
+              { text: "Video call family", why: "sends live picture and sound between two devices over the internet." },
+              { text: "Use Google Maps", why: "pulls maps and traffic information from Google as you travel." },
+              { text: "Check the weather", why: "gets today's forecast from a weather service online." }
+            ]
+          },
+          {
+            label: "Does NOT Need the Internet",
+            items: [
+              { text: "Read a paper book", why: "is printed on paper, so nothing has to be downloaded." },
+              { text: "Write in a notebook", why: "only needs a pen and paper." },
+              { text: "Play with a deck of cards", why: "is a physical game with no device involved." },
+              { text: "Solve a crossword puzzle", why: "can be done on paper without any connection." }
+            ]
+          }
         ]
       },
       {
@@ -170,8 +249,26 @@ export const lessons = [
         title: "Sorting Game",
         prompt: "Put each item into the correct group.",
         categories: [
-          { label: "Internet", items: ["Google Maps", "Facebook", "YouTube", "Amazon", "Email"] },
-          { label: "Not the Internet", items: ["Television remote", "Notebook", "Photo album", "Board game", "Printed newspaper"] }
+          {
+            label: "Internet",
+            items: [
+              { text: "Google Maps", why: "loads maps and directions from Google's computers." },
+              { text: "Facebook", why: "shows posts from friends stored online." },
+              { text: "YouTube", why: "streams videos from YouTube's computers." },
+              { text: "Amazon", why: "loads products and orders from Amazon's website." },
+              { text: "Email", why: "travels over the internet to reach the other person." }
+            ]
+          },
+          {
+            label: "Not the Internet",
+            items: [
+              { text: "Television remote", why: "sends a short signal straight to your TV, not over the internet." },
+              { text: "Notebook", why: "is paper — nothing digital involved." },
+              { text: "Photo album", why: "holds printed photos you can hold in your hands." },
+              { text: "Board game", why: "is played in person with physical pieces." },
+              { text: "Printed newspaper", why: "is delivered on paper, not downloaded." }
+            ]
+          }
         ]
       },
       {
@@ -370,8 +467,26 @@ export const lessons = [
         title: "Sorting Game",
         prompt: "Drag each activity into the correct box.",
         categories: [
-          { label: "Good Uses of AI", items: ["Summarizing an article", "Writing an email", "Brainstorming vacation ideas", "Translating a sentence", "Explaining a recipe"] },
-          { label: "Not the Best Use of AI Alone", items: ["Diagnosing serious medical problems", "Sending money without verifying information", "Deciding legal matters without professional advice", "Sharing passwords or personal information", "Trusting every answer without checking"] }
+          {
+            label: "Good Uses of AI",
+            items: [
+              { text: "Summarizing an article", why: "is low-risk — if the summary is off, you can read the original." },
+              { text: "Writing an email", why: "gives you a draft you can read and change before sending." },
+              { text: "Brainstorming vacation ideas", why: "is just ideas, and you decide what to actually do." },
+              { text: "Translating a sentence", why: "is a task AI handles well, and mistakes are easy to spot." },
+              { text: "Explaining a recipe", why: "is everyday information you can double-check as you cook." }
+            ]
+          },
+          {
+            label: "Not the Best Use of AI Alone",
+            items: [
+              { text: "Diagnosing serious medical problems", why: "can be wrong in ways that hurt you — a doctor should decide." },
+              { text: "Sending money without verifying information", why: "can't be undone if the information turns out to be wrong." },
+              { text: "Deciding legal matters without professional advice", why: "carries real consequences a lawyer should review." },
+              { text: "Sharing passwords or personal information", why: "puts your accounts at risk no matter how trustworthy the tool seems." },
+              { text: "Trusting every answer without checking", why: "is risky because AI can sound confident and still be wrong." }
+            ]
+          }
         ]
       },
       {
@@ -559,8 +674,26 @@ export const lessons = [
         title: "Safe or Unsafe?",
         prompt: "Drag each item into the correct box.",
         categories: [
-          { label: "Safe to Ask ChatGPT", items: ["Help write an email", "Explain a science topic", "Plan a vacation", "Translate a sentence", "Create a grocery list"] },
-          { label: "Don't Rely on ChatGPT Alone For", items: ["Medical emergencies", "Legal decisions", "Investment advice", "Passwords", "Social Security numbers"] }
+          {
+            label: "Safe to Ask ChatGPT",
+            items: [
+              { text: "Help write an email", why: "produces a draft you review before anyone sees it." },
+              { text: "Explain a science topic", why: "is general knowledge you can verify elsewhere." },
+              { text: "Plan a vacation", why: "gives suggestions, and you make the final choices." },
+              { text: "Translate a sentence", why: "is a routine task with low risk if slightly off." },
+              { text: "Create a grocery list", why: "is a simple everyday task with nothing at stake." }
+            ]
+          },
+          {
+            label: "Don't Rely on ChatGPT Alone For",
+            items: [
+              { text: "Medical emergencies", why: "need a real doctor or emergency services immediately." },
+              { text: "Legal decisions", why: "have consequences a qualified lawyer should review." },
+              { text: "Investment advice", why: "involves your money, and AI can be confidently wrong." },
+              { text: "Passwords", why: "should never be typed into any chat tool." },
+              { text: "Social Security numbers", why: "are exactly what identity thieves want — keep them private." }
+            ]
+          }
         ]
       },
       {
@@ -738,8 +871,24 @@ export const lessons = [
         title: "Search Engine or Website?",
         prompt: "Drag each item into the correct box.",
         categories: [
-          { label: "Search Engines", items: ["Google", "Bing", "DuckDuckGo"] },
-          { label: "Websites", items: ["YouTube", "Wikipedia", "Amazon", "Weather.com", "ESPN"] }
+          {
+            label: "Search Engines",
+            items: [
+              { text: "Google", why: "is a tool for finding other websites, not a destination itself." },
+              { text: "Bing", why: "searches the whole web for you, like Google does." },
+              { text: "DuckDuckGo", why: "is a search engine that finds websites without tracking you." }
+            ]
+          },
+          {
+            label: "Websites",
+            items: [
+              { text: "YouTube", why: "is one place you visit, not a tool for searching the whole web." },
+              { text: "Wikipedia", why: "is a single site with articles — a search engine helps you find it." },
+              { text: "Amazon", why: "is a store you visit, even though it has its own search box." },
+              { text: "Weather.com", why: "is one specific site that shows forecasts." },
+              { text: "ESPN", why: "is a sports site, one destination among millions." }
+            ]
+          }
         ]
       },
       {
@@ -893,8 +1042,26 @@ export const lessons = [
         title: "App or Website?",
         prompt: "Drag each item into the correct box.",
         categories: [
-          { label: "Apps", items: ["Camera", "Messages", "Maps", "Facebook App", "Calculator"] },
-          { label: "Websites", items: ["weather.com", "irs.gov", "amazon.com", "wikipedia.org", "youtube.com"] }
+          {
+            label: "Apps",
+            items: [
+              { text: "Camera", why: "is a program on your device that you open by tapping its icon." },
+              { text: "Messages", why: "is installed on your phone, not opened in a browser." },
+              { text: "Maps", why: "is an icon you tap on your home screen." },
+              { text: "Facebook App", why: "is the installed version — the website is facebook.com." },
+              { text: "Calculator", why: "is a built-in program that works without any browser." }
+            ]
+          },
+          {
+            label: "Websites",
+            items: [
+              { text: "weather.com", why: "is a web address you open in a browser." },
+              { text: "irs.gov", why: "ends in .gov — it's an address, not an icon on your phone." },
+              { text: "amazon.com", why: "is the web address; the Amazon app is the installed version." },
+              { text: "wikipedia.org", why: "is a web address you visit using Chrome or Safari." },
+              { text: "youtube.com", why: "is the website version you open in a browser." }
+            ]
+          }
         ]
       },
       {
@@ -1086,8 +1253,23 @@ export const lessons = [
         title: "VPN or No VPN?",
         prompt: "Drag each situation into the correct box.",
         categories: [
-          { label: "VPN Could Be Helpful", items: ["Airport Wi-Fi", "Hotel Wi-Fi", "Coffee Shop Wi-Fi", "Library Wi-Fi"] },
-          { label: "Usually Less Important", items: ["Reading a downloaded book", "Using apps that don't need the internet", "Browsing at home on your own secure Wi-Fi"] }
+          {
+            label: "VPN Could Be Helpful",
+            items: [
+              { text: "Airport Wi-Fi", why: "is shared with hundreds of strangers you don't know." },
+              { text: "Hotel Wi-Fi", why: "is used by every other guest in the building." },
+              { text: "Coffee Shop Wi-Fi", why: "is open to anyone who walks in." },
+              { text: "Library Wi-Fi", why: "is a public network shared with everyone there." }
+            ]
+          },
+          {
+            label: "Usually Less Important",
+            items: [
+              { text: "Reading a downloaded book", why: "doesn't send anything over a network at all." },
+              { text: "Using apps that don't need the internet", why: "means there's no connection for anyone to snoop on." },
+              { text: "Browsing at home on your own secure Wi-Fi", why: "is already password-protected and used only by your household." }
+            ]
+          }
         ]
       },
       {
@@ -1265,8 +1447,24 @@ export const lessons = [
         title: "Safe or Unsafe?",
         prompt: "Drag each action into the correct box.",
         categories: [
-          { label: "Safe", items: ["Use a strong password", "Install software updates", "Lock your phone", "Ask someone you trust if you're unsure"] },
-          { label: "Unsafe", items: ["Share your password", "Ignore every software update", "Click links from unknown emails", "Use \"123456\" as your password"] }
+          {
+            label: "Safe",
+            items: [
+              { text: "Use a strong password", why: "makes it far harder for anyone to guess their way in." },
+              { text: "Install software updates", why: "fixes security holes that scammers try to use." },
+              { text: "Lock your phone", why: "keeps your accounts protected if the phone is lost or stolen." },
+              { text: "Ask someone you trust if you're unsure", why: "gives you a second opinion before you act on something suspicious." }
+            ]
+          },
+          {
+            label: "Unsafe",
+            items: [
+              { text: "Share your password", why: "hands over the key to your account." },
+              { text: "Ignore every software update", why: "leaves known security problems unfixed on your device." },
+              { text: "Click links from unknown emails", why: "is exactly how phishing scams get started." },
+              { text: "Use \"123456\" as your password", why: "is one of the first passwords any attacker tries." }
+            ]
+          }
         ]
       },
       {
@@ -1451,8 +1649,26 @@ export const lessons = [
         title: "Keep Private or Safe to Share?",
         prompt: "Drag each item into the correct box.",
         categories: [
-          { label: "Keep Private", items: ["Password", "Social Security Number", "Credit Card Number", "Verification Code", "Bank Account Number"] },
-          { label: "Usually Safe to Share", items: ["Favorite Food", "Favorite Color", "Favorite Hobby", "Favorite Book", "Favorite Movie"] }
+          {
+            label: "Keep Private",
+            items: [
+              { text: "Password", why: "unlocks your account for anyone who has it." },
+              { text: "Social Security Number", why: "can be used to open accounts in your name." },
+              { text: "Credit Card Number", why: "lets someone spend your money." },
+              { text: "Verification Code", why: "is the one thing standing between a scammer and your account." },
+              { text: "Bank Account Number", why: "can be used to move money out of your account." }
+            ]
+          },
+          {
+            label: "Usually Safe to Share",
+            items: [
+              { text: "Favorite Food", why: "can't be used to access anything of yours." },
+              { text: "Favorite Color", why: "reveals nothing a scammer could use." },
+              { text: "Favorite Hobby", why: "is ordinary conversation, not sensitive information." },
+              { text: "Favorite Book", why: "gives away nothing about your accounts or identity." },
+              { text: "Favorite Movie", why: "is harmless small talk." }
+            ]
+          }
         ]
       },
       {
@@ -1516,7 +1732,7 @@ export const lessons = [
 
 export default lessons;
 
-// Full Digital Literacy track: Phase 1 → 2 → 3 → 4 → 5 → 6.
+// Full Digital Literacy track: Phase 1 → 2 → 3 → 4 → 5 → 6 → 7.
 export const allLessons = [
   ...lessons,
   ...phase2Lessons,
@@ -1524,6 +1740,7 @@ export const allLessons = [
   ...phase4Lessons,
   ...phase5Lessons,
   ...phase6Lessons,
+  ...phase7Lessons,
 ];
 
 // Lessons sorted by curriculum order for the path and player.
@@ -1535,8 +1752,8 @@ export const challengesByOrder = [phase4Challenge].filter(Boolean).sort(
 );
 
 // Phase exams — only real exam objects (phases without an exam simply omit one).
-export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam]
+export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam, phase6Exam, phase7Exam]
   .filter((exam) => exam && exam.id && Array.isArray(exam.questions))
   .sort((a, b) => a.order - b.order);
 
-export { phase3Exam, phase4Challenge, phase4Exam, phase5Exam };
+export { phase3Exam, phase4Challenge, phase4Exam, phase5Exam, phase6Exam, phase7Exam };

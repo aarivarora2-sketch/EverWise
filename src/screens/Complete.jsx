@@ -1,12 +1,39 @@
-import { TrophyIcon } from "../components/Icons";
+import { FlameIcon, TrophyIcon } from "../components/Icons";
 
-export default function Complete({ lesson, onDone }) {
+const MILESTONE_COPY = {
+  3: "Three days in a row. The habit is forming.",
+  7: "A full week. That's real consistency.",
+  14: "Two weeks strong. This is who you are now.",
+  30: "A whole month. Remarkable.",
+  60: "Two months without missing. Outstanding.",
+  100: "One hundred days. Extraordinary.",
+  180: "Half a year of showing up.",
+  365: "A full year. Incredible dedication.",
+};
+
+export default function Complete({ lesson, streakMilestone = null, onDone }) {
   const info = lesson.complete || {};
   const isPhaseBadge = Boolean(lesson.phaseBadge);
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
-      <div className="mx-auto mt-6 animate-pop-in">
+      {streakMilestone ? (
+        <div className="animate-pop-in rounded-3xl bg-clay px-6 py-7 text-center text-cream-card shadow-btn">
+          <div className="flex items-center justify-center gap-3">
+            <FlameIcon className="h-14 w-14" />
+            <span className="font-serif text-7xl font-bold leading-none">
+              {streakMilestone}
+            </span>
+          </div>
+          <p className="mt-3 font-serif text-3xl font-bold">Day streak!</p>
+          <p className="mt-2 text-xl leading-snug text-cream-card/85">
+            {MILESTONE_COPY[streakMilestone] ||
+              "Another milestone. Keep going."}
+          </p>
+        </div>
+      ) : null}
+
+      <div className={`mx-auto animate-pop-in ${streakMilestone ? "mt-7" : "mt-6"}`}>
         <div className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage">
           <TrophyIcon className="h-14 w-14" />
         </div>

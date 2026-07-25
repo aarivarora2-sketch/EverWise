@@ -2,10 +2,8 @@
 // Phase 6: Social Media
 // Biome: Orchard | Color: #7A8B4A
 //
-// All lessons exactly as written by the team.
-// NOTE: Lesson 6 (Deepfake Videos) and Lesson 7 (Reporting Fake Accounts)
-// are listed in the phase roadmap but were not in the source document.
-// Add them here when written, then add the Phase 6 Final Exam.
+// All 7 lessons plus the Phase 6 Final Exam.
+// Exports: phase6Lessons (array), phase6Exam (object)
 
 export const phase6Lessons = [
   // ============================================================
@@ -1141,20 +1139,597 @@ export const phase6Lessons = [
       ],
       next: "Deepfake Videos"
     }
-  }
+  },
 
   // ============================================================
-  // LESSON 6.6 - Deepfake Videos (NOT YET WRITTEN)
-  // LESSON 6.7 - Reporting Fake Accounts (NOT YET WRITTEN)
-  // Add them here when written.
+  // LESSON 6.6
   // ============================================================
+  {
+    id: "deepfakes",
+    track: "literacy",
+    phase: 6,
+    order: 49,
+    lessonNumber: "6.6",
+    title: "Deepfake Videos",
+    badge: "Deepfake Detective",
+    xp: 20,
+    goals: [
+      "Explain what a deepfake video is.",
+      "Recognize common warning signs of deepfakes.",
+      "Understand why deepfakes are created.",
+      "Verify videos before believing or sharing them.",
+      "Know what to do if they see a suspicious video online."
+    ],
+    blocks: [
+      {
+        type: "learn",
+        heading: "What Is a Deepfake?",
+        text: "A deepfake is a photo, video, or audio recording that has been changed using artificial intelligence (AI) to make it look or sound like someone said or did something they never actually said or did.",
+        bullets: [
+          "A celebrity made an announcement",
+          "A government official said something shocking",
+          "A family member is asking for money"
+        ],
+        footer: "Sometimes deepfakes are made for entertainment, but scammers also use them to trick people. That's why it's important not to believe every video you see online."
+      },
+      {
+        type: "learn",
+        heading: "Warning Signs of a Deepfake",
+        text: "A deepfake isn't always easy to spot, but watch for these clues:",
+        bullets: [
+          "The person's lips don't match the words",
+          "Their voice sounds strange or robotic",
+          "Facial movements look unnatural",
+          "Lighting or shadows look inconsistent",
+          "The video is blurry around the face",
+          "The video comes from an unfamiliar account"
+        ],
+        footer: "Remember: a realistic-looking video isn't always a real video."
+      },
+      {
+        type: "learn",
+        heading: "What Should You Do?",
+        text: "If you see a surprising video:",
+        bullets: [
+          "Pause before reacting",
+          "Check whether trusted news organizations are reporting it",
+          "Look for the original source of the video",
+          "Ask yourself if the claim seems reasonable",
+          "Don't share it until you've verified it's real"
+        ]
+      },
+      {
+        type: "choice",
+        title: "Is This a Warning Sign?",
+        text: "The person's mouth doesn't match the words they're speaking.",
+        options: ["Possible deepfake", "Probably real"],
+        correctIndex: 0
+      },
+      {
+        type: "choice",
+        title: "Is This a Warning Sign?",
+        text: "The video comes from a verified news organization with clear reporting.",
+        options: ["Fake", "More likely to be trustworthy"],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Is This a Warning Sign?",
+        text: "A video asks you to \"Share before it gets deleted!\"",
+        options: ["Trust it", "Be cautious and verify it first"],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Is This a Warning Sign?",
+        text: "The person's face flickers and looks blurry throughout the video.",
+        options: ["Possible deepfake", "Definitely real"],
+        correctIndex: 0,
+        explanation: "Deepfakes often have visual or audio clues that something isn't right."
+      },
+      {
+        type: "flashcards",
+        title: "Flashcards",
+        cards: [
+          { front: "Deepfake", back: "A photo, video, or audio recording altered with AI to appear real." },
+          { front: "AI", back: "Technology that can create or change images, videos, voices, and text." },
+          { front: "Verify", back: "Check whether information is true before believing or sharing it." },
+          { front: "Original Source", back: "The first trusted place where a video or story was published." },
+          { front: "Misinformation", back: "False or misleading information that can spread online." }
+        ]
+      },
+      {
+        type: "match",
+        title: "Match the Situation",
+        pairs: [
+          { word: "Strange-looking video", match: "Verify before sharing" },
+          { word: "Lips don't match the voice", match: "Possible deepfake" },
+          { word: "Video from an official news source", match: "More likely to be trustworthy" },
+          { word: "Unsure if a video is real", match: "Check trusted sources" },
+          { word: "Unexpected celebrity announcement", match: "Verify before believing it" }
+        ]
+      },
+      {
+        type: "fillblank",
+        title: "Fill in the Blank",
+        wordBank: ["AI", "Verify", "Source", "Share"],
+        questions: [
+          { text: "A deepfake is often created using ______.", answer: "AI" },
+          { text: "Before sharing a surprising video, always ______ it.", answer: "Verify" },
+          { text: "Look for the original ______ of the video.", answer: "Source" }
+        ]
+      },
+      {
+        type: "scenario",
+        title: "Scenario 1",
+        text: "Margaret sees a video of a famous actor promoting a new investment opportunity. The video came from an unfamiliar account. What should she do?",
+        options: [
+          "Invest immediately.",
+          "Share the video.",
+          "Verify whether the actor actually made the video by checking trusted news or the actor's official account.",
+          "Enter her credit card information."
+        ],
+        correctIndex: 2,
+        explanation: "Deepfake videos are sometimes used to promote investment scams."
+      },
+      {
+        type: "scenario",
+        title: "Scenario 2",
+        text: "Robert watches a video of a government official making a surprising announcement. No trusted news organizations are reporting it. What should he do?",
+        options: [
+          "Believe it immediately.",
+          "Share it because it's important.",
+          "Wait and verify the information before believing or sharing it.",
+          "Assume it's true because it looks real."
+        ],
+        correctIndex: 2,
+        explanation: "Just because a video looks convincing doesn't mean it's authentic."
+      },
+      {
+        type: "scenario",
+        title: "Scenario 3",
+        text: "Linda receives a video from a friend. The person's face looks blurry, and the voice sounds unnatural. What should she do?",
+        options: [
+          "Share it with more friends.",
+          "Assume it's funny and real.",
+          "Be cautious and verify whether it's authentic before sharing.",
+          "Ignore all videos forever."
+        ],
+        correctIndex: 2,
+        explanation: "Unusual visual or audio quality can be a warning sign of a deepfake."
+      },
+      {
+        type: "learn",
+        heading: "Quick Tip",
+        text: "Before believing a video, ask yourself: Who posted this video? Does the account seem trustworthy? Are trusted news organizations reporting the same information? Does anything about the video seem unusual? If you're unsure, pause, verify, then decide whether to share it."
+      },
+      {
+        type: "sort",
+        title: "Safe or Unsafe?",
+        prompt: "Drag each choice into the correct box.",
+        categories: [
+          {
+            label: "Safer Choices",
+            items: ["Verify surprising videos", "Check trusted news sources", "Look for the original source", "Be cautious with videos from unfamiliar accounts"]
+          },
+          {
+            label: "Less Safe Choices",
+            items: ["Believe every realistic-looking video", "Share videos without checking", "Trust celebrity videos automatically", "Assume AI-generated videos are always easy to spot"]
+          }
+        ]
+      },
+      {
+        type: "choice",
+        title: "What Should You Do?",
+        text: "You see a video of a celebrity promoting an investment.",
+        options: [
+          "Invest immediately.",
+          "Share it with friends.",
+          "Verify it using the celebrity's official account or trusted news sources.",
+          "Enter your banking information."
+        ],
+        correctIndex: 2,
+        explanation: "Scammers sometimes use deepfake videos to make fake investments seem trustworthy."
+      },
+      {
+        type: "choice",
+        title: "What Should You Do?",
+        text: "A video's voice sounds robotic and the person's lips don't match the words.",
+        options: [
+          "It's definitely real.",
+          "Ignore the warning signs.",
+          "Be cautious - it could be a deepfake.",
+          "Share it anyway."
+        ],
+        correctIndex: 2
+      },
+      {
+        type: "learn",
+        heading: "Spot the Difference: Real vs. AI-Generated",
+        text: "Sometimes it's difficult to tell if an image or video is real. AI has become very good at creating realistic-looking people and scenes. Small details in hands, jewelry, teeth, and backgrounds often reveal that an image isn't real.",
+        bullets: [
+          "Extra or missing fingers",
+          "Earrings that don't match",
+          "Teeth that look too perfect or unnatural",
+          "Glasses that bend or float",
+          "Jewelry that changes shape",
+          "Eyes looking in different directions",
+          "Strange lighting or shadows",
+          "Objects or clothing blending together"
+        ],
+        footer: "Not every AI image has these mistakes, and some real photos have unusual angles or lighting. Look for multiple clues rather than relying on just one."
+      },
+      {
+        type: "choice",
+        title: "Real or AI-Generated?",
+        text: "Picture A: A smiling woman standing in a garden. Five fingers on each hand, natural lighting, clear background, normal facial features.",
+        options: ["AI-generated", "Likely real"],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Real or AI-Generated?",
+        text: "Picture B: A man holding a coffee mug. Six fingers, the mug handle blends into his hand, and his watch looks blurry.",
+        options: ["AI-generated", "Real"],
+        correctIndex: 0
+      },
+      {
+        type: "choice",
+        title: "Real or AI-Generated?",
+        text: "Picture C: A family taking a selfie. Everyone looks natural, shadows match the sunlight, and the background looks consistent.",
+        options: ["AI-generated", "Likely real"],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Real or AI-Generated?",
+        text: "Picture D: A businessman shaking someone's hand. Fingers overlap unnaturally, his tie blends into his jacket, and one ear disappears.",
+        options: ["AI-generated", "Real"],
+        correctIndex: 0,
+        explanation: "You looked for multiple clues, not just one - check hands, fingers, jewelry, clothing, shadows, and the background, not only the face."
+      },
+      {
+        type: "learn",
+        heading: "Remember",
+        text: "Even experts can be fooled by AI images. If a photo or video seems shocking, unbelievable, or is being used to convince you to send money, donate, invest, or share personal information, pause and verify it using trusted sources before acting."
+      }
+    ],
+    quiz: [
+      { question: "What is a deepfake?", options: ["A slow internet connection.", "A broken video file.", "A photo, video, or audio recording changed with AI to appear real.", "A computer virus."], correctIndex: 2 },
+      { question: "Which is a possible warning sign of a deepfake?", options: ["Consistent lighting and natural movement", "The lips don't match the words, the voice sounds unnatural, and the face looks blurry or flickers"], correctIndex: 1 },
+      { question: "True or False: Just because a video looks real doesn't mean it's real.", options: ["True", "False"], correctIndex: 0 },
+      { question: "Deepfakes are often created using ______.", options: ["AI", "Camera", "Password"], correctIndex: 0 },
+      { question: "You see a shocking video of a public official making an unexpected announcement. What should you do?", options: ["Share it immediately.", "Assume it's true because it looks realistic.", "Check trusted news organizations or official government sources before believing or sharing it.", "Ignore all future videos."], correctIndex: 2 },
+      { question: "What's the best first step when you're unsure if a video is real?", options: ["Count the number of views.", "Read only the comments.", "Verify it using trusted sources before sharing.", "Share it so others can decide."], correctIndex: 2 }
+    ],
+    complete: {
+      title: "Great Job!",
+      subtitle: "You completed Lesson 6: Deepfake Videos!",
+      learned: [
+        "Explain what a deepfake video is.",
+        "Recognize common warning signs of deepfakes.",
+        "Verify videos before believing or sharing them.",
+        "Know what to do if you see a suspicious video online."
+      ],
+      next: "Reporting Fake Accounts"
+    }
+  },
+
+  // ============================================================
+  // LESSON 6.7
+  // ============================================================
+  {
+    id: "reporting-fake-accounts",
+    track: "literacy",
+    phase: 6,
+    order: 50,
+    lessonNumber: "6.7",
+    title: "Reporting Fake Accounts",
+    badge: "Community Guardian",
+    xp: 20,
+    goals: [
+      "Recognize fake or scam social media accounts.",
+      "Know when to report an account.",
+      "Know when to block someone.",
+      "Understand what happens after reporting.",
+      "Help keep social media safer for everyone."
+    ],
+    blocks: [
+      {
+        type: "learn",
+        heading: "Why Report Fake Accounts?",
+        text: "Not every suspicious account is dangerous, but many fake accounts are created to:",
+        bullets: [
+          "Steal personal information",
+          "Trick people into sending money",
+          "Send scam messages",
+          "Pretend to be someone else"
+        ],
+        footer: "When you report a fake account, you help the social media platform investigate it. If the account breaks the rules, it may be removed to help protect other users. Reporting isn't being rude - it's helping keep the online community safe."
+      },
+      {
+        type: "learn",
+        heading: "Block vs. Report",
+        text: "Blocking means: they can't message you, they can't see much of your profile, and they can't send you another friend request. Use Block when you don't want someone contacting you.\n\nReporting means: the platform reviews the account, checks whether it is fake or breaking the rules, and may take action if necessary. You can report and block the same account."
+      },
+      {
+        type: "learn",
+        heading: "When Should You Report Someone?",
+        text: "Consider reporting an account if it:",
+        bullets: [
+          "Pretends to be someone else",
+          "Asks strangers for money",
+          "Sends suspicious links",
+          "Tries to steal personal information",
+          "Harasses or threatens people",
+          "Creates fake giveaways or scams"
+        ],
+        footer: "Not every disagreement online should be reported, but scams and impersonation should be."
+      },
+      {
+        type: "choice",
+        title: "Should You Report It?",
+        text: "Someone pretending to be your grandson asks you to send money.",
+        options: ["Ignore it forever.", "Report and block the account."],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Should You Report It?",
+        text: "A friend posts pictures of their vacation.",
+        options: ["Report them.", "No need to report."],
+        correctIndex: 1
+      },
+      {
+        type: "choice",
+        title: "Should You Report It?",
+        text: "An account keeps sending links promising free gift cards.",
+        options: ["Report and block.", "Accept the offers."],
+        correctIndex: 0
+      },
+      {
+        type: "choice",
+        title: "Should You Report It?",
+        text: "Someone creates a fake profile using your photo.",
+        options: ["Report it immediately.", "Do nothing."],
+        correctIndex: 0,
+        explanation: "Reporting scams helps protect both you and other users."
+      },
+      {
+        type: "flashcards",
+        title: "Flashcards",
+        cards: [
+          { front: "Report", back: "Tell the social media platform about suspicious or fake accounts." },
+          { front: "Block", back: "Prevent someone from contacting or viewing your profile." },
+          { front: "Impersonation", back: "Pretending to be another person online." },
+          { front: "Scam Account", back: "A fake profile created to steal money or information." },
+          { front: "Suspicious Link", back: "A link that may lead to a scam or fake website." }
+        ]
+      },
+      {
+        type: "match",
+        title: "Match the Situation",
+        pairs: [
+          { word: "Fake account pretending to be a family member", match: "Report and block" },
+          { word: "Friend shares vacation photos", match: "No report needed" },
+          { word: "Stranger repeatedly sends scam links", match: "Report and block" },
+          { word: "Fake giveaway account", match: "Report it" },
+          { word: "Someone is bothering you with unwanted messages", match: "Block them" }
+        ]
+      },
+      {
+        type: "fillblank",
+        title: "Fill in the Blank",
+        wordBank: ["Report", "Block", "Fake", "Money"],
+        questions: [
+          { text: "If an account is pretending to be someone else, you should ______ it.", answer: "Report" },
+          { text: "If someone keeps sending unwanted messages, you can ______ them.", answer: "Block" },
+          { text: "Many scam accounts try to steal your ______.", answer: "Money" }
+        ]
+      },
+      {
+        type: "scenario",
+        title: "Scenario 1",
+        text: "Margaret receives a friend request from someone using her daughter's name. The profile has only one photo and immediately asks for $200. What should Margaret do?",
+        options: [
+          "Send the money.",
+          "Accept the request first.",
+          "Report the account, block it, and contact her daughter another way to make sure she's okay.",
+          "Reply with her bank account number."
+        ],
+        correctIndex: 2,
+        explanation: "If someone claims to be a family member and asks for money, verify their identity by calling or texting them using a phone number you already know."
+      },
+      {
+        type: "scenario",
+        title: "Scenario 2",
+        text: "Robert receives the same suspicious message from one account every day. It says: \"Click here to claim your free prize!\" What should he do?",
+        options: [
+          "Keep clicking the link.",
+          "Reply with personal information.",
+          "Block the account and report it.",
+          "Share it with friends."
+        ],
+        correctIndex: 2,
+        explanation: "Blocking stops future messages, and reporting helps protect others."
+      },
+      {
+        type: "scenario",
+        title: "Scenario 3",
+        text: "Linda notices an account using her profile picture and pretending to be her. Friends begin asking if it's really her. What should Linda do?",
+        options: [
+          "Ignore it.",
+          "Make a second fake account.",
+          "Report the fake account and let her friends know it's not her.",
+          "Send the fake account her password."
+        ],
+        correctIndex: 2,
+        explanation: "Reporting impersonation quickly can help prevent scammers from fooling your friends and family."
+      },
+      {
+        type: "learn",
+        heading: "Quick Tip",
+        text: "If you think an account is fake: don't send money, don't click suspicious links, block the account, report it to the platform, and tell a trusted friend or family member if you're unsure. You don't have to solve the mystery yourself - reporting suspicious accounts helps the platform investigate them."
+      },
+      {
+        type: "sort",
+        title: "Safe or Unsafe?",
+        prompt: "Drag each choice into the correct box.",
+        categories: [
+          {
+            label: "Safer Choices",
+            items: ["Report fake profiles", "Block people who send scams", "Verify a family member's identity before sending money", "Ignore suspicious links"]
+          },
+          {
+            label: "Less Safe Choices",
+            items: ["Send money to online strangers", "Reply to scam messages", "Share personal information with suspicious accounts", "Assume every profile is real"]
+          }
+        ]
+      },
+      {
+        type: "choice",
+        title: "What Should You Do?",
+        text: "An account pretending to be your grandson asks for $500.",
+        options: [
+          "Send the money immediately.",
+          "Reply asking for their bank account.",
+          "Contact your grandson using a phone number you already have, then report and block the account.",
+          "Ignore it without telling anyone."
+        ],
+        correctIndex: 2,
+        explanation: "Always verify unexpected requests for money through another trusted method."
+      },
+      {
+        type: "choice",
+        title: "What Should You Do?",
+        text: "You accidentally accepted a fake friend request.",
+        options: [
+          "Keep them as a friend.",
+          "Send them your address.",
+          "Remove them as a friend, block them, and report the account if it appears fake.",
+          "Give them another chance by sending your phone number."
+        ],
+        correctIndex: 2
+      },
+      {
+        type: "learn",
+        heading: "Remember",
+        text: "Reporting an account alerts the platform that it may be fake or breaking the rules. You can block and report the same account. If someone claiming to be family asks for money, verify their identity using a phone number you already know before doing anything else."
+      }
+    ],
+    quiz: [
+      { question: "What does reporting an account do?", options: ["Deletes your Facebook account.", "Sends money to Facebook.", "Alerts the platform that an account may be fake or breaking the rules.", "Automatically blocks every user."], correctIndex: 2 },
+      { question: "Which situation should you report?", options: ["A friend sharing vacation photos", "Someone pretending to be another person, asking strangers for money, sending scam links, or running a fake giveaway"], correctIndex: 1 },
+      { question: "True or False: You can block and report the same account.", options: ["True", "False"], correctIndex: 0 },
+      { question: "If an account is pretending to be someone else, you should ______ it.", options: ["Report", "Camera", "Password"], correctIndex: 0 },
+      { question: "Someone claiming to be your granddaughter asks for $300 through Facebook Messenger. What should you do?", options: ["Send the money.", "Reply with your credit card number.", "Contact your granddaughter using a phone number you already know, then report and block the account if it's fake.", "Ignore it but keep chatting."], correctIndex: 2 },
+      { question: "What's the safest response to repeated scam messages from the same account?", options: ["Keep replying.", "Click the links to see if they're real.", "Block the account and report it.", "Forward the messages to everyone you know."], correctIndex: 2 }
+    ],
+    complete: {
+      title: "Congratulations!",
+      subtitle: "You completed Lesson 7: Reporting Fake Accounts!",
+      learned: [
+        "Recognize fake or scam social media accounts.",
+        "Know when to report an account and when to block someone.",
+        "Understand what happens after reporting.",
+        "Help keep social media safer for everyone."
+      ],
+      next: "Phase 6 Final Exam"
+    }
+  }
 ];
 
 // ============================================================
-// PHASE 6 FINAL EXAM - NOT YET WRITTEN
-// The phase overview specifies a 10-question exam awarding the
-// "Social Media Safety Expert" badge and +100 XP.
-// Add it here when written.
+// PHASE 6 FINAL EXAM
 // ============================================================
+export const phase6Exam = {
+  id: "phase6-exam",
+  track: "literacy",
+  phase: 6,
+  order: 51,
+  title: "Phase 6 Final Exam: Social Media",
+  topics: [
+    "Facebook Privacy",
+    "Friend Request Scams",
+    "Fake Giveaways",
+    "Fake News",
+    "Political Misinformation",
+    "Deepfake Videos",
+    "Reporting Fake Accounts"
+  ],
+  passingScore: 8,
+  totalQuestions: 10,
+  phaseBadge: "Social Media Safety Expert",
+  phaseBadgeXp: 100,
+  questions: [
+    {
+      question: "Which Facebook privacy setting is usually the safest for sharing personal photos with family and friends?",
+      options: ["Public", "Everyone", "Friends", "Anyone with the link"],
+      correctIndex: 2,
+      explanation: "Choosing Friends helps limit who can see your personal posts."
+    },
+    {
+      question: "Which of the following are warning signs of a fake Facebook profile?",
+      options: ["A long history of posts and mutual friends", "Very few photos, no mutual friends, a newly created account, and immediately asking for money"],
+      correctIndex: 1,
+      explanation: "Scammers often create new profiles with little information and quickly ask for money or personal information."
+    },
+    {
+      question: "Margaret sees this Facebook post: \"Congratulations! You won a $1,000 gift card! Just pay a $25 processing fee to claim it.\" What should she do?",
+      options: ["Pay the fee.", "Enter her credit card information.", "Ignore the post and verify any giveaway through the company's official website.", "Share it with friends."],
+      correctIndex: 2,
+      explanation: "Legitimate giveaways should not require payment just to receive a prize."
+    },
+    {
+      question: "Before sharing surprising news or videos online, always ______ the information.",
+      options: ["Verify", "Friends", "AI"],
+      correctIndex: 0,
+      explanation: "Checking information before sharing helps prevent misinformation from spreading."
+    },
+    {
+      question: "True or False: If a political post tells you to \"Share this before it's deleted!\", you should verify the information before sharing it.",
+      options: ["True", "False"],
+      correctIndex: 0,
+      explanation: "Urgent language is a common tactic used in misinformation and scams."
+    },
+    {
+      question: "Which of the following may be signs that a video is a deepfake?",
+      options: ["Consistent lighting and natural lip movement", "Lips that don't match the words, a flickering or blurry face, and an unnatural voice"],
+      correctIndex: 1,
+      explanation: "Deepfakes often contain several unusual visual or audio clues, although not every deepfake has all of these signs."
+    },
+    {
+      question: "Robert receives a Facebook message from someone pretending to be his grandson asking for $500. What should he do?",
+      options: ["Send the money.", "Reply asking for more information.", "Contact his grandson using a phone number he already knows, then report and block the account if it's fake.", "Ignore it but keep chatting."],
+      correctIndex: 2,
+      explanation: "Always verify unexpected requests for money through another trusted method before taking action."
+    },
+    {
+      question: "Which information should you avoid posting publicly on social media?",
+      options: ["Your favorite hobby", "Home address, phone number, banking information, and Social Security number"],
+      correctIndex: 1,
+      explanation: "Personal and financial information should never be shared publicly."
+    },
+    {
+      question: "You read a shocking news story on an unfamiliar website, but no trusted news organizations are reporting it. What should you do?",
+      options: ["Share it because it sounds important.", "Believe it immediately.", "Wait and verify the information using trusted news organizations or official sources.", "Assume it's true because it has many comments."],
+      correctIndex: 2,
+      explanation: "Reliable news is often reported by multiple trusted organizations."
+    },
+    {
+      question: "Someone repeatedly sends you scam links on Facebook Messenger. What is the best response?",
+      options: ["Keep replying.", "Click one of the links to see if it's real.", "Ignore it but leave the conversation open.", "Block the account and report it."],
+      correctIndex: 3,
+      explanation: "Blocking protects you from future messages, and reporting helps protect other users from scams."
+    }
+  ],
+  results: [
+    { minScore: 10, title: "Social Media Master", xp: 100, trophy: true, message: "Outstanding! You know how to protect yourself from scams, fake accounts, misinformation, and unsafe sharing online." },
+    { minScore: 8, title: "Social Media Safety Pro", xp: 80, trophy: false, message: "Great work! You have strong social media safety skills and know how to think before you click or share." },
+    { minScore: 6, title: "Keep Practicing", xp: 40, trophy: false, message: "You're making excellent progress. Review the lessons you missed and try the exam again." },
+    { minScore: 0, title: "Review Recommended", xp: 0, trophy: false, message: "Go back through the Phase 6 lessons and retake the exam when you're ready. Every lesson builds important skills for staying safe online." }
+  ],
+  nextPhase: "Phase 7: Emergency Skills"
+};
 
 export default phase6Lessons;
