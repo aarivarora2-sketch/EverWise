@@ -43,6 +43,7 @@ import LessonPlayer from "./screens/LessonPlayer";
 import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
+import ScamChecker from "./screens/ScamChecker";
 
 /** Keep the last 60 practice days for the week strip, newest first. */
 function nextPracticeDays(prev = [], today) {
@@ -168,6 +169,7 @@ export default function App() {
   };
   const goSettings = () => setScreen("settings");
   const goBadges = () => setScreen("badges");
+  const goScamChecker = () => setScreen("scam-checker");
 
   /** Dev only: force a streak value and backfill matching practice days. */
   const devSetStreak = async (n) => {
@@ -506,8 +508,12 @@ export default function App() {
           onOpenBadges={goBadges}
           onOpenPaywall={goPaywall}
           onOpenSettings={goSettings}
+          onOpenScamChecker={goScamChecker}
         />
       );
+      break;
+    case "scam-checker":
+      content = <ScamChecker onBack={goHome} />;
       break;
     case "badges":
       content = (
