@@ -8,8 +8,10 @@ import ScenarioBlock from "./ScenarioBlock";
 import TrueFalseBlock from "./TrueFalseBlock";
 import ChoiceBlock from "./ChoiceBlock";
 import BuilderBlock from "./BuilderBlock";
+import VideoBlock from "./VideoBlock";
 
 const BLOCKS = {
+  video: VideoBlock,
   learn: LearnBlock,
   multiselect: MultiselectBlock,
   flashcards: FlashcardsBlock,
