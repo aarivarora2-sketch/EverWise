@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:api": "node server.mjs"
   },
   "dependencies": {
     "@capacitor/cli": "^8.4.2",
