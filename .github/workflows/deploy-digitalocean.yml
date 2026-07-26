@@ -1,0 +1,57 @@
+name: Deploy EverWise to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: everwise-digitalocean-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate and build
+        run: |
+          node --check server.mjs
+          npm run lint
+          npm run build
+
+      - name: Configure deployment key
+        env:
+          DEPLOY_KEY: ${{ secrets.EVERWISE_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.EVERWISE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/everwise_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/everwise_deploy ~/.ssh/known_hosts
+
+      - name: Deploy production release
+        run: |
+          tar -czf - dist server.mjs |
+            ssh \
+              -i ~/.ssh/everwise_deploy \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              root@143.198.64.226 \
+              "deploy ${GITHUB_SHA}"
