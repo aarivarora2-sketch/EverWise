@@ -1,10 +1,15 @@
-import { FlameIcon, ShieldIcon, StarIcon } from "../components/Icons";
+import {
+  FlameIcon,
+  MessageSearchIcon,
+  ShieldIcon,
+  StarIcon,
+} from "../components/Icons";
 import { weekDays, nextMilestone } from "../utils/streak";
 
 function WeekStrip({ days }) {
   return (
     <div className="mt-5 flex items-end justify-between gap-1.5">
-      {days.map((day, i) => (
+      {days.map((day) => (
         <div key={day.key} className="flex flex-1 flex-col items-center gap-2">
           <div
             className={`flex h-10 w-full max-w-[42px] items-center justify-center rounded-xl transition-colors ${
@@ -51,6 +56,7 @@ export default function Home({
   onOpenBadges,
   onOpenPaywall,
   onOpenSettings,
+  onOpenScamChecker,
 }) {
   const firstName = name ? name.trim().split(" ")[0] : "";
   const showTrialBanner = subscriptionStatus === "trial";
@@ -151,7 +157,27 @@ export default function Home({
         )}
 
         <div className="mt-auto pt-8">
-          <div className="grid grid-cols-2 gap-4">
+          <button
+            type="button"
+            onClick={onOpenScamChecker}
+            className="w-full rounded-3xl border-2 border-clay/25 bg-clay/10 px-6 py-5 text-left transition-colors hover:bg-clay/15"
+          >
+            <div className="flex items-center gap-4">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-clay text-cream-card">
+                <MessageSearchIcon className="h-8 w-8" />
+              </span>
+              <span>
+                <span className="block text-xl font-bold text-ink">
+                  Check a suspicious message
+                </span>
+                <span className="mt-1 block text-lg leading-snug text-ink-soft">
+                  Paste it and get clear next steps.
+                </span>
+              </span>
+            </div>
+          </button>
+
+          <div className="mt-5 grid grid-cols-2 gap-4">
             <button
               type="button"
               onClick={onOpenBadges}

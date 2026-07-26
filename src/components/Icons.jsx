@@ -92,6 +92,16 @@ export function BookIcon({ className = "w-6 h-6" }) {
   );
 }
 
+export function MessageSearchIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <path d="M5 5.5h14v10H9l-4 3z" />
+      <circle cx="13.5" cy="10.5" r="2.5" />
+      <path d="m15.4 12.4 2.1 2.1" />
+    </svg>
+  );
+}
+
 export function TrophyIcon({ className = "w-8 h-8" }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
