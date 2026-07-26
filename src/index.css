@@ -58,21 +58,6 @@
   }
 }
 
-/* Hide the scrollbar chrome only. No scroll behavior is changed here —
-   an earlier attempt also set overscroll-behavior, which broke scrolling. */
-.hide-scrollbar {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.hide-scrollbar::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-/* Biome scenery is static. A drift animation here caused repaints on every
-   scroll frame inside the lesson path, which read as a stutter. */
-
 /* Respect users who prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,

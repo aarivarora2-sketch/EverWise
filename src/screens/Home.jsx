@@ -77,7 +77,7 @@ export default function Home({
   }
 
   return (
-    <div className="flex flex-1 flex-col pb-10">
+    <div className="flex flex-1 flex-col overflow-y-auto pb-10">
       {showTrialBanner ? (
         <button
           type="button"

@@ -631,7 +631,7 @@ export default function App() {
 
   return (
     <PhoneShell>
-      <div key={screen} className="flex flex-1 flex-col">
+      <div key={screen} className="flex min-h-0 flex-1 flex-col">
         {content}
       </div>
     </PhoneShell>

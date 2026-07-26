@@ -752,7 +752,7 @@ export const phase7Lessons = [
     order: 56,
     lessonNumber: "7.5",
     title: "Changing Passwords After a Scam",
-    badge: "Password Protector",
+    badge: "Password Rebuilder",
     xp: 20,
     goals: [
       "Know when a password should be changed.",

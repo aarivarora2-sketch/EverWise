@@ -9,8 +9,20 @@ import TrueFalseBlock from "./TrueFalseBlock";
 import ChoiceBlock from "./ChoiceBlock";
 import BuilderBlock from "./BuilderBlock";
 import VideoBlock from "./VideoBlock";
+import ReadingBlock from "./ReadingBlock";
+import TieredChoiceBlock from "./TieredChoiceBlock";
+import ConfidenceBlock from "./ConfidenceBlock";
+import MemoryBlock from "./MemoryBlock";
+import FinalBossBlock from "./FinalBossBlock";
 
 const BLOCKS = {
+  // Scam-protection lesson format
+  reading: ReadingBlock,
+  tiered: TieredChoiceBlock,
+  confidence: ConfidenceBlock,
+  memory: MemoryBlock,
+  finalboss: FinalBossBlock,
+  // Digital-literacy lesson format
   video: VideoBlock,
   learn: LearnBlock,
   multiselect: MultiselectBlock,

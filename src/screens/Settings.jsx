@@ -59,7 +59,7 @@ export default function Settings({
       : null;
 
   return (
-    <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
+    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
       <div className="flex items-center gap-3">
         <button
           type="button"

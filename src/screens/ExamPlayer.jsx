@@ -33,7 +33,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
 
   if (phase === "intro") {
     return (
-      <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
+      <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
         <button
           type="button"
           onClick={onBack}
@@ -92,7 +92,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
 
   if (phase === "results") {
     return (
-      <div className="flex flex-1 flex-col px-7 pb-10 pt-8 text-center">
+      <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8 text-center">
         <div className="mx-auto mt-6 animate-pop-in">
           <div
             className={`flex h-32 w-32 items-center justify-center rounded-full text-cream-card ${

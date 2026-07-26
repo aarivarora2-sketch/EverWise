@@ -5,7 +5,7 @@
 // (see App.jsx finishLesson / finishExam), so matching is by name.
 
 import { lessonsByOrder, examsByOrder } from "../data/lessons";
-import { phases, getPhase } from "../data/phases";
+import { allPhases as phases, getPhase } from "../data/phases";
 
 /**
  * All badges grouped by phase, in curriculum order.

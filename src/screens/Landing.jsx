@@ -13,7 +13,7 @@ function Step({ n, name, children }) {
 
 export default function Landing({ onGetStarted, onLogIn }) {
   return (
-    <div className="flex flex-1 flex-col px-7 pb-8 pt-9">
+    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-8 pt-9">
       <div className="animate-fade-up">
         <div className="flex items-center gap-3">
           <img

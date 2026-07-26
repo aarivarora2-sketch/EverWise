@@ -3,6 +3,7 @@ import {
   badgeCounts,
   extraEarnedBadges,
 } from "../utils/badges";
+import { phaseLabel } from "../data/phases";
 import {
   ArrowLeftIcon,
   LockIcon,
@@ -135,7 +136,7 @@ export default function Badges({ badges = [], onBack }) {
                 className="mt-3 text-[15px] font-bold uppercase tracking-[0.12em]"
                 style={{ color: phase.color }}
               >
-                Phase {phase.number} · {phase.biome}
+                Phase {phaseLabel(phase)} · {phase.biome}
               </p>
               <div className="mt-1 flex items-baseline justify-between gap-3">
                 <h2 className="font-serif text-[26px] font-bold leading-tight text-ink">

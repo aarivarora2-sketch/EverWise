@@ -16,6 +16,16 @@ import {
 import { phase5Lessons, phase5Exam } from "./phase5-lessons";
 import { phase6Lessons, phase6Exam } from "./phase6-lessons";
 import { phase7Lessons, phase7Exam } from "./phase7-lessons";
+import { scamPhase1Lessons } from "./scam-phase1-lessons";
+import { scamPhase2Lessons } from "./scam-phase2-lessons";
+import { scamPhase3Lessons } from "./scam-phase3-lessons";
+import { scamPhase4Lessons } from "./scam-phase4-lessons";
+import { scamPhase5Lessons } from "./scam-phase5-lessons";
+import { scamPhase6Lessons } from "./scam-phase6-lessons";
+import { scamPhase7Lessons } from "./scam-phase7-lessons";
+import { scamPhase8Lessons } from "./scam-phase8-lessons";
+import { scamPhase9Lessons } from "./scam-phase9-lessons";
+import { scamPhase10Lessons } from "./scam-phase10-lessons";
 
 export const lessons = [
   // ============================================================
@@ -1732,8 +1742,8 @@ export const lessons = [
 
 export default lessons;
 
-// Full Digital Literacy track: Phase 1 → 2 → 3 → 4 → 5 → 6 → 7.
-export const allLessons = [
+// The two tracks, each kept in its own curriculum order.
+const literacyTrack = [
   ...lessons,
   ...phase2Lessons,
   ...phase3Lessons,
@@ -1741,10 +1751,68 @@ export const allLessons = [
   ...phase5Lessons,
   ...phase6Lessons,
   ...phase7Lessons,
+].map((l) => ({ ...l, track: l.track || "literacy" }));
+
+const scamTrack = [
+  ...scamPhase1Lessons,
+  ...scamPhase2Lessons,
+  ...scamPhase3Lessons,
+  ...scamPhase4Lessons,
+  ...scamPhase5Lessons,
+  ...scamPhase6Lessons,
+  ...scamPhase7Lessons,
+  ...scamPhase8Lessons,
+  ...scamPhase9Lessons,
+  ...scamPhase10Lessons,
 ];
 
-// Lessons sorted by curriculum order for the path and player.
-export const lessonsByOrder = [...allLessons].sort((a, b) => a.order - b.order);
+export const allLessons = [...literacyTrack, ...scamTrack];
+
+/**
+ * The path alternates between tracks a phase at a time — Digital Literacy
+ * Phase 1, then Scam Protection Phase 1, then Literacy Phase 2, and so on —
+ * so the two curriculums read as one course instead of two separate apps.
+ *
+ * Ordering is computed here rather than hand-numbered, so neither track's
+ * internal `order` values ever have to be renumbered.
+ */
+function phaseGroups(track) {
+  const byPhase = new Map();
+  // Sort by phase first, then order. The scam track restarts `order` at 1 in
+  // every phase, so sorting by order alone would interleave phases wrongly
+  // (a phase whose first lesson is missing would sort after a later phase).
+  [...track]
+    .sort((a, b) => a.phase - b.phase || a.order - b.order)
+    .forEach((lesson) => {
+      if (!byPhase.has(lesson.phase)) byPhase.set(lesson.phase, []);
+      byPhase.get(lesson.phase).push(lesson);
+    });
+  return [...byPhase.values()];
+}
+
+function interleaveTracks(a, b) {
+  const groupsA = phaseGroups(a);
+  const groupsB = phaseGroups(b);
+  const out = [];
+  const rounds = Math.max(groupsA.length, groupsB.length);
+  for (let i = 0; i < rounds; i++) {
+    if (groupsA[i]) out.push(...groupsA[i]);
+    if (groupsB[i]) out.push(...groupsB[i]);
+  }
+  return out;
+}
+
+// Lessons in the order they appear on the path, with a computed `pathOrder`
+// that exams and challenges are slotted against.
+export const lessonsByOrder = interleaveTracks(literacyTrack, scamTrack).map(
+  (lesson, i) => ({ ...lesson, pathOrder: i })
+);
+
+/** Where a phase's last lesson sits on the path — exams follow it. */
+export function pathOrderForPhase(phase) {
+  const inPhase = lessonsByOrder.filter((l) => l.phase === phase);
+  return inPhase.length ? inPhase[inPhase.length - 1].pathOrder : -1;
+}
 
 // Ungraded phase challenges (after the phase's last lesson, before the exam).
 export const challengesByOrder = [phase4Challenge].filter(Boolean).sort(
