@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const DEFAULT_ELEVENLABS_VOICE_ID = 'Gfpl8Yo74Is0W6cPUWWT'
+const DEFAULT_ELEVENLABS_VOICE_ID = 'pqHfZKP75CvOlQylNhV4'
 const OPENAI_MODEL = 'gpt-5.6-terra'
 
 const scamAssessmentSchema = {

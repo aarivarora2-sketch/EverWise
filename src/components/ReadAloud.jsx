@@ -3,7 +3,7 @@ import { SpeakerIcon, StopIcon } from "./Icons";
 
 const READ_ALOUD_ENDPOINT =
   import.meta.env.VITE_READ_ALOUD_ENDPOINT || "/api/read-aloud";
-const AUDIO_PROFILE_VERSION = "elevenlabs-gfpl-v2";
+const AUDIO_PROFILE_VERSION = "elevenlabs-bill-v3";
 const audioCache = new Map();
 
 async function getAudioBlob(text, signal) {

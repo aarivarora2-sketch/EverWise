@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 8787);
 const ELEVENLABS_VOICE_ID =
-  process.env.ELEVENLABS_VOICE_ID || "Gfpl8Yo74Is0W6cPUWWT";
+  process.env.ELEVENLABS_VOICE_ID || "pqHfZKP75CvOlQylNhV4";
 const OPENAI_MODEL = "gpt-5.6-terra";
 
 const scamAssessmentSchema = {
