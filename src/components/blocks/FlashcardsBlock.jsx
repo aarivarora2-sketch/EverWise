@@ -50,14 +50,39 @@ export default function FlashcardsBlock({
         type="button"
         onClick={() => setFlipped((f) => !f)}
         aria-label={flipped ? "Show front of card" : "Show back of card"}
-        className="mt-6 flex min-h-[220px] w-full flex-col items-center justify-center rounded-3xl bg-cream-card px-6 py-10 text-center shadow-card transition-transform active:scale-[0.99]"
+        aria-pressed={flipped}
+        className="flashcard-button mt-6 w-full shrink-0 overflow-hidden rounded-3xl bg-cream-card text-center shadow-card"
       >
-        <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
-          {flipped ? "Back" : "Front"} · tap to flip
-        </p>
-        <p className="mt-4 font-sans text-3xl font-semibold leading-snug text-ink">
-          {flipped ? card.back : card.front}
-        </p>
+        <span
+          key={index}
+          className={`flashcard-stage grid w-full ${
+            flipped ? "is-flipped" : ""
+          }`}
+        >
+          <span
+            aria-hidden={flipped}
+            className="flashcard-face col-start-1 row-start-1 flex min-h-[220px] w-full flex-col items-center justify-center px-6 py-8"
+          >
+            <span className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Front · tap to flip
+            </span>
+            <span className="flashcard-copy mt-4 w-full break-words font-sans text-2xl font-semibold leading-snug text-ink">
+              {card.front}
+            </span>
+          </span>
+
+          <span
+            aria-hidden={!flipped}
+            className="flashcard-face flashcard-back col-start-1 row-start-1 flex min-h-[220px] w-full flex-col items-center justify-center px-6 py-8"
+          >
+            <span className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Back · tap to flip
+            </span>
+            <span className="flashcard-copy mt-4 w-full break-words font-sans text-2xl font-semibold leading-snug text-ink">
+              {card.back}
+            </span>
+          </span>
+        </span>
       </button>
 
       <div className="mt-6">
