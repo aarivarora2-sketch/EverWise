@@ -69,6 +69,7 @@ export default function LessonPlayer({ lesson, onBack, onComplete }) {
       progress={progress}
       progressTotal={totalSteps}
       onBack={onBack}
+      onSkip={continueQuiz}
       footer={
         selected != null ? (
           <button className="btn-primary" onClick={continueQuiz}>

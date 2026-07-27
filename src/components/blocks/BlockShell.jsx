@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import LessonTopBar from "../LessonTopBar";
 
 // Shared chrome for every lesson block and quiz question.
@@ -6,18 +7,62 @@ export default function BlockShell({
   progress,
   progressTotal,
   onBack,
+  onSkip,
   children,
   footer,
+  scrollKey,
+  revealKey,
 }) {
+  const contentRef = useRef(null);
+  const hadFooterRef = useRef(Boolean(footer));
+
+  // Multi-question activities reuse the same shell. Always begin a new
+  // question at the top instead of leaving the learner at the old scroll spot.
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [scrollKey]);
+
+  // When feedback and its action appear, bring them into view automatically.
+  // The action remains outside the scrolling area, so it is always easy to tap.
+  useEffect(() => {
+    const hasFooter = Boolean(footer);
+    const shouldReveal = hasFooter && !hadFooterRef.current;
+    hadFooterRef.current = hasFooter;
+
+    if (!shouldReveal) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      const content = contentRef.current;
+      content?.scrollTo({ top: content.scrollHeight, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [footer]);
+
+  // Some activities always have a footer (for example, Check becomes
+  // Continue), so they explicitly signal when their feedback should be shown.
+  useEffect(() => {
+    if (revealKey == null) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      const content = contentRef.current;
+      content?.scrollTo({ top: content.scrollHeight, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [revealKey]);
+
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 flex-1 flex-col overflow-hidden sm:h-[calc(100dvh-4rem)] sm:max-h-[860px] sm:flex-none">
       <LessonTopBar
         label={label}
         progress={progress}
         progressTotal={progressTotal}
         onBack={onBack}
+        onSkip={onSkip}
       />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-6">
+      <div
+        ref={contentRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-6"
+      >
         {children}
       </div>
       {footer && (

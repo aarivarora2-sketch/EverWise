@@ -41,6 +41,8 @@ export default function TrueFalseBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={next}
+      scrollKey={qIndex}
       footer={
         answered ? (
           <button className="btn-primary" onClick={next}>

@@ -39,6 +39,8 @@ export default function MultiselectBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
+      revealKey={checked ? "checked" : null}
       footer={
         checked ? (
           <button className="btn-primary" onClick={onContinue}>

@@ -7,13 +7,14 @@ export default function LessonTopBar({
   progress = 0,
   progressTotal = 1,
   onBack,
+  onSkip,
 }) {
   const fraction =
     progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
 
   return (
     <div className="px-6 pt-6">
-      <div className="flex items-center justify-between">
+      <div className="grid grid-cols-[44px_minmax(0,1fr)_56px] items-center gap-2">
         <button
           type="button"
           onClick={onBack}
@@ -23,10 +24,23 @@ export default function LessonTopBar({
           <ArrowLeftIcon className="h-7 w-7" />
         </button>
 
-        <span className="inline-flex items-center gap-2 rounded-full bg-sage/15 px-4 py-1.5 text-base font-bold text-sage-dark">
+        <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center rounded-full bg-sage/15 px-4 py-1.5 text-base font-bold text-sage-dark">
           <BookIcon className="h-5 w-5" />
-          {label}
+          <span className="truncate">{label}</span>
         </span>
+
+        {onSkip ? (
+          <button
+            type="button"
+            onClick={onSkip}
+            aria-label="Skip this step"
+            className="justify-self-end rounded-full px-2 py-2 text-base font-bold text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+          >
+            Skip
+          </button>
+        ) : (
+          <span aria-hidden="true" />
+        )}
       </div>
 
       <div

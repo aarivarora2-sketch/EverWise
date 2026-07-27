@@ -17,6 +17,7 @@ export default function ChoiceBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
         selected != null ? (
           <button className="btn-primary" onClick={onContinue}>

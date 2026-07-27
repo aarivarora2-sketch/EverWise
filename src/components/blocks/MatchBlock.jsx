@@ -51,6 +51,7 @@ export default function MatchBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
         allDone ? (
           <button className="btn-primary" onClick={onContinue}>

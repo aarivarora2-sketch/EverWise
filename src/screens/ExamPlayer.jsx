@@ -231,6 +231,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
       progress={progress}
       progressTotal={total}
       onBack={onBack}
+      onSkip={next}
       footer={
         selected != null ? (
           <button className="btn-primary" onClick={next}>

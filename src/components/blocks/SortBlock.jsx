@@ -104,6 +104,7 @@ export default function SortBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={footer}
     >
       <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">

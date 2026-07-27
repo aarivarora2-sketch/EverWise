@@ -105,6 +105,7 @@ export default function ScenarioBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
         selected != null ? (
           <button className="btn-primary" onClick={onContinue}>
