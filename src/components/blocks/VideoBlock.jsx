@@ -26,7 +26,7 @@ export default function VideoBlock({
     >
       <div className="animate-fade-up">
         {block.heading && (
-          <h1 className="font-serif text-4xl font-semibold leading-tight text-ink">
+          <h1 className="page-title">
             {block.heading}
           </h1>
         )}

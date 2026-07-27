@@ -3,7 +3,6 @@ import MultiselectBlock from "./MultiselectBlock";
 import FlashcardsBlock from "./FlashcardsBlock";
 import MatchBlock from "./MatchBlock";
 import FillBlankBlock from "./FillBlankBlock";
-import SortBlock from "./SortBlock";
 import ScenarioBlock from "./ScenarioBlock";
 import TrueFalseBlock from "./TrueFalseBlock";
 import ChoiceBlock from "./ChoiceBlock";
@@ -29,7 +28,6 @@ const BLOCKS = {
   flashcards: FlashcardsBlock,
   match: MatchBlock,
   fillblank: FillBlankBlock,
-  sort: SortBlock,
   scenario: ScenarioBlock,
   truefalse: TrueFalseBlock,
   choice: ChoiceBlock,

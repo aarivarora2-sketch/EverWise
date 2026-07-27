@@ -24,7 +24,7 @@ export default function ChallengePlayer({ challenge, onBack, onComplete }) {
         <div className="mt-10 animate-pop-in flex h-28 w-28 items-center justify-center rounded-full bg-clay text-cream-card shadow-btn">
           <BookIcon className="h-14 w-14" />
         </div>
-        <h1 className="mt-8 font-serif text-5xl font-semibold text-ink">
+        <h1 className="page-title mt-8">
           Review complete
         </h1>
         <p className="mt-4 text-2xl text-ink-soft">

@@ -31,7 +31,7 @@ export default function SignUp({ onSignUp, onGoToLogIn, onBack }) {
       <BackButton onClick={onBack} />
 
       <form className="flex flex-1 flex-col" onSubmit={submit} noValidate>
-        <h1 className="mt-6 font-serif text-5xl font-semibold leading-tight text-ink">
+        <h1 className="page-title mt-6">
           Create your
           <br />
           account

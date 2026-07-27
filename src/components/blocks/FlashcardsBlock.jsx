@@ -55,7 +55,7 @@ export default function FlashcardsBlock({
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           {flipped ? "Back" : "Front"} · tap to flip
         </p>
-        <p className="mt-4 font-serif text-3xl font-semibold leading-snug text-ink">
+        <p className="mt-4 font-sans text-3xl font-semibold leading-snug text-ink">
           {flipped ? card.back : card.front}
         </p>
       </button>

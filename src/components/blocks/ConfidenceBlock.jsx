@@ -87,7 +87,7 @@ export default function ConfidenceBlock({
       onBack={onBack}
     >
       <div className="animate-fade-up">
-        <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+        <h1 className="page-title">
           {block.question || "How confident do you feel?"}
         </h1>
 

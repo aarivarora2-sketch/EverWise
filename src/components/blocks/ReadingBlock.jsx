@@ -32,13 +32,13 @@ export default function ReadingBlock({
     >
       <div className="animate-fade-up">
         {block.heading && (
-          <h1 className="font-serif text-4xl font-semibold leading-tight text-ink">
+          <h1 className="page-title">
             {block.heading}
           </h1>
         )}
 
         {block.question && (
-          <p className="mt-4 font-serif text-2xl italic leading-snug text-clay">
+          <p className="mt-4 font-sans text-2xl italic leading-snug text-clay">
             &ldquo;{block.question}&rdquo;
           </p>
         )}

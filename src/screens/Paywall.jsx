@@ -22,7 +22,7 @@ const TIMELINE = [
 function StatCard({ value, label }) {
   return (
     <div className="rounded-2xl bg-cream-card px-5 py-5 shadow-card">
-      <p className="font-serif text-5xl font-bold text-clay">{value}</p>
+      <p className="font-sans text-5xl font-bold text-clay">{value}</p>
       <p className="mt-2 text-xl text-ink-soft">{label}</p>
     </div>
   );
@@ -30,24 +30,21 @@ function StatCard({ value, label }) {
 
 function ProgressScreen({
   lessonsCompleted,
-  streak,
   badgesEarned,
   onSeeOptions,
   onMaybeLater,
 }) {
-  const hasProgress =
-    lessonsCompleted > 0 || streak > 0 || badgesEarned > 0;
+  const hasProgress = lessonsCompleted > 0 || badgesEarned > 0;
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-10 pt-8">
-      <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
+      <h1 className="page-title">
         Look how far you've come.
       </h1>
 
       {hasProgress ? (
         <div className="mt-8 space-y-4">
           <StatCard value={lessonsCompleted} label="lessons completed" />
-          <StatCard value={streak} label="day streak" />
           <StatCard value={badgesEarned} label="badges earned" />
         </div>
       ) : (
@@ -129,7 +126,7 @@ function TimelineSteps() {
 function PlanCard() {
   return (
     <div className="mt-8 rounded-3xl bg-cream-card px-6 py-7 shadow-card">
-      <p className="font-serif text-4xl font-semibold text-ink">
+      <p className="font-sans text-4xl font-semibold text-ink">
         $4.99 per month
       </p>
       <p className="mt-4 text-xl leading-relaxed text-ink">
@@ -159,7 +156,7 @@ const INTRO_TIMELINE = [
 function IntroTimelineScreen({ onStartLearning }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden px-7 pb-8 pt-7">
-      <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
+      <h1 className="page-title">
         Your 3 free days start now.
       </h1>
 
@@ -197,7 +194,7 @@ function IntroTimelineScreen({ onStartLearning }) {
       </ol>
 
       <div className="mt-5 rounded-3xl bg-cream-card px-5 py-5 shadow-card">
-        <p className="font-serif text-4xl font-semibold text-ink">
+        <p className="font-sans text-4xl font-semibold text-ink">
           $4.99 / month
         </p>
         <p className="mt-2 text-xl leading-snug text-ink">
@@ -221,7 +218,7 @@ function IntroTimelineScreen({ onStartLearning }) {
 function SubscribeTimelineScreen({ onStartTrial, onMaybeLater }) {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
-      <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight text-ink">
+      <h1 className="page-title">
         Try Everwise free for 3 days.
       </h1>
 
@@ -258,7 +255,7 @@ function ExitSheet({ onDismiss }) {
       <div className="rounded-t-3xl bg-cream px-7 pb-10 pt-8 shadow-[0_-8px_40px_rgba(34,32,28,0.18)] animate-fade-up">
         <h2
           id="paywall-exit-title"
-          className="font-serif text-3xl font-semibold leading-tight text-ink"
+          className="font-sans text-3xl font-semibold leading-tight text-ink"
         >
           Not ready yet?
         </h2>
@@ -282,7 +279,6 @@ function ExitSheet({ onDismiss }) {
 export default function Paywall({
   variant = "subscribe",
   lessonsCompleted = 0,
-  streak = 0,
   badgesEarned = 0,
   onStartTrial,
   onMaybeLater,
@@ -312,7 +308,6 @@ export default function Paywall({
       {step === "progress" ? (
         <ProgressScreen
           lessonsCompleted={lessonsCompleted}
-          streak={streak}
           badgesEarned={badgesEarned}
           onSeeOptions={() => setStep("options")}
           onMaybeLater={leaveFromScreen1}

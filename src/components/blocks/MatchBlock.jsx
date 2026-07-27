@@ -64,7 +64,7 @@ export default function MatchBlock({
         )
       }
     >
-      <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+      <h1 className="page-title">
         {block.title || "Match the Word"}
       </h1>
 

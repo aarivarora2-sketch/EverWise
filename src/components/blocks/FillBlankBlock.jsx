@@ -54,7 +54,7 @@ export default function FillBlankBlock({
       <p className="text-lg font-semibold text-ink-faint">
         Question {qIndex + 1} of {questions.length}
       </p>
-      <h1 className="mt-3 font-serif text-3xl font-semibold leading-snug text-ink">
+      <h1 className="page-title mt-3">
         {display}
       </h1>
       <div className="mt-5">
@@ -99,7 +99,7 @@ export default function FillBlankBlock({
             {isCorrect ? (
               <CheckIcon className="h-8 w-8" />
             ) : (
-              <span className="font-serif text-2xl font-bold">!</span>
+              <span className="font-sans text-2xl font-bold">!</span>
             )}
           </div>
           <p className="text-xl font-semibold text-ink">

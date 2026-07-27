@@ -29,7 +29,7 @@ export default function MemoryBlock({
       }
     >
       <div className="animate-fade-up">
-        <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+        <h1 className="page-title">
           You've practiced these skills before
         </h1>
         <p className="mt-3 text-xl leading-relaxed text-ink-soft">

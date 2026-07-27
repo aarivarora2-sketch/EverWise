@@ -8,7 +8,6 @@ import { getPhase, phaseLabel } from "../data/phases";
 import {
   CheckIcon,
   LockIcon,
-  FlameIcon,
   StarIcon,
   TrophyIcon,
   BookIcon,
@@ -58,7 +57,6 @@ function examUnlocked(exam, doneSet) {
 
 export default function LessonPath({
   completedLessons = [],
-  streak,
   scamsCaught,
   onSelectLesson,
   onSelectExam,
@@ -224,17 +222,14 @@ export default function LessonPath({
             <ArrowLeftIcon className="h-7 w-7" />
           </button>
           <div>
-            <h1 className="font-serif text-2xl font-semibold">Your path</h1>
+            <h1 className="font-sans text-2xl font-semibold">Your path</h1>
             <p className="text-sm font-semibold text-cream-card/75">
               Phase {phaseLabel(activePhase)} · {activePhase.biome}
               <span className="text-cream-card/50"> · {activePhase.title}</span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-lg font-semibold">
-          <span className="flex items-center gap-1.5">
-            <FlameIcon className="h-6 w-6" /> {streak}
-          </span>
+        <div className="flex items-center text-lg font-semibold">
           <span className="flex items-center gap-1.5">
             <StarIcon className="h-6 w-6" /> {scamsCaught}
           </span>
@@ -298,7 +293,7 @@ export default function LessonPath({
                   >
                     Phase {phaseLabel(node.phase)} · {node.phase.biome}
                   </p>
-                  <p className="mt-1 font-serif text-[30px] font-bold leading-tight text-ink">
+                  <p className="mt-1 font-sans text-[30px] font-bold leading-tight text-ink">
                     {node.phase.title}
                   </p>
                 </div>
@@ -408,7 +403,7 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
           type="button"
           onClick={onClick}
           aria-label={ariaStart}
-          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-serif text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
+          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-sans text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
             isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
           }`}
           style={{

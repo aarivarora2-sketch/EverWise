@@ -50,7 +50,7 @@ export default function BuilderBlock({
         )
       }
     >
-      <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+      <h1 className="page-title">
         {block.title || "Build"}
       </h1>
       {block.prompt && (
@@ -96,7 +96,7 @@ export default function BuilderBlock({
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Your password
         </p>
-        <p className="mt-2 break-all font-serif text-3xl font-semibold text-ink">
+        <p className="mt-2 break-all font-sans text-3xl font-semibold text-ink">
           {combined || "—"}
         </p>
         {block.example && (
