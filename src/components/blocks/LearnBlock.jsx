@@ -15,6 +15,7 @@ export default function LearnBlock({ block, progress, progressTotal, onContinue,
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
         <button className="btn-primary" onClick={onContinue}>
           Continue

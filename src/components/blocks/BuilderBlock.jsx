@@ -33,6 +33,7 @@ export default function BuilderBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
         revealed ? (
           <button className="btn-primary" onClick={onContinue}>

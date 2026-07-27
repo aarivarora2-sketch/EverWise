@@ -41,6 +41,8 @@ export default function FillBlankBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={next}
+      scrollKey={qIndex}
       footer={
         revealed ? (
           <button className="btn-primary" onClick={next}>

@@ -13,15 +13,20 @@ export default function FlashcardsBlock({
   const cards = block.cards || [];
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [seen, setSeen] = useState(() => new Set([0]));
 
   const card = cards[index];
-  const allSeen = seen.size >= cards.length;
 
   const go = (next) => {
     setIndex(next);
     setFlipped(false);
-    setSeen((prev) => new Set(prev).add(next));
+  };
+
+  const continueFromCard = () => {
+    if (index < cards.length - 1) {
+      go(index + 1);
+    } else {
+      onContinue();
+    }
   };
 
   return (
@@ -30,13 +35,10 @@ export default function FlashcardsBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onSkip={onContinue}
       footer={
-        <button
-          className="btn-primary"
-          onClick={onContinue}
-          disabled={!allSeen}
-        >
-          {allSeen ? "Continue" : `View all cards (${seen.size}/${cards.length})`}
+        <button className="btn-primary" onClick={continueFromCard}>
+          Continue
         </button>
       }
     >
