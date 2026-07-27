@@ -249,11 +249,9 @@ export default function LessonPath({
   }, [activePhaseNumber, currentId]);
 
   return (
-    // One single scrolling area: the header lives INSIDE it and scrolls away
-    // with the path, so nothing is pinned for content to catch under.
-    <div
-      className="min-h-0 flex-1 overflow-y-auto bg-cream"
-    >
+    // The header stays outside the scrolling path so Home is always one tap
+    // away, even when the learner is deep inside a phase.
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-cream">
       {/* Neutral chrome — biome color only appears on phase bands/nodes */}
       <header className="flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
         <div className="flex items-center gap-3">
@@ -275,144 +273,146 @@ export default function LessonPath({
         </div>
       </header>
 
-      <div className="pb-8">
-        <div
-          className="relative mx-auto w-full max-w-none px-2"
-          style={{ height: containerHeight }}
-        >
-          {positioned
-            .filter((node) => node.kind === "phase")
-            .map((band, index, bands) => {
-              const nextBand = bands[index + 1];
-              const end = nextBand ? nextBand.top : containerHeight;
-              return (
-                <div
-                  key={`phase-background-${band.phase.number}`}
-                  aria-hidden="true"
-                  className="absolute inset-x-0"
-                  style={{
-                    top: band.top,
-                    height: Math.max(0, end - band.top),
-                    backgroundColor: mixHex(
-                      band.phase.color,
-                      CREAM,
-                      0.1,
-                    ),
-                  }}
-                />
-              );
-            })}
-
-          {dots.map((d) => (
-            <span
-              key={d.key}
-              aria-hidden="true"
-              className="absolute h-5 w-5 rounded-full"
-              style={{
-                left: `calc(50% + ${d.x}px)`,
-                top: d.y,
-                transform: "translate(-50%, -50%)",
-                backgroundColor: d.color,
-              }}
-            />
-          ))}
-
-          {positioned.map((node, i) => {
-            if (node.kind === "phase") {
-              return (
-                <div
-                  key={`phase-${node.phase.number}`}
-                  ref={
-                    node.phase.number === activePhaseNumber
-                      ? activePhaseRef
-                      : null
-                  }
-                  className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2"
-                  style={{ top: node.bandTop }}
-                >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="pb-8">
+          <div
+            className="relative mx-auto w-full max-w-none px-2"
+            style={{ height: containerHeight }}
+          >
+            {positioned
+              .filter((node) => node.kind === "phase")
+              .map((band, index, bands) => {
+                const nextBand = bands[index + 1];
+                const end = nextBand ? nextBand.top : containerHeight;
+                return (
                   <div
-                    className="h-px w-full"
-                    style={{ backgroundColor: node.phase.color }}
+                    key={`phase-background-${band.phase.number}`}
                     aria-hidden="true"
+                    className="absolute inset-x-0"
+                    style={{
+                      top: band.top,
+                      height: Math.max(0, end - band.top),
+                      backgroundColor: mixHex(
+                        band.phase.color,
+                        CREAM,
+                        0.1,
+                      ),
+                    }}
                   />
-                  <p
-                    className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em]"
-                    style={{ color: node.phase.color }}
+                );
+              })}
+
+            {dots.map((d) => (
+              <span
+                key={d.key}
+                aria-hidden="true"
+                className="absolute h-5 w-5 rounded-full"
+                style={{
+                  left: `calc(50% + ${d.x}px)`,
+                  top: d.y,
+                  transform: "translate(-50%, -50%)",
+                  backgroundColor: d.color,
+                }}
+              />
+            ))}
+
+            {positioned.map((node, i) => {
+              if (node.kind === "phase") {
+                return (
+                  <div
+                    key={`phase-${node.phase.number}`}
+                    ref={
+                      node.phase.number === activePhaseNumber
+                        ? activePhaseRef
+                        : null
+                    }
+                    className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2"
+                    style={{ top: node.bandTop }}
                   >
-                    Phase {phaseLabel(node.phase)} · {node.phase.biome}
-                  </p>
-                  <p className="mt-1 font-sans text-[30px] font-bold leading-tight text-ink">
-                    {node.phase.title}
-                  </p>
+                    <div
+                      className="h-px w-full"
+                      style={{ backgroundColor: node.phase.color }}
+                      aria-hidden="true"
+                    />
+                    <p
+                      className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em]"
+                      style={{ color: node.phase.color }}
+                    >
+                      Phase {phaseLabel(node.phase)} · {node.phase.biome}
+                    </p>
+                    <p className="mt-1 font-sans text-[30px] font-bold leading-tight text-ink">
+                      {node.phase.title}
+                    </p>
+                  </div>
+                );
+              }
+
+              let state;
+              if (node.kind === "reward") {
+                state = allPlayablesDone ? "reward-done" : "locked";
+              } else if (doneSet.has(node.id)) {
+                state = "done";
+              } else if (node.id === currentId) {
+                state = "current";
+              } else if (
+                node.kind === "challenge" &&
+                !challengeUnlocked(node.challenge, doneSet)
+              ) {
+                state = "locked";
+              } else if (
+                node.kind === "exam" &&
+                !examUnlocked(node.exam, doneSet)
+              ) {
+                state = "locked";
+              } else {
+                state = "locked";
+              }
+
+              const phaseColor =
+                node.kind === "reward"
+                  ? activePhase.color
+                  : getPhase(Number(node.phase)).color;
+
+              const onClick =
+                state === "current" || state === "done"
+                  ? node.kind === "exam"
+                    ? () => onSelectExam?.(node.exam)
+                    : node.kind === "challenge"
+                      ? () => onSelectChallenge?.(node.challenge)
+                      : node.kind === "lesson"
+                        ? () => onSelectLesson(node.lessonIndex)
+                        : undefined
+                  : undefined;
+
+              return (
+                <div
+                  key={node.id || i}
+                  ref={node.id === currentId ? currentNodeRef : null}
+                  className="absolute z-10 flex flex-col items-center"
+                  style={{
+                    left: `calc(50% + ${node.offsetX ?? 0}px)`,
+                    top: node.top,
+                    width: "10.5rem",
+                    height: NODE_SLOT,
+                    transform: "translateX(-50%)",
+                  }}
+                >
+                  <PathNode
+                    state={state}
+                    kind={node.kind}
+                    phaseColor={phaseColor}
+                    onClick={onClick}
+                    title={node.fullTitle || node.title}
+                  />
+                  <Label
+                    state={state}
+                    title={node.title}
+                    phaseColor={phaseColor}
+                  />
                 </div>
               );
-            }
-
-            let state;
-            if (node.kind === "reward") {
-              state = allPlayablesDone ? "reward-done" : "locked";
-            } else if (doneSet.has(node.id)) {
-              state = "done";
-            } else if (node.id === currentId) {
-              state = "current";
-            } else if (
-              node.kind === "challenge" &&
-              !challengeUnlocked(node.challenge, doneSet)
-            ) {
-              state = "locked";
-            } else if (
-              node.kind === "exam" &&
-              !examUnlocked(node.exam, doneSet)
-            ) {
-              state = "locked";
-            } else {
-              state = "locked";
-            }
-
-            const phaseColor =
-              node.kind === "reward"
-                ? activePhase.color
-                : getPhase(Number(node.phase)).color;
-
-            const onClick =
-              state === "current" || state === "done"
-                ? node.kind === "exam"
-                  ? () => onSelectExam?.(node.exam)
-                  : node.kind === "challenge"
-                  ? () => onSelectChallenge?.(node.challenge)
-                  : node.kind === "lesson"
-                  ? () => onSelectLesson(node.lessonIndex)
-                  : undefined
-                : undefined;
-
-            return (
-              <div
-                key={node.id || i}
-                ref={node.id === currentId ? currentNodeRef : null}
-                className="absolute z-10 flex flex-col items-center"
-                style={{
-                  left: `calc(50% + ${node.offsetX ?? 0}px)`,
-                  top: node.top,
-                  width: "10.5rem",
-                  height: NODE_SLOT,
-                  transform: "translateX(-50%)",
-                }}
-              >
-                <PathNode
-                  state={state}
-                  kind={node.kind}
-                  phaseColor={phaseColor}
-                  onClick={onClick}
-                  title={node.fullTitle || node.title}
-                />
-                <Label
-                  state={state}
-                  title={node.title}
-                  phaseColor={phaseColor}
-                />
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
       </div>
     </div>
