@@ -131,11 +131,6 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
                 {tier.message}
               </p>
             ) : null}
-            {canComplete && tier.xp > 0 ? (
-              <p className="mt-3 font-sans text-4xl font-bold text-sage">
-                +{tier.xp} XP
-              </p>
-            ) : null}
             {exam.nextPhase && canComplete ? (
               <p className="mt-4 text-xl text-ink-soft">
                 Unlocks next:{" "}
@@ -163,11 +158,6 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
             <p className="mt-2 font-sans text-4xl font-semibold leading-tight text-clay">
               {exam.phaseBadge}
             </p>
-            {exam.phaseBadgeXp > 0 ? (
-              <p className="mt-3 font-sans text-5xl font-bold text-sage">
-                +{exam.phaseBadgeXp} XP
-              </p>
-            ) : null}
           </div>
         ) : null}
 
@@ -181,7 +171,6 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
                   tier,
                   earnedPhaseBadge,
                   phaseBadge: earnedPhaseBadge ? exam.phaseBadge : null,
-                  phaseBadgeXp: earnedPhaseBadge ? exam.phaseBadgeXp ?? 0 : 0,
                 })
               }
             >

@@ -18,7 +18,6 @@ import { getPhase } from "./data/phases";
 import {
   hasFullAccess,
   isTrialExpired,
-  trialDaysLeft,
 } from "./utils/subscription";
 import PhoneShell from "./components/PhoneShell";
 import Badges from "./screens/Badges";
@@ -35,6 +34,26 @@ import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
+
+const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
+const TEXT_SIZE_OPTIONS = new Set(
+  Array.from({ length: 10 }, (_, index) => `size-${index + 1}`),
+);
+const LEGACY_TEXT_SIZES = {
+  normal: "size-2",
+  large: "size-3",
+  largest: "size-4",
+};
+
+function getSavedTextSize() {
+  try {
+    const saved = window.localStorage.getItem(TEXT_SIZE_STORAGE_KEY);
+    if (TEXT_SIZE_OPTIONS.has(saved)) return saved;
+    return LEGACY_TEXT_SIZES[saved] || "size-2";
+  } catch {
+    return "size-2";
+  }
+}
 
 /** Ensure subscription fields exist and expire trials past 3 days. */
 async function normalizeSubscription(uid, data) {
@@ -74,8 +93,18 @@ export default function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeExam, setActiveExam] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
+  const [textSize, setTextSize] = useState(getSavedTextSize);
   // After signup we route to the intro paywall; don't let auth state overwrite it.
   const skipAuthHomeRef = useRef(false);
+
+  useEffect(() => {
+    document.documentElement.dataset.textSize = textSize;
+    try {
+      window.localStorage.setItem(TEXT_SIZE_STORAGE_KEY, textSize);
+    } catch {
+      // Text resizing still works for this visit when storage is unavailable.
+    }
+  }, [textSize]);
 
   useEffect(() => {
     console.log("speech supported:", "speechSynthesis" in window);
@@ -125,7 +154,6 @@ export default function App() {
   const allDone = completedLessons.length >= lessonsByOrder.length;
   const subscriptionStatus = profile?.subscriptionStatus ?? "trial";
   const access = hasFullAccess(subscriptionStatus);
-  const daysLeft = trialDaysLeft(profile?.trialStartedAt);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -173,7 +201,6 @@ export default function App() {
         name,
         email,
         scamsCaught: 0,
-        totalXp: 0,
         badges: [],
         completedLessons: [],
         trialStartedAt: Timestamp.now(),
@@ -306,13 +333,11 @@ export default function App() {
     if (user && profile && activeLesson) {
       const already = completedLessons.includes(activeLesson.id);
       const prevBadges = profile.badges ?? [];
-      const prevXp = profile.totalXp ?? 0;
 
       const updates = {
         completedLessons: already
           ? completedLessons
           : [...completedLessons, activeLesson.id],
-        totalXp: already ? prevXp : prevXp + (activeLesson.xp ?? 20),
         badges:
           already || prevBadges.includes(activeLesson.badge)
             ? prevBadges
@@ -336,12 +361,10 @@ export default function App() {
     tier,
     earnedPhaseBadge,
     phaseBadge,
-    phaseBadgeXp = 0,
   }) => {
     if (user && profile && activeExam && tier) {
       const already = completedLessons.includes(activeExam.id);
       const prevBadges = profile.badges ?? [];
-      const prevXp = profile.totalXp ?? 0;
 
       let nextBadges = [...prevBadges];
       if (!already && tier.title && !nextBadges.includes(tier.title)) {
@@ -355,15 +378,10 @@ export default function App() {
         nextBadges.push(phaseBadge);
       }
 
-      const xpGain = already
-        ? 0
-        : (tier.xp ?? 0) + (earnedPhaseBadge ? phaseBadgeXp : 0);
-
       const updates = {
         completedLessons: already
           ? completedLessons
           : [...completedLessons, activeExam.id],
-        totalXp: prevXp + xpGain,
         badges: nextBadges,
       };
 
@@ -426,11 +444,10 @@ export default function App() {
           scamsCaught={profile?.scamsCaught ?? 0}
           badgesEarned={badgesEarnedCount}
           allDone={allDone}
-          subscriptionStatus={subscriptionStatus}
-          trialDaysLeft={daysLeft}
+          textSize={textSize}
+          onTextSizeChange={setTextSize}
           onStart={goPath}
           onOpenBadges={goBadges}
-          onOpenPaywall={goPaywall}
           onOpenSettings={goSettings}
           onOpenScamChecker={goScamChecker}
         />
@@ -494,7 +511,6 @@ export default function App() {
       content = (
         <LessonPath
           completedLessons={completedLessons}
-          scamsCaught={profile?.scamsCaught ?? 0}
           onSelectLesson={startLesson}
           onSelectChallenge={startChallenge}
           onSelectExam={startExam}

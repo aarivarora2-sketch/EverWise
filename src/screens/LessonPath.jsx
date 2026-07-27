@@ -8,13 +8,12 @@ import { getPhase, phaseLabel } from "../data/phases";
 import {
   CheckIcon,
   LockIcon,
-  StarIcon,
   TrophyIcon,
   BookIcon,
   ArrowLeftIcon,
 } from "../components/Icons";
 
-const TOP_PAD = 12; // first phase sits near the top of the scroll area
+const TOP_PAD = 0; // phase color starts directly below the orange header
 // Tall enough for circle + 20px two-line label + trail clearance to the next node.
 const NODE_SLOT = 380;
 // Generous space around the lighter phase headers (no filled block).
@@ -24,7 +23,6 @@ const PHASE_BAND = 88;
 const PHASE_BOTTOM = 32;
 // Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
 const NODE_BOX_H = 182;
-const BOX_CLEARANCE = 16; // first/last dot ≥ 16px past the box edge
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
@@ -57,7 +55,6 @@ function examUnlocked(exam, doneSet) {
 
 export default function LessonPath({
   completedLessons = [],
-  scamsCaught,
   onSelectLesson,
   onSelectExam,
   onSelectChallenge,
@@ -205,13 +202,10 @@ export default function LessonPath({
     // One single scrolling area: the header lives INSIDE it and scrolls away
     // with the path, so nothing is pinned for content to catch under.
     <div
-      className="min-h-0 flex-1 overflow-y-auto"
-      style={{
-        background: `linear-gradient(180deg, ${activePhase.color}14 0%, transparent 220px)`,
-      }}
+      className="min-h-0 flex-1 overflow-y-auto bg-cream"
     >
       {/* Neutral chrome — biome color only appears on phase bands/nodes */}
-      <header className="flex shrink-0 items-center justify-between rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
+      <header className="flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -229,11 +223,6 @@ export default function LessonPath({
             </p>
           </div>
         </div>
-        <div className="flex items-center text-lg font-semibold">
-          <span className="flex items-center gap-1.5">
-            <StarIcon className="h-6 w-6" /> {scamsCaught}
-          </span>
-        </div>
       </header>
 
       <div className="pb-8">
@@ -242,19 +231,23 @@ export default function LessonPath({
           style={{ height: containerHeight }}
         >
           {positioned
-            .filter((n) => n.kind === "phase")
-            .map((band, i, bands) => {
-              const next = bands[i + 1];
-              const end = next ? next.top : containerHeight;
+            .filter((node) => node.kind === "phase")
+            .map((band, index, bands) => {
+              const nextBand = bands[index + 1];
+              const end = nextBand ? nextBand.top : containerHeight;
               return (
                 <div
-                  key={`tint-${band.phase.number}`}
+                  key={`phase-background-${band.phase.number}`}
                   aria-hidden="true"
-                  className="absolute inset-x-0 rounded-3xl"
+                  className="absolute inset-x-0"
                   style={{
                     top: band.top,
                     height: Math.max(0, end - band.top),
-                    backgroundColor: `${band.phase.color}10`,
+                    backgroundColor: mixHex(
+                      band.phase.color,
+                      CREAM,
+                      0.1,
+                    ),
                   }}
                 />
               );
