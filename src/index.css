@@ -387,7 +387,9 @@ html:is(
   .btn-primary {
     @apply w-full rounded-2xl bg-clay px-6 py-5 text-center text-xl font-bold
       text-cream-card shadow-btn transition-all duration-150
-      active:translate-y-1 active:shadow-none hover:bg-clay-dark;
+      active:translate-y-1 active:shadow-none hover:bg-clay-dark
+      disabled:cursor-not-allowed disabled:bg-clay/50 disabled:shadow-none
+      disabled:hover:bg-clay/50 disabled:active:translate-y-0;
     min-height: 68px;
     height: auto;
   }
