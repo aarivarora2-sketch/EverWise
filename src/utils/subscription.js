@@ -1,4 +1,4 @@
-export const TRIAL_DAYS = 3;
+export const TRIAL_DAYS = 7;
 const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
 /** Convert Firestore Timestamp / Date / string / number → Date, or null. */
