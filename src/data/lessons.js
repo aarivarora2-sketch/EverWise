@@ -52,7 +52,6 @@ const phase1Lessons = [
         type: "video",
         label: "Welcome",
         heading: "Welcome to Everwise",
-        text: "Watch this short video to hear why we built Everwise and how it works.",
         videoId: "",
         footer: "When you're ready, tap Continue to start your first lesson.",
         continueLabel: "I'm ready"

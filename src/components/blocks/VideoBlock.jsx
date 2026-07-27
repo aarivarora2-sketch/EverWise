@@ -36,8 +36,8 @@ export default function VideoBlock({
           </p>
         )}
 
-        <div className="mt-6 overflow-hidden rounded-3xl bg-ink/5 shadow-card">
-          {hasVideo ? (
+        {hasVideo ? (
+          <div className="mt-6 overflow-hidden rounded-3xl bg-ink/5 shadow-card">
             <div className="relative w-full" style={{ paddingTop: "56.25%" }}>
               <iframe
                 title={block.heading || "Video"}
@@ -47,17 +47,8 @@ export default function VideoBlock({
                 className="absolute inset-0 h-full w-full border-0"
               />
             </div>
-          ) : (
-            <div className="flex min-h-[200px] flex-col items-center justify-center px-6 py-10 text-center">
-              <p className="text-xl font-semibold text-ink">
-                Video coming soon
-              </p>
-              <p className="mt-2 text-lg text-ink-soft">
-                Add the YouTube ID to this lesson to show it here.
-              </p>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : null}
 
         {block.footer && (
           <p className="mt-6 text-xl leading-relaxed text-ink-soft">

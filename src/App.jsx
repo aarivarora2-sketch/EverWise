@@ -55,7 +55,7 @@ function getSavedTextSize() {
   }
 }
 
-/** Ensure subscription fields exist and expire trials past 3 days. */
+/** Ensure subscription fields exist and expire trials past 7 days. */
 async function normalizeSubscription(uid, data) {
   const now = Timestamp.now();
   let next = { ...data };
@@ -197,7 +197,7 @@ export default function App() {
 
   const signUp = async (name, email, password) => {
     try {
-      // Prevent onAuthStateChanged from jumping to Home before the intro paywall.
+      // Prevent onAuthStateChanged from jumping to Home before the offer.
       skipAuthHomeRef.current = true;
       console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -209,8 +209,8 @@ export default function App() {
         scamsCaught: 0,
         badges: [],
         completedLessons: [],
-        trialStartedAt: Timestamp.now(),
-        subscriptionStatus: "trial",
+        trialStartedAt: null,
+        subscriptionStatus: "expired",
         plan: null,
       };
       console.log("[Everwise][firestore] setDoc users/", cred.user.uid, initial);
@@ -219,7 +219,7 @@ export default function App() {
 
       setUser(cred.user);
       setProfile(initial);
-      setPaywallVariant("intro");
+      setPaywallVariant("subscribe");
       setScreen("paywall");
     } catch (err) {
       skipAuthHomeRef.current = false;
@@ -299,11 +299,12 @@ export default function App() {
     setScreen("exam");
   };
 
-  const startFreeTrial = async () => {
+  const startFreeTrial = async (plan = "annual") => {
     // TODO: replace with Stripe checkout
     await updateSubscription({
-      subscriptionStatus: "active",
-      plan: "monthly",
+      subscriptionStatus: "trial",
+      trialStartedAt: Timestamp.now(),
+      plan,
     });
     goHome();
   };
@@ -505,6 +506,7 @@ export default function App() {
         <Paywall
           key={`paywall-${paywallVariant}`}
           variant={paywallVariant}
+          textSize={textSize}
           lessonsCompleted={lessonsCompletedCount}
           badgesEarned={badgesEarnedCount}
           onStartTrial={startFreeTrial}
