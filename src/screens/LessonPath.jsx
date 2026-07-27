@@ -63,6 +63,7 @@ export default function LessonPath({
 }) {
   const doneSet = new Set(completedLessons);
   const activePhaseRef = useRef(null);
+  const currentNodeRef = useRef(null);
 
   // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
@@ -201,20 +202,50 @@ export default function LessonPath({
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
 
   useEffect(() => {
-    if (!currentId || !activePhaseRef.current) return undefined;
+    if (
+      !currentId ||
+      !activePhaseRef.current ||
+      !currentNodeRef.current
+    ) {
+      return undefined;
+    }
 
+    let scrollTimer;
     const frame = window.requestAnimationFrame(() => {
       const reduceMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
+
       activePhaseRef.current?.scrollIntoView({
-        behavior: reduceMotion ? "auto" : "smooth",
+        behavior: "auto",
         block: "start",
         inline: "nearest",
       });
+
+      if (reduceMotion) {
+        currentNodeRef.current?.scrollIntoView({
+          behavior: "auto",
+          block: "center",
+          inline: "nearest",
+        });
+        return;
+      }
+
+      // Give the learner a moment to see the phase name, then trace the path
+      // down to the lesson that is ready for them now.
+      scrollTimer = window.setTimeout(() => {
+        currentNodeRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        });
+      }, 650);
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(scrollTimer);
+    };
   }, [activePhaseNumber, currentId]);
 
   return (
@@ -357,6 +388,7 @@ export default function LessonPath({
             return (
               <div
                 key={node.id || i}
+                ref={node.id === currentId ? currentNodeRef : null}
                 className="absolute z-10 flex flex-col items-center"
                 style={{
                   left: `calc(50% + ${node.offsetX ?? 0}px)`,
