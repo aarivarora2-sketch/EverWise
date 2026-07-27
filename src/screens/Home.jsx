@@ -32,7 +32,7 @@ export default function Home({
   return (
     <div className="flex flex-1 flex-col overflow-y-auto pb-6">
       <div className="flex flex-1 flex-col px-6 pt-5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="home-header flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
               src="/everwise-logo-192.png"
@@ -53,7 +53,7 @@ export default function Home({
           </button>
         </div>
 
-        <div className="mt-5 flex items-start justify-between gap-4">
+        <div className="home-intro mt-5 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xl text-ink-soft animate-fade-up">
               Hello{firstName ? (
@@ -78,7 +78,7 @@ export default function Home({
               onClick={decreaseTextSize}
               disabled={textSizeIndex === 0}
               aria-label="Make text smaller"
-              className="flex h-11 w-11 items-center justify-center text-2xl font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint"
+              className="text-size-control flex h-11 w-11 items-center justify-center font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint"
             >
               −
             </button>
@@ -88,7 +88,7 @@ export default function Home({
               onClick={increaseTextSize}
               disabled={textSizeIndex === textSizes.length - 1}
               aria-label="Make text larger"
-              className="flex h-11 w-11 items-center justify-center text-2xl font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint"
+              className="text-size-control flex h-11 w-11 items-center justify-center font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint"
             >
               +
             </button>
@@ -116,7 +116,7 @@ export default function Home({
             </div>
           </button>
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="home-stats mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={onOpenBadges}

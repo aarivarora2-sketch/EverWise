@@ -3,7 +3,7 @@
 // NOTE: Lesson 6 (What is Wi-Fi?) is referenced in the curriculum but was not in
 // the source document. Add it here when written.
 //
-// BLOCK TYPES: learn, multiselect, flashcards, match, fillblank,
+// BLOCK TYPES: learn, multiselect, flashcards, fillblank,
 //              scenario, truefalse, choice, builder
 
 import { phase2Lessons } from "./phase2-lessons";
@@ -1733,16 +1733,18 @@ const phase1Lessons = [
   }
 ];
 
-// Box-sorting activities were removed from the product. Filter them at the
-// curriculum boundary so older lesson files cannot accidentally render one.
-function withoutBoxSorting(lesson) {
+// Sorting and word-matching activities were removed from the product. Filter
+// them at the curriculum boundary so older lesson files cannot render one.
+function withoutRemovedActivities(lesson) {
   return {
     ...lesson,
-    blocks: (lesson.blocks || []).filter((block) => block.type !== "sort"),
+    blocks: (lesson.blocks || []).filter(
+      (block) => block.type !== "sort" && block.type !== "match",
+    ),
   };
 }
 
-export const lessons = phase1Lessons.map(withoutBoxSorting);
+export const lessons = phase1Lessons.map(withoutRemovedActivities);
 export default lessons;
 
 // The two tracks, each kept in its own curriculum order.
@@ -1754,7 +1756,7 @@ const literacyTrack = [
   ...phase5Lessons,
   ...phase6Lessons,
   ...phase7Lessons,
-].map(withoutBoxSorting).map((l) => ({
+].map(withoutRemovedActivities).map((l) => ({
   ...l,
   track: l.track || "literacy",
 }));
@@ -1770,7 +1772,7 @@ const scamTrack = [
   ...scamPhase8Lessons,
   ...scamPhase9Lessons,
   ...scamPhase10Lessons,
-].map(withoutBoxSorting);
+].map(withoutRemovedActivities);
 
 export const allLessons = [...literacyTrack, ...scamTrack];
 
@@ -1823,7 +1825,7 @@ export function pathOrderForPhase(phase) {
 // Ungraded phase challenges (after the phase's last lesson, before the exam).
 export const challengesByOrder = [phase4Challenge]
   .filter(Boolean)
-  .map(withoutBoxSorting)
+  .map(withoutRemovedActivities)
   .sort((a, b) => a.order - b.order);
 
 // Phase exams — only real exam objects (phases without an exam simply omit one).

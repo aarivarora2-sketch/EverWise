@@ -5,49 +5,50 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
-    /* Bump the root size so all text scales up a little for older eyes. */
+    /* Keep layout units stable; only typography scales with the user setting. */
+    --text-scale: 1;
     font-size: 18px;
     height: 100%;
   }
 
   html[data-text-size="size-1"] {
-    font-size: 16px;
+    --text-scale: 0.89;
   }
 
   html[data-text-size="size-2"] {
-    font-size: 18px;
+    --text-scale: 1;
   }
 
   html[data-text-size="size-3"] {
-    font-size: 20px;
+    --text-scale: 1.11;
   }
 
   html[data-text-size="size-4"] {
-    font-size: 22px;
+    --text-scale: 1.22;
   }
 
   html[data-text-size="size-5"] {
-    font-size: 24px;
+    --text-scale: 1.33;
   }
 
   html[data-text-size="size-6"] {
-    font-size: 26px;
+    --text-scale: 1.44;
   }
 
   html[data-text-size="size-7"] {
-    font-size: 28px;
+    --text-scale: 1.56;
   }
 
   html[data-text-size="size-8"] {
-    font-size: 30px;
+    --text-scale: 1.67;
   }
 
   html[data-text-size="size-9"] {
-    font-size: 32px;
+    --text-scale: 1.78;
   }
 
   html[data-text-size="size-10"] {
-    font-size: 34px;
+    --text-scale: 1.89;
   }
 
   body,
@@ -58,6 +59,7 @@
   body {
     @apply bg-cream text-ink font-sans antialiased;
     /* Clear sans-serif with a comfortable line height for easy reading. */
+    font-size: calc(1rem * var(--text-scale));
     line-height: 1.65;
   }
 
@@ -72,8 +74,256 @@
   h2,
   h3 {
     @apply font-sans;
+    overflow-wrap: anywhere;
     text-wrap: balance;
   }
+
+  p,
+  li,
+  label,
+  button {
+    overflow-wrap: anywhere;
+  }
+
+  button,
+  [role="button"] {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
+/*
+ * Accessible text scaling
+ *
+ * Tailwind's text utilities use root-relative units. Overriding those sizes
+ * here lets words grow without also enlarging every icon, gap, radius, and
+ * card. Line heights grow with the words so large text never overlaps.
+ */
+html[data-text-size] .text-xs {
+  font-size: calc(0.75rem * var(--text-scale));
+  line-height: calc(1rem * var(--text-scale));
+}
+
+html[data-text-size] .text-sm {
+  font-size: calc(0.875rem * var(--text-scale));
+  line-height: calc(1.25rem * var(--text-scale));
+}
+
+html[data-text-size] .text-base {
+  font-size: calc(1rem * var(--text-scale));
+  line-height: calc(1.5rem * var(--text-scale));
+}
+
+html[data-text-size] .text-lg,
+html[data-text-size] .btn-secondary {
+  font-size: calc(1.125rem * var(--text-scale));
+  line-height: calc(1.75rem * var(--text-scale));
+}
+
+html[data-text-size] .text-xl,
+html[data-text-size] .btn-primary {
+  font-size: calc(1.25rem * var(--text-scale));
+  line-height: calc(1.75rem * var(--text-scale));
+}
+
+html[data-text-size] .text-2xl {
+  font-size: calc(1.5rem * var(--text-scale));
+  line-height: calc(2rem * var(--text-scale));
+}
+
+html[data-text-size] .text-3xl,
+html[data-text-size] .page-title {
+  font-size: calc(1.875rem * var(--text-scale));
+  line-height: calc(2.25rem * var(--text-scale));
+}
+
+html[data-text-size] .text-4xl {
+  font-size: calc(2.25rem * var(--text-scale));
+  line-height: calc(2.5rem * var(--text-scale));
+}
+
+html[data-text-size] .text-5xl {
+  font-size: calc(3rem * var(--text-scale));
+  line-height: calc(3rem * var(--text-scale));
+}
+
+html[data-text-size] .text-6xl {
+  font-size: calc(3.75rem * var(--text-scale));
+  line-height: calc(3.75rem * var(--text-scale));
+}
+
+html[data-text-size] .text-\[13px\] {
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.35;
+}
+
+html[data-text-size] .text-\[14px\] {
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.35;
+}
+
+html[data-text-size] .text-\[15px\] {
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1.35;
+}
+
+html[data-text-size] .text-\[17px\] {
+  font-size: calc(17px * var(--text-scale));
+  line-height: 1.35;
+}
+
+html[data-text-size] .text-\[20px\] {
+  font-size: calc(20px * var(--text-scale));
+  line-height: 1.35;
+}
+
+html[data-text-size] .text-\[26px\] {
+  font-size: calc(26px * var(--text-scale));
+  line-height: 1.25;
+}
+
+html[data-text-size] .text-\[30px\] {
+  font-size: calc(30px * var(--text-scale));
+  line-height: 1.2;
+}
+
+/* The resize symbols stay a stable, easy-to-tap size at every level. */
+html[data-text-size] .text-size-control {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+/* Give very large text a full-width column instead of squeezing it. */
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .home-intro {
+  flex-direction: column;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .home-stats {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
+ * At large text sizes, lesson navigation becomes two clear rows. The title
+ * keeps the back button beside it, while Skip gets the full available width.
+ */
+html:is(
+    [data-text-size="size-6"],
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .lesson-top-grid {
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  row-gap: 0.75rem;
+}
+
+html:is(
+    [data-text-size="size-6"],
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .lesson-top-label {
+  grid-column: 2;
+  justify-self: stretch;
+}
+
+html:is(
+    [data-text-size="size-6"],
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .lesson-top-label-text {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+html:is(
+    [data-text-size="size-6"],
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .lesson-skip {
+  grid-column: 1 / -1;
+  width: 100%;
+  justify-self: stretch;
+  border: 2px solid rgb(34 32 28 / 15%);
+  background: rgb(255 253 248 / 80%);
+  padding: 0.65rem 1rem;
+}
+
+html:is(
+    [data-text-size="size-6"],
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .lesson-skip-spacer {
+  display: none;
+}
+
+html:is(
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .home-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* Side-by-side content becomes a readable stack before words get squeezed. */
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .grid-cols-2 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .responsive-split {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .responsive-split > * {
+  max-width: 100%;
+  text-align: left;
 }
 
 @layer components {
@@ -88,6 +338,7 @@
       text-cream-card shadow-btn transition-all duration-150
       active:translate-y-1 active:shadow-none hover:bg-clay-dark;
     min-height: 68px;
+    height: auto;
   }
 
   .btn-secondary {
@@ -95,6 +346,7 @@
       text-center text-lg font-semibold text-ink transition-colors
       hover:bg-cream-deep;
     min-height: 60px;
+    height: auto;
   }
 
   .stat-card {

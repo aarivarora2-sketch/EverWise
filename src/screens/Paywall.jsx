@@ -155,7 +155,7 @@ const INTRO_TIMELINE = [
 /** Post-signup intro: condensed to fit one phone screen without scrolling. */
 function IntroTimelineScreen({ onStartLearning }) {
   return (
-    <div className="flex flex-1 flex-col overflow-hidden px-7 pb-8 pt-7">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-8 pt-7">
       <h1 className="page-title">
         Your 3 free days start now.
       </h1>
