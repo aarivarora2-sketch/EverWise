@@ -326,6 +326,57 @@ html:is(
   text-align: left;
 }
 
+@keyframes launch-logo {
+  0% {
+    opacity: 0;
+    transform: scale(0.72) rotate(-5deg);
+  }
+  68% {
+    opacity: 1;
+    transform: scale(1.06) rotate(1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes launch-copy {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes launch-progress {
+  0% {
+    transform: scaleX(0);
+  }
+  78% {
+    transform: scaleX(0.84);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.launch-logo {
+  animation: launch-logo 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.launch-copy {
+  animation: launch-copy 420ms ease-out 180ms both;
+}
+
+.launch-progress-bar {
+  animation: launch-progress 2850ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: left center;
+}
+
 @layer components {
   /* One consistent, highly readable title for every main content screen. */
   .page-title {

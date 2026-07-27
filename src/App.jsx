@@ -86,6 +86,7 @@ async function normalizeSubscription(uid, data) {
 
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
+  const [launchAnimationDone, setLaunchAnimationDone] = useState(false);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [screen, setScreen] = useState("landing");
@@ -96,6 +97,11 @@ export default function App() {
   const [textSize, setTextSize] = useState(getSavedTextSize);
   // After signup we route to the intro paywall; don't let auth state overwrite it.
   const skipAuthHomeRef = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLaunchAnimationDone(true), 3000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.textSize = textSize;
@@ -401,7 +407,7 @@ export default function App() {
     goPath();
   };
 
-  if (!authChecked) {
+  if (!authChecked || !launchAnimationDone) {
     return (
       <PhoneShell>
         <Loading />
