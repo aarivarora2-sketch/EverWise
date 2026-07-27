@@ -13,20 +13,22 @@ export default function LessonTopBar({
     progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
 
   return (
-    <div className="px-6 pt-6">
-      <div className="grid grid-cols-[44px_minmax(0,1fr)_56px] items-center gap-2">
+    <div className="lesson-top-bar shrink-0 px-6 pt-6">
+      <div className="lesson-top-grid grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-2">
         <button
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="-ml-2 flex items-center gap-1 rounded-full p-2 text-ink-soft transition-colors hover:bg-cream-deep"
+          className="lesson-back -ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 text-ink-soft transition-colors hover:bg-cream-deep"
         >
           <ArrowLeftIcon className="h-7 w-7" />
         </button>
 
-        <span className="inline-flex min-w-0 items-center justify-center gap-2 justify-self-center rounded-full bg-sage/15 px-4 py-1.5 text-base font-bold text-sage-dark">
-          <BookIcon className="h-5 w-5" />
-          <span className="truncate">{label}</span>
+        <span className="lesson-top-label inline-flex min-w-0 max-w-full items-center justify-center gap-2 justify-self-center rounded-full bg-sage/15 px-4 py-1.5 text-center text-base font-bold text-sage-dark">
+          <BookIcon className="h-5 w-5 shrink-0" />
+          <span className="lesson-top-label-text min-w-0 truncate">
+            {label}
+          </span>
         </span>
 
         {onSkip ? (
@@ -34,12 +36,12 @@ export default function LessonTopBar({
             type="button"
             onClick={onSkip}
             aria-label="Skip this step"
-            className="justify-self-end rounded-full px-2 py-2 text-base font-bold text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+            className="lesson-skip min-h-11 max-w-full justify-self-end rounded-xl px-3 py-2 text-center text-base font-bold leading-tight text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
           >
             Skip
           </button>
         ) : (
-          <span aria-hidden="true" />
+          <span className="lesson-skip-spacer" aria-hidden="true" />
         )}
       </div>
 

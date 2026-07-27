@@ -138,7 +138,7 @@ export default function Badges({ badges = [], onBack }) {
               >
                 Phase {phaseLabel(phase)} · {phase.biome}
               </p>
-              <div className="mt-1 flex items-baseline justify-between gap-3">
+              <div className="responsive-split mt-1 flex items-baseline justify-between gap-3">
                 <h2 className="font-sans text-[26px] font-bold leading-tight text-ink">
                   {phase.title}
                 </h2>

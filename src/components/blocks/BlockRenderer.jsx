@@ -1,7 +1,6 @@
 import LearnBlock from "./LearnBlock";
 import MultiselectBlock from "./MultiselectBlock";
 import FlashcardsBlock from "./FlashcardsBlock";
-import MatchBlock from "./MatchBlock";
 import FillBlankBlock from "./FillBlankBlock";
 import ScenarioBlock from "./ScenarioBlock";
 import TrueFalseBlock from "./TrueFalseBlock";
@@ -26,7 +25,6 @@ const BLOCKS = {
   learn: LearnBlock,
   multiselect: MultiselectBlock,
   flashcards: FlashcardsBlock,
-  match: MatchBlock,
   fillblank: FillBlankBlock,
   scenario: ScenarioBlock,
   truefalse: TrueFalseBlock,

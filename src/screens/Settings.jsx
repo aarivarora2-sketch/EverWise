@@ -8,7 +8,7 @@ function Row({ label, value, onClick, hint }) {
     <Comp
       type={interactive ? "button" : undefined}
       onClick={onClick}
-      className={`flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 text-left shadow-card ${
+      className={`responsive-split flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 text-left shadow-card ${
         interactive
           ? "transition-colors hover:bg-cream-deep active:bg-cream-deep"
           : ""

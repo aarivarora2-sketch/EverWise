@@ -146,7 +146,7 @@ export default function ScamChecker({ onBack }) {
             placeholder="Paste the message here…"
             className="mt-2 w-full resize-none rounded-2xl border-2 border-ink/20 bg-cream px-4 py-3 text-lg leading-snug text-ink placeholder:text-ink-faint focus:border-clay"
           />
-          <div className="mt-2 flex items-start justify-between gap-3 text-sm leading-snug text-ink-faint">
+          <div className="responsive-split mt-2 flex items-start justify-between gap-3 text-sm leading-snug text-ink-faint">
             <p>Remove passwords and account numbers first.</p>
             <p className="shrink-0">
               {message.length.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
