@@ -5,7 +5,7 @@
 // (see App.jsx finishLesson / finishExam), so matching is by name.
 
 import { lessonsByOrder, examsByOrder } from "../data/lessons";
-import { allPhases as phases, getPhase } from "../data/phases";
+import { allPhases as phases, getPhase, phaseLabel } from "../data/phases";
 
 /**
  * All badges grouped by phase, in curriculum order.
@@ -36,7 +36,7 @@ export function badgeCatalog() {
     push(exam.phase, {
       name: exam.phaseBadge,
       source: "exam",
-      subtitle: `Phase ${exam.phase} final exam`,
+      subtitle: `Phase ${phaseLabel(getPhase(exam.phase))} final exam`,
       order: exam.order,
     });
   });

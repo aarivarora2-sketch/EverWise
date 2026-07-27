@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 9: Helping Others Stay Safe
+// Phase 16: Helping Others Stay Safe
 //
 // ⚠️ MISSING LESSONS — 9.1 and 9.2
 // The source curriculum references two lessons that were never written:
@@ -35,7 +35,7 @@ export const scamPhase9Lessons = [
   {
     id: "scam-help-after-mistake",
     track: "scam",
-    phase: 109,
+    phase: 16,
     order: 3,
     lessonNumber: "9.3",
     title: "Help After Someone Clicked or Shared Information",
@@ -293,7 +293,7 @@ export const scamPhase9Lessons = [
   {
     id: "scam-safety-plan",
     track: "scam",
-    phase: 109,
+    phase: 16,
     order: 4,
     lessonNumber: "9.4",
     title: "Make a Family or Friend Safety Plan",
@@ -528,7 +528,7 @@ export const scamPhase9Lessons = [
   {
     id: "scam-more-help",
     track: "scam",
-    phase: 109,
+    phase: 16,
     order: 5,
     lessonNumber: "9.5",
     title: "Know When to Bring in More Help",
@@ -777,8 +777,8 @@ export const scamPhase9Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 9 complete!",
-      subtitle: "You completed Know When to Bring in More Help — and all of Phase 9.",
+      title: "Phase 16 complete!",
+      subtitle: "You completed Know When to Bring in More Help — and all of Phase 16.",
       habit: "When the risk is serious, don't solve it alone: notice, name, records, route, stay.",
       warningSign: "A stranger offering to recover money you already lost.",
       skills: [
@@ -795,7 +795,7 @@ export const scamPhase9Lessons = [
         "Know when to bring in more help: notice, name, records, route, stay.",
         "A good safety helper is calm, kind, practical, and willing to bring in the right help."
       ],
-      next: "Phase 10: Living Confidently Online"
+      next: "Phase 17: Living Confidently Online"
     }
   }
 ];

@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 4: When AI Enters the Conversation
+// Phase 11: When AI Enters the Conversation
 //
 // Big idea: AI can make conversations, photos, videos, and messages seem more
 // believable — but the safety habits already built still protect you.
@@ -21,7 +21,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-written-words",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 1,
     lessonNumber: "4.1",
     title: "When Words Aren't Written by People",
@@ -268,7 +268,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-voice",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 2,
     lessonNumber: "4.2",
     title: "When the Voice Isn't Real",
@@ -518,7 +518,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-images",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 3,
     lessonNumber: "4.3",
     title: "When the Picture Never Happened",
@@ -750,7 +750,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-video",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 4,
     lessonNumber: "4.4",
     title: "When Videos Can Lie",
@@ -1002,7 +1002,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-chatbots",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 5,
     lessonNumber: "4.5",
     title: "When AI Answers Back",
@@ -1224,7 +1224,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-confidence",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 6,
     lessonNumber: "4.6",
     title: "When AI Sounds Certain",
@@ -1466,7 +1466,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-limits",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 7,
     lessonNumber: "4.7",
     title: "When AI Doesn't Know",
@@ -1703,7 +1703,7 @@ export const scamPhase4Lessons = [
   {
     id: "scam-ai-helper",
     track: "scam",
-    phase: 104,
+    phase: 11,
     order: 8,
     lessonNumber: "4.8",
     title: "Making AI Your Helper",
@@ -1924,8 +1924,8 @@ export const scamPhase4Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 4 complete!",
-      subtitle: "You completed Making AI Your Helper — and all of Phase 4.",
+      title: "Phase 11 complete!",
+      subtitle: "You completed Making AI Your Helper — and all of Phase 11.",
       habit: "Let AI help you think. Let yourself make the final decision.",
       warningSign: "Letting a tool make a decision that's yours to make.",
       skills: [
@@ -1940,7 +1940,7 @@ export const scamPhase4Lessons = [
         "Slow down. Verify important information. Ask questions. Make the final decision yourself.",
         "Next: protecting something just as valuable as your money — your personal information."
       ],
-      next: "Phase 5: Protecting Your Personal Information"
+      next: "Phase 12: Protecting Your Personal Information"
     }
   }
 ];

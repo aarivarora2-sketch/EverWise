@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 7: Safe Online Shopping & Money
+// Phase 14: Safe Online Shopping & Money
 //
 // One clear idea: Before money moves, check the details.
 // Each lesson carries its own short checklist so learners have something
@@ -19,7 +19,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-check-before-money-moves",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 1,
     lessonNumber: "7.1",
     title: "Check Before Money Moves",
@@ -280,7 +280,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-safer-payment-method",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 2,
     lessonNumber: "7.2",
     title: "Choose a Safer Payment Method",
@@ -541,7 +541,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-check-the-store",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 3,
     lessonNumber: "7.3",
     title: "Check the Store Before You Buy",
@@ -800,7 +800,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-checkout-details",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 4,
     lessonNumber: "7.4",
     title: "Read the Checkout Details",
@@ -1051,7 +1051,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-purchase-goes-wrong",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 5,
     lessonNumber: "7.5",
     title: "When a Purchase Goes Wrong",
@@ -1311,7 +1311,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-donate-safely",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 6,
     lessonNumber: "7.6",
     title: "Donate Safely",
@@ -1569,7 +1569,7 @@ export const scamPhase7Lessons = [
   {
     id: "scam-easy-money",
     track: "scam",
-    phase: 107,
+    phase: 14,
     order: 7,
     lessonNumber: "7.7",
     title: "Be Careful with Easy Money Offers",
@@ -1808,8 +1808,8 @@ export const scamPhase7Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 7 complete!",
-      subtitle: "You completed Be Careful with Easy Money Offers — and all of Phase 7.",
+      title: "Phase 14 complete!",
+      subtitle: "You completed Be Careful with Easy Money Offers — and all of Phase 14.",
       habit: "Before trusting an easy-money offer, check: Promise. Proof. Payment. Pressure. Privacy.",
       warningSign: "Money coming in can still put your money at risk.",
       skills: [
@@ -1826,7 +1826,7 @@ export const scamPhase7Lessons = [
         "Kindness still deserves caution.",
         "Money coming in deserves the same caution as money going out."
       ],
-      next: "Phase 8: AI in Everyday Life"
+      next: "Phase 15: AI in Everyday Life"
     }
   }
 ];

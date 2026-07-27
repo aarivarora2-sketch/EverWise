@@ -80,7 +80,7 @@ export default function LessonPath({
     ...challengesByOrder.map((c) => ({
       kind: "challenge",
       id: c.id,
-      // Slot just after the last lesson of its phase on the interleaved path.
+      // Slot just after the last lesson of its phase on the path.
       order: pathOrderForPhase(c.phase) + 0.4,
       phase: c.phase,
       title: "Final Challenge",

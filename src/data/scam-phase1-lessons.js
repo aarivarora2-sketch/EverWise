@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 1: Becoming Scam-Proof
+// Phase 8: Becoming Scam-Proof
 //
 // This phase builds four mental habits before any specific scam is taught.
 // By the end, the learner should carry these automatically:
@@ -17,7 +17,7 @@ export const scamPhase1Lessons = [
   {
     id: "scam-pause-button",
     track: "scam",
-    phase: 101,
+    phase: 8,
     order: 1,
     lessonNumber: "1.1",
     title: "The Pause Button",
@@ -242,7 +242,7 @@ export const scamPhase1Lessons = [
   {
     id: "scam-you-are-in-control",
     track: "scam",
-    phase: 101,
+    phase: 8,
     order: 2,
     lessonNumber: "1.2",
     title: "You Are In Control",
@@ -466,7 +466,7 @@ export const scamPhase1Lessons = [
   {
     id: "scam-stay-calm",
     track: "scam",
-    phase: 101,
+    phase: 8,
     order: 3,
     lessonNumber: "1.3",
     title: "Stay Calm, Think Clearly",
@@ -688,7 +688,7 @@ export const scamPhase1Lessons = [
   {
     id: "scam-stop-verify-decide",
     track: "scam",
-    phase: 101,
+    phase: 8,
     order: 4,
     lessonNumber: "1.4",
     title: "Stop, Verify, Then Decide",
@@ -910,8 +910,8 @@ export const scamPhase1Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 1 complete!",
-      subtitle: "You completed Stop, Verify, Then Decide — and all of Phase 1.",
+      title: "Phase 8 complete!",
+      subtitle: "You completed Stop, Verify, Then Decide — and all of Phase 8.",
       habit: "Verify unexpected requests before you trust them.",
       warningSign: "Being asked to prove yourself to someone who contacted you.",
       skills: [
@@ -925,7 +925,7 @@ export const scamPhase1Lessons = [
         "Strong emotions are a reason to slow down, not speed up.",
         "Verify unexpected requests before you trust them."
       ],
-      next: "Phase 2: The Warning Signs"
+      next: "Phase 9: The Warning Signs"
     }
   }
 ];

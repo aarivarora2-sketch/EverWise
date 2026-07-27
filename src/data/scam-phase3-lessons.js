@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 3: The Masks Scammers Wear
+// Phase 10: The Masks Scammers Wear
 //
 // The disguise changes every lesson. The warning signs never do. Each Final
 // Boss deliberately uses a different channel — call, text, pop-up, email,
@@ -17,7 +17,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-anyone-can-pretend",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 1,
     lessonNumber: "3.1",
     title: "Anyone Can Pretend",
@@ -234,7 +234,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-government",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 2,
     lessonNumber: "3.2",
     title: "Government & Law Enforcement",
@@ -471,7 +471,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-your-bank",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 3,
     lessonNumber: "3.3",
     title: "Your Bank",
@@ -712,7 +712,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-tech-support",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 4,
     lessonNumber: "3.4",
     title: "Computer & Tech Support",
@@ -961,7 +961,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-someone-you-love",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 5,
     lessonNumber: "3.5",
     title: "Someone You Love",
@@ -1218,7 +1218,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-home-services",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 6,
     lessonNumber: "3.6",
     title: "Your Home Services",
@@ -1464,7 +1464,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-deliveries",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 7,
     lessonNumber: "3.7",
     title: "Deliveries & Packages",
@@ -1719,7 +1719,7 @@ export const scamPhase3Lessons = [
   {
     id: "scam-healthcare",
     track: "scam",
-    phase: 103,
+    phase: 10,
     order: 8,
     lessonNumber: "3.8",
     title: "Medicare & Healthcare",
@@ -1960,8 +1960,8 @@ export const scamPhase3Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 3 complete!",
-      subtitle: "You completed Medicare & Healthcare — and all of Phase 3.",
+      title: "Phase 10 complete!",
+      subtitle: "You completed Medicare & Healthcare — and all of Phase 10.",
       habit: "Protect your health information the same way you protect your money — verify first.",
       warningSign: "Unexpected health requests for personal information.",
       skills: [

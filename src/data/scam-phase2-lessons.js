@@ -1,7 +1,7 @@
 // Everwise - Scam Protection track
-// Phase 2: The Warning Signs
+// Phase 9: The Warning Signs
 //
-// Phase 1 built four mental habits. This phase names the five warning signs
+// Phase 8 built four mental habits. This phase names the five warning signs
 // that appear across almost every scam, whatever story is wrapped around them:
 //   Unexpected contact · Secrecy · Rushing · Strange payments · Refusing verification
 
@@ -20,7 +20,7 @@ export const scamPhase2Lessons = [
   {
     id: "scam-unexpected-call",
     track: "scam",
-    phase: 102,
+    phase: 9,
     order: 1,
     lessonNumber: "2.1",
     title: "The Unexpected Call",
@@ -258,7 +258,7 @@ export const scamPhase2Lessons = [
   {
     id: "scam-keep-it-secret",
     track: "scam",
-    phase: 102,
+    phase: 9,
     order: 2,
     lessonNumber: "2.2",
     title: "Keep It a Secret",
@@ -479,7 +479,7 @@ export const scamPhase2Lessons = [
   {
     id: "scam-rushing-is-a-warning",
     track: "scam",
-    phase: 102,
+    phase: 9,
     order: 3,
     lessonNumber: "2.3",
     title: "Rushing Is a Warning",
@@ -696,7 +696,7 @@ export const scamPhase2Lessons = [
   {
     id: "scam-strange-payments",
     track: "scam",
-    phase: 102,
+    phase: 9,
     order: 4,
     lessonNumber: "2.4",
     title: "Strange Payments Are a Warning",
@@ -922,7 +922,7 @@ export const scamPhase2Lessons = [
   {
     id: "scam-always-verify",
     track: "scam",
-    phase: 102,
+    phase: 9,
     order: 5,
     lessonNumber: "2.5",
     title: "Always Verify",
@@ -1148,8 +1148,8 @@ export const scamPhase2Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 2 complete!",
-      subtitle: "You completed Always Verify — and all of Phase 2.",
+      title: "Phase 9 complete!",
+      subtitle: "You completed Always Verify — and all of Phase 9.",
       habit: "Verify first. Trust second.",
       warningSign: "A request that can't be independently checked.",
       skills: [
@@ -1165,7 +1165,7 @@ export const scamPhase2Lessons = [
         "🚩 Refusing to let you verify",
         "You don't have to remember every scam — only these five warning signs."
       ],
-      next: "Phase 3: The Masks Scammers Wear"
+      next: "Phase 10: The Masks Scammers Wear"
     }
   }
 ];

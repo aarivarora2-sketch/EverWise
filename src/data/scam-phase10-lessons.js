@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 10: Living Confidently Online
+// Phase 17: Living Confidently Online
 //
 // The final phase. One clear idea:
 //   Online safety is not about being afraid. It is about having habits
@@ -25,7 +25,7 @@ export const scamPhase10Lessons = [
   {
     id: "scam-trust-your-routine",
     track: "scam",
-    phase: 110,
+    phase: 17,
     order: 1,
     lessonNumber: "10.1",
     title: "Trust Your Safety Routine",
@@ -282,7 +282,7 @@ export const scamPhase10Lessons = [
   {
     id: "scam-digital-health",
     track: "scam",
-    phase: 110,
+    phase: 17,
     order: 2,
     lessonNumber: "10.2",
     title: "Keep Your Digital Life Healthy",
@@ -537,7 +537,7 @@ export const scamPhase10Lessons = [
   {
     id: "scam-without-fear",
     track: "scam",
-    phase: 110,
+    phase: 17,
     order: 3,
     lessonNumber: "10.3",
     title: "Use the Internet Without Fear",
@@ -785,7 +785,7 @@ export const scamPhase10Lessons = [
   {
     id: "scam-graduation",
     track: "scam",
-    phase: 110,
+    phase: 17,
     order: 4,
     lessonNumber: "10.4",
     title: "Your Online Safety Graduation",
@@ -982,27 +982,27 @@ export const scamPhase10Lessons = [
         type: "memory",
         links: [
           {
-            lesson: "Phase 1 — Becoming Scam-Proof",
+            lesson: "Phase 8 — Becoming Scam-Proof",
             note: "Pausing is powerful. You are always in control."
           },
           {
-            lesson: "Phase 2 — The Warning Signs",
+            lesson: "Phase 9 — The Warning Signs",
             note: "Unexpected contact, secrecy, rushing, strange payments, refusing verification."
           },
           {
-            lesson: "Phase 3 — The Masks Scammers Wear",
+            lesson: "Phase 10 — The Masks Scammers Wear",
             note: "The disguise changes. The warning signs don't."
           },
           {
-            lesson: "Phases 4 & 8 — AI",
+            lesson: "Phases 11 & 15 — AI",
             note: "AI can make scams convincing, and AI itself can guess. You decide."
           },
           {
-            lesson: "Phases 5, 6 & 7 — Information, Communication, Money",
+            lesson: "Phases 12, 13 & 14 — Information, Communication, Money",
             note: "Protect what opens doors, handle messages carefully, and check before money moves."
           },
           {
-            lesson: "Phase 9 — Helping Others Stay Safe",
+            lesson: "Phase 16 — Helping Others Stay Safe",
             note: "Help without shame and bring in trusted support when needed."
           }
         ]

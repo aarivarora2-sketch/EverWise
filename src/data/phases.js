@@ -1,8 +1,9 @@
-// Phase metadata for the Digital Literacy track.
+// Phase metadata for both tracks in one continuous sequence (1–17).
 // `color` is the biome hue used on path nodes, headers, and section tints.
 export const phases = [
   {
     number: 1,
+    track: "literacy",
     title: "Foundations",
     biome: "Meadow",
     color: "#6B8E5A",
@@ -10,6 +11,7 @@ export const phases = [
   },
   {
     number: 2,
+    track: "literacy",
     title: "Safe Internet Habits",
     biome: "Tidepool",
     color: "#2F7A85",
@@ -17,6 +19,7 @@ export const phases = [
   },
   {
     number: 3,
+    track: "literacy",
     title: "Communication",
     biome: "Lavender Fields",
     color: "#7D6193",
@@ -24,6 +27,7 @@ export const phases = [
   },
   {
     number: 4,
+    track: "literacy",
     title: "Digital Finance",
     biome: "Savanna",
     color: "#B8862F",
@@ -31,6 +35,7 @@ export const phases = [
   },
   {
     number: 5,
+    track: "literacy",
     title: "Health & Government",
     biome: "Alpine",
     color: "#4A6FA5",
@@ -38,6 +43,7 @@ export const phases = [
   },
   {
     number: 6,
+    track: "literacy",
     title: "Social Media",
     biome: "Coral Reef",
     color: "#C4676B",
@@ -45,6 +51,7 @@ export const phases = [
   },
   {
     number: 7,
+    track: "literacy",
     title: "Emergency Skills",
     biome: "Twilight",
     color: "#4E4A7D",
@@ -52,12 +59,10 @@ export const phases = [
   },
 ];
 
-// Scam Protection track. Numbered from 101 so the two tracks can never
-// collide, while still reading as "Phase 1", "Phase 2"… to the learner.
+// Scam Protection track continues the global phase sequence after Foundations.
 export const scamPhases = [
   {
-    number: 101,
-    displayNumber: 1,
+    number: 8,
     track: "scam",
     title: "Becoming Scam-Proof",
     biome: "Sandstone",
@@ -65,8 +70,7 @@ export const scamPhases = [
     accent: "#A65D3A",
   },
   {
-    number: 102,
-    displayNumber: 2,
+    number: 9,
     track: "scam",
     title: "The Warning Signs",
     biome: "Canyon",
@@ -74,8 +78,7 @@ export const scamPhases = [
     accent: "#8C4A3F",
   },
   {
-    number: 103,
-    displayNumber: 3,
+    number: 10,
     track: "scam",
     title: "The Masks Scammers Wear",
     biome: "Dusk",
@@ -83,8 +86,7 @@ export const scamPhases = [
     accent: "#6B5B7B",
   },
   {
-    number: 104,
-    displayNumber: 4,
+    number: 11,
     track: "scam",
     title: "When AI Enters the Conversation",
     biome: "Aurora",
@@ -92,8 +94,7 @@ export const scamPhases = [
     accent: "#3E7C8C",
   },
   {
-    number: 105,
-    displayNumber: 5,
+    number: 12,
     track: "scam",
     title: "Protecting Your Personal Information",
     biome: "Vault",
@@ -101,8 +102,7 @@ export const scamPhases = [
     accent: "#5A6B8C",
   },
   {
-    number: 106,
-    displayNumber: 6,
+    number: 13,
     track: "scam",
     title: "Smart Communication",
     biome: "Signal",
@@ -110,8 +110,7 @@ export const scamPhases = [
     accent: "#8C6239",
   },
   {
-    number: 107,
-    displayNumber: 7,
+    number: 14,
     track: "scam",
     title: "Safe Online Shopping & Money",
     biome: "Market",
@@ -119,8 +118,7 @@ export const scamPhases = [
     accent: "#8A5A2B",
   },
   {
-    number: 108,
-    displayNumber: 8,
+    number: 15,
     track: "scam",
     title: "AI in Everyday Life",
     biome: "Beacon",
@@ -128,8 +126,7 @@ export const scamPhases = [
     accent: "#4A7C74",
   },
   {
-    number: 109,
-    displayNumber: 9,
+    number: 16,
     track: "scam",
     title: "Helping Others Stay Safe",
     biome: "Hearth",
@@ -137,8 +134,7 @@ export const scamPhases = [
     accent: "#9E5B4A",
   },
   {
-    number: 110,
-    displayNumber: 10,
+    number: 17,
     track: "scam",
     title: "Living Confidently Online",
     biome: "Summit",
@@ -153,7 +149,7 @@ export function getPhase(number) {
   return allPhases.find((p) => p.number === number) || phases[0];
 }
 
-/** What the learner sees: "Phase 1" for both tracks, not "Phase 101". */
+/** Learner-facing phase number (1–17 across both tracks). */
 export function phaseLabel(phase) {
-  return phase?.displayNumber ?? phase?.number ?? 1;
+  return phase?.number ?? 1;
 }

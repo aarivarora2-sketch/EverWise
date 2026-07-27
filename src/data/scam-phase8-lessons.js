@@ -1,7 +1,7 @@
 // Everwise - Scam Protection track
-// Phase 8: AI in Everyday Life
+// Phase 15: AI in Everyday Life
 //
-// Phase 4 taught what AI can be misused for. This phase teaches learners to
+// Phase 11 taught what AI can be misused for. This phase teaches learners to
 // actually use AI well: confidence and caution together.
 //   AI can help you think, organize, and practice — but you remain the
 //   decision maker.
@@ -25,7 +25,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-clear-questions",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 1,
     lessonNumber: "8.1",
     title: "Ask AI Clear Questions",
@@ -261,7 +261,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-check-before-act",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 2,
     lessonNumber: "8.2",
     title: "Check AI Before You Act",
@@ -351,7 +351,7 @@ export const scamPhase8Lessons = [
             text: "Treat guaranteed profit as a warning sign, even if AI sounds positive.",
             tier: "safe",
             feedback:
-              "You already learned that in Phase 7 — and AI just missed it."
+              "You already learned that in Phase 14 — and AI just missed it."
           },
           {
             text: "Send the money because AI approved it.",
@@ -507,7 +507,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-understand-confusing",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 3,
     lessonNumber: "8.3",
     title: "Use AI to Understand Confusing Information",
@@ -747,7 +747,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-practice-conversations",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 4,
     lessonNumber: "8.4",
     title: "Use AI to Practice Conversations",
@@ -987,7 +987,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-break-tasks",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 5,
     lessonNumber: "8.5",
     title: "Use AI to Break Big Tasks Into Steps",
@@ -1222,7 +1222,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-compare-choices",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 6,
     lessonNumber: "8.6",
     title: "Use AI to Compare Choices",
@@ -1392,7 +1392,7 @@ export const scamPhase8Lessons = [
                 text: "\"Ignore cancellation rules because the monthly price is all that matters.\"",
                 tier: "unsafe",
                 feedback:
-                  "Phase 7 covered exactly why that's the detail that catches people."
+                  "Phase 14 covered exactly why that's the detail that catches people."
               }
             ]
           }
@@ -1461,7 +1461,7 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-everyday-routine",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 7,
     lessonNumber: "8.7",
     title: "Build Your Everyday AI Routine",
@@ -1470,7 +1470,7 @@ export const scamPhase8Lessons = [
     xp: 20,
     goals: [
       "Use purpose, privacy, prompt, review, verify, decide.",
-      "Combine every Phase 8 skill into one habit."
+      "Combine every Phase 15 skill into one habit."
     ],
     blocks: [
       {
@@ -1691,7 +1691,7 @@ export const scamPhase8Lessons = [
         "Verified important details",
         "Made AI useful without giving it control"
       ],
-      next: "Phase 8 Big Review"
+      next: "Phase 15 Big Review"
     }
   },
 
@@ -1701,26 +1701,26 @@ export const scamPhase8Lessons = [
   {
     id: "scam-ai-big-review",
     track: "scam",
-    phase: 108,
+    phase: 15,
     order: 8,
     lessonNumber: "8.8",
-    title: "Phase 8 Big Review",
+    title: "Phase 15 Big Review",
     pathTitle: "AI Big Review",
     badge: "AI Everyday Expert",
     xp: 20,
     goals: [
-      "Recall every Phase 8 routine.",
+      "Recall every Phase 15 routine.",
       "Apply them together across three situations."
     ],
     blocks: [
       {
         type: "reading",
-        heading: "Phase 8 Big Review",
+        heading: "Phase 15 Big Review",
         question: "Can I use AI as a helpful everyday tool while staying safe?",
         objective:
-          "Review all Phase 8 skills and make sure you can use AI safely, practically, and confidently in daily life.",
+          "Review all Phase 15 skills and make sure you can use AI safely, practically, and confidently in daily life.",
         warningSigns: ["8.1 Task. Context. Format. Limits.", "8.2 Risk decides review.", "8.3 Remove. Explain. Summarize. Questions. Verify.", "8.4 Goal. Role. Questions. Practice. Notes.", "8.5 Goal. Situation. Steps. Time. Check.", "8.6 Options. Criteria. Pros. Cons. Questions.", "8.7 Purpose. Privacy. Prompt. Review. Verify. Decide."],
-        text: "Phase 8 taught one big idea: AI can help, but you decide. Each lesson added one part of safe everyday AI use — writing better prompts, knowing when to verify, understanding confusing documents, rehearsing conversations, breaking down tasks, comparing options, and finally combining it all into one routine. This review pulls those together. There's no score here and nothing to fail."
+        text: "Phase 15 taught one big idea: AI can help, but you decide. Each lesson added one part of safe everyday AI use — writing better prompts, knowing when to verify, understanding confusing documents, rehearsing conversations, breaking down tasks, comparing options, and finally combining it all into one routine. This review pulls those together. There's no score here and nothing to fail."
       },
       {
         type: "tiered",
@@ -1927,7 +1927,7 @@ export const scamPhase8Lessons = [
             text: "Give AI your full account number, use the payment link it suggests, let it guarantee the refund policy, and let it choose the plan.",
             tier: "unsafe",
             feedback:
-              "Every one of those is a Phase 8 mistake: oversharing, trusting a link from an unexpected email, treating role-play as real policy, and handing over your decision."
+              "Every one of those is a Phase 15 mistake: oversharing, trusting a link from an unexpected email, treating role-play as real policy, and handing over your decision."
           }
         ],
         spotted: [
@@ -1940,8 +1940,8 @@ export const scamPhase8Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 8 complete!",
-      subtitle: "You completed the Phase 8 Big Review — and all of AI in Everyday Life.",
+      title: "Phase 15 complete!",
+      subtitle: "You completed the Phase 15 Big Review — and all of AI in Everyday Life.",
       habit: "Use AI to help you think, prepare, organize, and practice — then review, verify, and decide for yourself.",
       warningSign: "AI can help, but you decide.",
       skills: [
@@ -1962,7 +1962,7 @@ export const scamPhase8Lessons = [
         "8.6 — Options. Criteria. Pros. Cons. Questions.",
         "8.7 — Purpose. Privacy. Prompt. Review. Verify. Decide."
       ],
-      next: "Phase 9: Helping Others Stay Safe"
+      next: "Phase 16: Helping Others Stay Safe"
     }
   }
 ];

@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 5: Protecting Your Personal Information
+// Phase 12: Protecting Your Personal Information
 //
 // The phase is built around one question the learner carries throughout:
 //   "Why do they need this information?"
@@ -21,7 +21,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-info-is-valuable",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 1,
     lessonNumber: "5.1",
     title: "Your Information Is Valuable",
@@ -265,7 +265,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-password-house-key",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 2,
     lessonNumber: "5.2",
     title: "Your Password Is Your House Key",
@@ -515,7 +515,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-hard-to-guess",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 3,
     lessonNumber: "5.3",
     title: "Don't Make It Easy to Guess",
@@ -750,7 +750,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-one-password-not-enough",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 4,
     lessonNumber: "5.4",
     title: "One Password Isn't Enough",
@@ -993,7 +993,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-password-manager",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 5,
     lessonNumber: "5.5",
     title: "Your Digital Keychain",
@@ -1224,7 +1224,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-two-step",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 6,
     lessonNumber: "5.6",
     title: "A Second Lock on Your Account",
@@ -1475,7 +1475,7 @@ export const scamPhase5Lessons = [
   {
     id: "scam-if-something-goes-wrong",
     track: "scam",
-    phase: 105,
+    phase: 12,
     order: 7,
     lessonNumber: "5.7",
     title: "If Something Goes Wrong",
@@ -1695,8 +1695,8 @@ export const scamPhase5Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 5 complete!",
-      subtitle: "You completed If Something Goes Wrong — and all of Phase 5.",
+      title: "Phase 12 complete!",
+      subtitle: "You completed If Something Goes Wrong — and all of Phase 12.",
       habit: "If something doesn't look right, stay calm and act quickly.",
       warningSign: "Account activity you don't recognize.",
       skills: [
@@ -1712,7 +1712,7 @@ export const scamPhase5Lessons = [
         "Two-step verification adds a second lock.",
         "Mistakes happen. Responding quickly is what protects you."
       ],
-      next: "Phase 6: Smart Communication"
+      next: "Phase 13: Smart Communication"
     }
   }
 ];

@@ -1777,44 +1777,14 @@ const scamTrack = [
 export const allLessons = [...literacyTrack, ...scamTrack];
 
 /**
- * The path alternates between tracks a phase at a time — Digital Literacy
- * Phase 1, then Scam Protection Phase 1, then Literacy Phase 2, and so on —
- * so the two curriculums read as one course instead of two separate apps.
- *
- * Ordering is computed here rather than hand-numbered, so neither track's
- * internal `order` values ever have to be renumbered.
+ * Path order is one continuous sequence: Foundations phases 1–7, then
+ * Scam-Proof phases 8–17. Within each phase, lessons keep their local `order`.
  */
-function phaseGroups(track) {
-  const byPhase = new Map();
-  // Sort by phase first, then order. The scam track restarts `order` at 1 in
-  // every phase, so sorting by order alone would interleave phases wrongly
-  // (a phase whose first lesson is missing would sort after a later phase).
-  [...track]
-    .sort((a, b) => a.phase - b.phase || a.order - b.order)
-    .forEach((lesson) => {
-      if (!byPhase.has(lesson.phase)) byPhase.set(lesson.phase, []);
-      byPhase.get(lesson.phase).push(lesson);
-    });
-  return [...byPhase.values()];
-}
-
-function interleaveTracks(a, b) {
-  const groupsA = phaseGroups(a);
-  const groupsB = phaseGroups(b);
-  const out = [];
-  const rounds = Math.max(groupsA.length, groupsB.length);
-  for (let i = 0; i < rounds; i++) {
-    if (groupsA[i]) out.push(...groupsA[i]);
-    if (groupsB[i]) out.push(...groupsB[i]);
-  }
-  return out;
-}
-
 // Lessons in the order they appear on the path, with a computed `pathOrder`
 // that exams and challenges are slotted against.
-export const lessonsByOrder = interleaveTracks(literacyTrack, scamTrack).map(
-  (lesson, i) => ({ ...lesson, pathOrder: i })
-);
+export const lessonsByOrder = [...literacyTrack, ...scamTrack]
+  .sort((a, b) => a.phase - b.phase || a.order - b.order)
+  .map((lesson, i) => ({ ...lesson, pathOrder: i }));
 
 /** Where a phase's last lesson sits on the path — exams follow it. */
 export function pathOrderForPhase(phase) {

@@ -1,5 +1,5 @@
 // Everwise - Scam Protection track
-// Phase 6: Smart Communication
+// Phase 13: Smart Communication
 //
 // ⚠️ MISSING LESSON — 6.4 "You Are Allowed to Hang Up"
 // The source curriculum references Lesson 6.4 in the memory connections of
@@ -21,7 +21,7 @@ export const scamPhase6Lessons = [
   {
     id: "scam-know-who",
     track: "scam",
-    phase: 106,
+    phase: 13,
     order: 1,
     lessonNumber: "6.1",
     title: "Know Who You're Talking To",
@@ -280,7 +280,7 @@ export const scamPhase6Lessons = [
   {
     id: "scam-links",
     track: "scam",
-    phase: 106,
+    phase: 13,
     order: 2,
     lessonNumber: "6.2",
     title: "A Link Is an Invitation, Not a Command",
@@ -534,7 +534,7 @@ export const scamPhase6Lessons = [
   {
     id: "scam-attachments",
     track: "scam",
-    phase: 106,
+    phase: 13,
     order: 3,
     lessonNumber: "6.3",
     title: "Be Careful with Attachments",
@@ -795,7 +795,7 @@ export const scamPhase6Lessons = [
   {
     id: "scam-no-secrets",
     track: "scam",
-    phase: 106,
+    phase: 13,
     order: 5,
     lessonNumber: "6.5",
     title: "Don't Keep Suspicious Messages Secret",
@@ -1056,7 +1056,7 @@ export const scamPhase6Lessons = [
   {
     id: "scam-stop-save-block-report",
     track: "scam",
-    phase: 106,
+    phase: 13,
     order: 6,
     lessonNumber: "6.6",
     title: "Stop, Save, Block, and Report",
@@ -1305,8 +1305,8 @@ export const scamPhase6Lessons = [
     ],
     quiz: [],
     complete: {
-      title: "Phase 6 complete!",
-      subtitle: "You completed Stop, Save, Block, and Report — and all of Phase 6.",
+      title: "Phase 13 complete!",
+      subtitle: "You completed Stop, Save, Block, and Report — and all of Phase 13.",
       habit: "When communication feels unsafe: stop, save, block, report, and verify.",
       warningSign: "You do not have to continue a conversation to solve the problem.",
       skills: [
