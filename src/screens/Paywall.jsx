@@ -201,7 +201,7 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
           className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/5"
           aria-label="Close subscription options"
         >
-          <X className="h-8 w-8" strokeWidth={2} aria-hidden="true" />
+          <X className="h-7 w-7" strokeWidth={2} aria-hidden="true" />
         </button>
 
         <div className="flex min-w-0 items-center justify-center gap-2">
