@@ -32,13 +32,16 @@ function ResultSection({ title, items }) {
   if (!items?.length) return null;
 
   return (
-    <section className="mt-6">
-      <h2 className="font-sans text-2xl font-semibold text-ink">{title}</h2>
-      <ul className="mt-3 space-y-3">
+    <section className="mt-5">
+      <h2 className="font-sans text-xl font-semibold text-ink">{title}</h2>
+      <ul className="mt-2 space-y-2">
         {items.map((item, index) => (
-          <li key={`${item}-${index}`} className="flex gap-3 text-lg leading-relaxed text-ink-soft">
+          <li
+            key={`${item}-${index}`}
+            className="flex gap-3 text-lg leading-snug text-ink-soft"
+          >
             <span
-              className="mt-[0.7rem] h-2.5 w-2.5 shrink-0 rounded-full bg-clay"
+              className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full bg-clay"
               aria-hidden="true"
             />
             <span>{item}</span>
@@ -110,22 +113,26 @@ export default function ScamChecker({ onBack }) {
   };
 
   return (
-    <div className="flex flex-1 flex-col px-7 pb-10 pt-6">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-4">
       <BackButton onClick={onBack} label="Back to home" />
 
-      <div className="mt-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-clay/10 text-clay">
-        <MessageSearchIcon className="h-9 w-9" />
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-clay/10 text-clay">
+          <MessageSearchIcon className="h-7 w-7" />
+        </div>
+        <h1 className="page-title">Is this message a scam?</h1>
       </div>
-      <h1 className="page-title mt-5">
-        Is this message a scam?
-      </h1>
-      <p className="mt-3 text-xl leading-relaxed text-ink-soft">
-        Paste the full text from an email, text message, or social media message.
+      <p className="mt-2 text-lg leading-snug text-ink-soft">
+        Paste a text, email, or social media message for a careful second
+        opinion.
       </p>
 
       {status !== "success" ? (
-        <form className="mt-7" onSubmit={checkMessage}>
-          <label htmlFor="message-to-check" className="text-xl font-bold text-ink">
+        <form
+          className="mt-4 rounded-3xl bg-cream-card p-4 shadow-card"
+          onSubmit={checkMessage}
+        >
+          <label htmlFor="message-to-check" className="text-lg font-bold text-ink">
             Message to check
           </label>
           <textarea
@@ -133,14 +140,14 @@ export default function ScamChecker({ onBack }) {
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             maxLength={MAX_MESSAGE_LENGTH}
-            rows={9}
+            rows={6}
             autoComplete="off"
             spellCheck="true"
             placeholder="Paste the message here…"
-            className="mt-3 w-full resize-y rounded-2xl border-2 border-ink/20 bg-cream-card px-5 py-4 text-xl leading-relaxed text-ink shadow-card placeholder:text-ink-faint focus:border-clay"
+            className="mt-2 w-full resize-none rounded-2xl border-2 border-ink/20 bg-cream px-4 py-3 text-lg leading-snug text-ink placeholder:text-ink-faint focus:border-clay"
           />
-          <div className="mt-2 flex items-start justify-between gap-4 text-base text-ink-faint">
-            <p>Remove names, account numbers, and passwords if you can.</p>
+          <div className="mt-2 flex items-start justify-between gap-3 text-sm leading-snug text-ink-faint">
+            <p>Remove passwords and account numbers first.</p>
             <p className="shrink-0">
               {message.length.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
             </p>
@@ -158,50 +165,51 @@ export default function ScamChecker({ onBack }) {
           <button
             type="submit"
             disabled={!cleanMessage || status === "loading"}
-            className="btn-primary mt-6 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary mt-4 py-4 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === "loading" ? "Checking carefully…" : "Check this message"}
           </button>
-          <p className="mt-4 text-center text-base leading-relaxed text-ink-faint">
-            Everwise gives a careful opinion, not a guarantee. Your message is
-            checked only after you tap the button.
+          <p className="mt-3 text-center text-sm leading-snug text-ink-faint">
+            Everwise gives a careful opinion, not a guarantee.
           </p>
         </form>
       ) : (
-        <div className="mt-7 animate-fade-up" aria-live="polite">
-          <div className={`rounded-3xl border-2 px-6 py-6 ${details.className}`}>
+        <div className="mt-5 animate-fade-up" aria-live="polite">
+          <div className={`rounded-3xl border-2 px-5 py-5 ${details.className}`}>
             <p className="text-base font-bold uppercase tracking-[0.1em] text-ink-soft">
               {details.eyebrow}
             </p>
-            <h2 className={`mt-1 font-sans text-3xl font-bold leading-tight ${details.titleClassName}`}>
+            <h2
+              className={`mt-1 font-sans text-2xl font-bold leading-tight ${details.titleClassName}`}
+            >
               {details.title}
             </h2>
-            <p className="mt-4 text-xl leading-relaxed text-ink">
+            <p className="mt-3 text-lg leading-snug text-ink">
               {result.summary}
             </p>
           </div>
 
           {result.urgent_action ? (
-            <div className="mt-5 rounded-2xl bg-ink px-5 py-5 text-cream-card">
+            <div className="mt-4 rounded-2xl bg-ink px-5 py-4 text-cream-card">
               <p className="text-lg font-bold">Act now</p>
-              <p className="mt-1 text-lg leading-relaxed">{result.urgent_action}</p>
+              <p className="mt-1 text-lg leading-snug">{result.urgent_action}</p>
             </div>
           ) : null}
 
           <ResultSection title="Warning signs" items={result.warning_signs} />
           <ResultSection title="What to do next" items={result.next_steps} />
 
-          <div className="mt-7">
+          <div className="mt-5">
             <ReadAloud text={readAloudText} label="Read this result aloud" />
           </div>
 
-          <p className="mt-6 rounded-2xl bg-cream-deep px-5 py-4 text-base leading-relaxed text-ink-soft">
+          <p className="mt-5 rounded-2xl bg-cream-deep px-5 py-4 text-base leading-snug text-ink-soft">
             Never use a link, phone number, or contact detail from a suspicious
             message. Find the organization’s official website, app, card, or
             statement yourself.
           </p>
 
-          <button type="button" className="btn-secondary mt-6" onClick={startOver}>
+          <button type="button" className="btn-secondary mt-5" onClick={startOver}>
             Check another message
           </button>
         </div>
