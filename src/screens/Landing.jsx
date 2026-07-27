@@ -1,7 +1,7 @@
 function Step({ n, name, children }) {
   return (
     <li className="flex items-center gap-4">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-clay font-serif text-xl font-bold text-cream-card">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-clay font-sans text-xl font-bold text-cream-card">
         {n}
       </span>
       <p className="text-lg leading-snug text-ink">
@@ -22,12 +22,12 @@ export default function Landing({ onGetStarted, onLogIn }) {
             aria-hidden="true"
             className="h-12 w-12 object-contain"
           />
-          <p className="font-serif text-4xl font-bold tracking-tight text-ink">
+          <p className="font-sans text-4xl font-bold tracking-tight text-ink">
             Everwise
           </p>
         </div>
 
-        <h1 className="mt-6 font-serif text-5xl font-semibold leading-[1.05] tracking-tight text-ink">
+        <h1 className="page-title mt-6">
           Learn to
           <br />
           spot scams,

@@ -7,7 +7,7 @@ export default function Loading() {
         aria-hidden="true"
         className="h-16 w-16 object-contain"
       />
-      <p className="mt-6 font-serif text-3xl font-semibold text-ink">Everwise</p>
+      <p className="mt-6 font-sans text-3xl font-semibold text-ink">Everwise</p>
       <p className="mt-2 text-lg text-ink-soft" role="status">
         Loading…
       </p>

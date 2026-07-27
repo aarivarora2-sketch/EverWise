@@ -49,7 +49,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
           <TrophyIcon className="h-12 w-12" />
         </div>
 
-        <h1 className="mt-6 text-center font-serif text-4xl font-semibold leading-tight text-ink">
+        <h1 className="page-title mt-6 text-center">
           {exam.title}
         </h1>
         <p className="mt-4 text-center text-xl text-ink-soft">
@@ -111,7 +111,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
           </div>
         </div>
 
-        <h1 className="mt-8 font-serif text-5xl font-semibold text-ink">
+        <h1 className="page-title mt-8">
           {canComplete ? "Exam complete!" : "Keep practicing"}
         </h1>
         <p className="mt-4 text-2xl text-ink-soft">
@@ -123,7 +123,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
             <p className="text-lg font-semibold uppercase tracking-wide text-ink-faint">
               {tier.trophy ? "Trophy earned" : "Result"}
             </p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-clay">
+            <p className="mt-2 font-sans text-3xl font-semibold text-clay">
               {tier.title}
             </p>
             {tier.message ? (
@@ -132,7 +132,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
               </p>
             ) : null}
             {canComplete && tier.xp > 0 ? (
-              <p className="mt-3 font-serif text-4xl font-bold text-sage">
+              <p className="mt-3 font-sans text-4xl font-bold text-sage">
                 +{tier.xp} XP
               </p>
             ) : null}
@@ -145,7 +145,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
           </div>
         ) : (
           <div className="mt-8 rounded-3xl bg-alert/12 px-6 py-6 text-left">
-            <p className="font-serif text-2xl font-semibold text-alert">
+            <p className="font-sans text-2xl font-semibold text-alert">
               Not quite there yet
             </p>
             <p className="mt-2 text-xl text-ink-soft">
@@ -160,11 +160,11 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
             <p className="text-lg font-semibold uppercase tracking-wide text-ink-faint">
               Phase achievement
             </p>
-            <p className="mt-2 font-serif text-4xl font-semibold leading-tight text-clay">
+            <p className="mt-2 font-sans text-4xl font-semibold leading-tight text-clay">
               {exam.phaseBadge}
             </p>
             {exam.phaseBadgeXp > 0 ? (
-              <p className="mt-3 font-serif text-5xl font-bold text-sage">
+              <p className="mt-3 font-sans text-5xl font-bold text-sage">
                 +{exam.phaseBadgeXp} XP
               </p>
             ) : null}
@@ -243,7 +243,7 @@ export default function ExamPlayer({ exam, onBack, onPass, phaseColor }) {
       <p className="text-lg font-semibold text-ink-faint">
         Question {progress} of {total}
       </p>
-      <h1 className="mt-3 font-serif text-3xl font-semibold leading-tight text-ink">
+      <h1 className="page-title mt-3">
         {q.question}
       </h1>
 

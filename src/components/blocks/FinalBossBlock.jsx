@@ -45,7 +45,7 @@ export default function FinalBossBlock({
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-clay text-cream-card">
             <TrophyIcon className="h-7 w-7" />
           </div>
-          <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+          <h1 className="page-title">
             {block.title || "Final challenge"}
           </h1>
         </div>
@@ -76,7 +76,7 @@ export default function FinalBossBlock({
           </div>
         ))}
 
-        <h2 className="mt-7 font-serif text-2xl font-semibold leading-snug text-ink">
+        <h2 className="mt-7 font-sans text-2xl font-semibold leading-snug text-ink">
           {block.question}
         </h2>
 
@@ -118,7 +118,7 @@ export default function FinalBossBlock({
             }`}
           >
             <p
-              className={`font-serif text-2xl font-bold ${
+              className={`font-sans text-2xl font-bold ${
                 chosen.tier === "unsafe" ? "text-alert" : "text-sage-dark"
               }`}
             >

@@ -44,7 +44,7 @@ export function TieredChoiceBody({
         </div>
       )}
 
-      <h1 className="mt-5 font-serif text-3xl font-semibold leading-tight text-ink">
+      <h1 className="page-title mt-5">
         {question}
       </h1>
 
@@ -97,7 +97,7 @@ export function TieredChoiceBody({
               }`}
             >
               {chosen.tier === "unsafe" ? (
-                <span className="font-serif text-2xl font-bold">!</span>
+                <span className="font-sans text-2xl font-bold">!</span>
               ) : chosen.tier === "best" ? (
                 <StarIcon className="h-7 w-7" />
               ) : (
@@ -105,7 +105,7 @@ export function TieredChoiceBody({
               )}
             </div>
             <p
-              className={`font-serif text-2xl font-bold ${
+              className={`font-sans text-2xl font-bold ${
                 chosen.tier === "unsafe" ? "text-alert" : "text-sage-dark"
               }`}
             >

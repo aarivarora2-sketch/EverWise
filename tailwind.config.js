@@ -32,7 +32,6 @@ export default {
         locked: "#C9C3B6", // grey = locked
       },
       fontFamily: {
-        serif: ['"Fraunces"', "Georgia", "serif"],
         sans: ['"Source Sans 3"', "system-ui", "sans-serif"],
       },
       boxShadow: {

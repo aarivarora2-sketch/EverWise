@@ -3,7 +3,7 @@
 // NOTE: Lesson 6 (What is Wi-Fi?) is referenced in the curriculum but was not in
 // the source document. Add it here when written.
 //
-// BLOCK TYPES: learn, multiselect, flashcards, match, fillblank, sort,
+// BLOCK TYPES: learn, multiselect, flashcards, match, fillblank,
 //              scenario, truefalse, choice, builder
 
 import { phase2Lessons } from "./phase2-lessons";
@@ -27,7 +27,7 @@ import { scamPhase8Lessons } from "./scam-phase8-lessons";
 import { scamPhase9Lessons } from "./scam-phase9-lessons";
 import { scamPhase10Lessons } from "./scam-phase10-lessons";
 
-export const lessons = [
+const phase1Lessons = [
   // ============================================================
   // LESSON 0 — Welcome video
   // Order 0 keeps it first without renumbering every other lesson.
@@ -68,12 +68,6 @@ export const lessons = [
           "You earn a badge for each lesson you finish"
         ],
         footer: "There's no rush and no wrong pace. One lesson a day is plenty."
-      },
-      {
-        type: "learn",
-        heading: "Your Streak",
-        text: "Coming back each day builds a streak. The streak isn't a score to chase — it's just a gentle reminder that a few minutes a day adds up. If you miss a day, you can always start again.",
-        footer: "Ready? Let's begin."
       }
     ],
     quiz: [],
@@ -82,8 +76,7 @@ export const lessons = [
       subtitle: "You're all set to begin.",
       learned: [
         "Understand what Everwise is for.",
-        "Know how the lessons work.",
-        "Know what a streak means."
+        "Know how the lessons work."
       ],
       next: "What is the Internet?"
     }
@@ -1740,6 +1733,16 @@ export const lessons = [
   }
 ];
 
+// Box-sorting activities were removed from the product. Filter them at the
+// curriculum boundary so older lesson files cannot accidentally render one.
+function withoutBoxSorting(lesson) {
+  return {
+    ...lesson,
+    blocks: (lesson.blocks || []).filter((block) => block.type !== "sort"),
+  };
+}
+
+export const lessons = phase1Lessons.map(withoutBoxSorting);
 export default lessons;
 
 // The two tracks, each kept in its own curriculum order.
@@ -1751,7 +1754,10 @@ const literacyTrack = [
   ...phase5Lessons,
   ...phase6Lessons,
   ...phase7Lessons,
-].map((l) => ({ ...l, track: l.track || "literacy" }));
+].map(withoutBoxSorting).map((l) => ({
+  ...l,
+  track: l.track || "literacy",
+}));
 
 const scamTrack = [
   ...scamPhase1Lessons,
@@ -1764,7 +1770,7 @@ const scamTrack = [
   ...scamPhase8Lessons,
   ...scamPhase9Lessons,
   ...scamPhase10Lessons,
-];
+].map(withoutBoxSorting);
 
 export const allLessons = [...literacyTrack, ...scamTrack];
 
@@ -1815,9 +1821,10 @@ export function pathOrderForPhase(phase) {
 }
 
 // Ungraded phase challenges (after the phase's last lesson, before the exam).
-export const challengesByOrder = [phase4Challenge].filter(Boolean).sort(
-  (a, b) => a.order - b.order
-);
+export const challengesByOrder = [phase4Challenge]
+  .filter(Boolean)
+  .map(withoutBoxSorting)
+  .sort((a, b) => a.order - b.order);
 
 // Phase exams — only real exam objects (phases without an exam simply omit one).
 export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam, phase6Exam, phase7Exam]

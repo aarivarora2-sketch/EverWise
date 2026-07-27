@@ -33,7 +33,7 @@ function ResultSection({ title, items }) {
 
   return (
     <section className="mt-6">
-      <h2 className="font-serif text-2xl font-semibold text-ink">{title}</h2>
+      <h2 className="font-sans text-2xl font-semibold text-ink">{title}</h2>
       <ul className="mt-3 space-y-3">
         {items.map((item, index) => (
           <li key={`${item}-${index}`} className="flex gap-3 text-lg leading-relaxed text-ink-soft">
@@ -116,7 +116,7 @@ export default function ScamChecker({ onBack }) {
       <div className="mt-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-clay/10 text-clay">
         <MessageSearchIcon className="h-9 w-9" />
       </div>
-      <h1 className="mt-5 font-serif text-4xl font-semibold leading-tight text-ink">
+      <h1 className="page-title mt-5">
         Is this message a scam?
       </h1>
       <p className="mt-3 text-xl leading-relaxed text-ink-soft">
@@ -173,7 +173,7 @@ export default function ScamChecker({ onBack }) {
             <p className="text-base font-bold uppercase tracking-[0.1em] text-ink-soft">
               {details.eyebrow}
             </p>
-            <h2 className={`mt-1 font-serif text-3xl font-bold leading-tight ${details.titleClassName}`}>
+            <h2 className={`mt-1 font-sans text-3xl font-bold leading-tight ${details.titleClassName}`}>
               {details.title}
             </h2>
             <p className="mt-4 text-xl leading-relaxed text-ink">

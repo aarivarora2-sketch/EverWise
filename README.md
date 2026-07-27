@@ -35,10 +35,8 @@ User data is stored in Firestore at `users/{uid}`:
 | ------------------- | ---------------------------------------------- |
 | `name`              | the person's name (for the greeting)           |
 | `email`             | account email                                  |
-| `streak`            | consecutive days with a completed lesson       |
 | `scamsCaught`       | lessons answered correctly (counted once each) |
 | `completedLessons`  | array of completed lesson `id`s                |
-| `lastCompletedDate` | `YYYY-MM-DD` of the last completion, or `null` |
 
 ## The six screens
 
@@ -47,8 +45,8 @@ logged-in user straight to Home (skipping Landing) and shows a loading state
 while it checks. The entry flow is **Landing → Sign Up / Log In**, then the
 six lesson screens.
 
-1. **Home** (`screens/Home.jsx`) — "Today's lesson is ready." with streak and
-   scams-caught stats and one clay call-to-action.
+1. **Home** (`screens/Home.jsx`) — saved progress, badges, scam-protection
+   stats, and one clay call-to-action.
 2. **Lesson Path** (`screens/LessonPath.jsx`) — the winding "snake" trail.
    Green = done, clay = current (labeled **START**), grey = locked.
 3. **Learn** (`screens/Learn.jsx`) — one idea in plain language, with a
@@ -56,7 +54,7 @@ six lesson screens.
 4. **Quiz** (`screens/Quiz.jsx`) — one scenario, one question, two big options.
 5. **Result** (`screens/Result.jsx`) — the "why", with the answer and what to
    remember.
-6. **Complete** (`screens/Complete.jsx`) — a small win; the streak grows.
+6. **Complete** (`screens/Complete.jsx`) — a small win with an earned badge.
 
 ## Lessons
 
@@ -91,7 +89,6 @@ Designed for older eyes and hands — accessibility is the top priority:
 
 ## Design
 
-Warm and editorial, not techy or childish: a bookish serif (Fraunces) for
-headings, a calm cream background, clay/terracotta for the main action, green
-for done/safe, and muted red for scam warnings. The theme lives in
-`tailwind.config.js`.
+Warm and calm, not techy or childish: a clear sans-serif typeface throughout,
+a cream background, clay/terracotta for the main action, green for done/safe,
+and muted red for scam warnings. The theme lives in `tailwind.config.js`.

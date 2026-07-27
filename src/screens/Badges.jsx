@@ -94,7 +94,7 @@ export default function Badges({ badges = [], onBack }) {
             <ArrowLeftIcon className="h-7 w-7" />
           </button>
           <div>
-            <h1 className="font-serif text-2xl font-semibold">Your badges</h1>
+            <h1 className="font-sans text-2xl font-semibold">Your badges</h1>
             <p className="text-sm font-semibold text-cream-card/75">
               {earnedCount} of {total} earned
             </p>
@@ -139,7 +139,7 @@ export default function Badges({ badges = [], onBack }) {
                 Phase {phaseLabel(phase)} · {phase.biome}
               </p>
               <div className="mt-1 flex items-baseline justify-between gap-3">
-                <h2 className="font-serif text-[26px] font-bold leading-tight text-ink">
+                <h2 className="font-sans text-[26px] font-bold leading-tight text-ink">
                   {phase.title}
                 </h2>
                 <span
@@ -173,7 +173,7 @@ export default function Badges({ badges = [], onBack }) {
             <p className="mt-3 text-[15px] font-bold uppercase tracking-[0.12em] text-sage-dark">
               Bonus
             </p>
-            <h2 className="mt-1 font-serif text-[26px] font-bold leading-tight text-ink">
+            <h2 className="mt-1 font-sans text-[26px] font-bold leading-tight text-ink">
               Exam honors
             </h2>
             <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8">

@@ -57,7 +57,7 @@ export default function MultiselectBlock({
         )
       }
     >
-      <h1 className="font-serif text-3xl font-semibold leading-tight text-ink">
+      <h1 className="page-title">
         {block.prompt || block.title}
       </h1>
       <div className="mt-5">

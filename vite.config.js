@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'
+const DEFAULT_ELEVENLABS_VOICE_ID = 'Gfpl8Yo74Is0W6cPUWWT'
 const OPENAI_MODEL = 'gpt-5.6-terra'
 
 const scamAssessmentSchema = {
@@ -172,7 +172,7 @@ Even when likely legitimate, recommend independent verification before sharing i
   }
 }
 
-function elevenLabsReadAloud(apiKey) {
+function elevenLabsReadAloud(apiKey, voiceId) {
   return {
     name: 'everwise-elevenlabs-read-aloud',
     configureServer(server) {
@@ -200,7 +200,7 @@ function elevenLabsReadAloud(apiKey) {
           }
 
           const elevenLabsResponse = await fetch(
-            `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_22050_32`,
+            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
             {
               method: 'POST',
               headers: {
@@ -245,7 +245,10 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      elevenLabsReadAloud(env.ELEVENLABS_API_KEY),
+      elevenLabsReadAloud(
+        env.ELEVENLABS_API_KEY,
+        env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+      ),
       openAIScamChecker(env.OPENAI_API_KEY),
     ],
   }
