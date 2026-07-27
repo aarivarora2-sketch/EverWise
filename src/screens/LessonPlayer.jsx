@@ -48,6 +48,28 @@ export default function LessonPlayer({ lesson, onBack, onComplete }) {
     }
   };
 
+  const goToPreviousStep = () => {
+    setSelected(null);
+
+    if (phase === "quiz") {
+      if (quizIndex > 0) {
+        setQuizIndex((i) => i - 1);
+      } else if (lesson.blocks.length > 0) {
+        setPhase("block");
+        setBlockIndex(lesson.blocks.length - 1);
+      } else {
+        onBack();
+      }
+      return;
+    }
+
+    if (blockIndex > 0) {
+      setBlockIndex((i) => i - 1);
+    } else {
+      onBack();
+    }
+  };
+
   if (phase === "block") {
     return (
       <BlockRenderer
@@ -56,7 +78,7 @@ export default function LessonPlayer({ lesson, onBack, onComplete }) {
         progress={progress}
         progressTotal={totalSteps}
         onContinue={advanceFromBlock}
-        onBack={onBack}
+        onBack={goToPreviousStep}
       />
     );
   }
@@ -68,7 +90,7 @@ export default function LessonPlayer({ lesson, onBack, onComplete }) {
       label="Quiz"
       progress={progress}
       progressTotal={totalSteps}
-      onBack={onBack}
+      onBack={goToPreviousStep}
       onSkip={continueQuiz}
       footer={
         selected != null ? (

@@ -29,10 +29,8 @@ import { scamPhase10Lessons } from "./scam-phase10-lessons";
 
 const phase1Lessons = [
   // ============================================================
-  // LESSON 0 — Welcome video
+  // LESSON 0 — Welcome
   // Order 0 keeps it first without renumbering every other lesson.
-  // Swap `videoId` below for the real YouTube ID when the video is ready:
-  // https://www.youtube.com/watch?v=XXXXXXXXXXX  →  videoId: "XXXXXXXXXXX"
   // ============================================================
   {
     id: "welcome",
@@ -48,14 +46,6 @@ const phase1Lessons = [
       "Feel ready to start learning."
     ],
     blocks: [
-      {
-        type: "video",
-        label: "Welcome",
-        heading: "Welcome to Everwise",
-        videoId: "",
-        footer: "When you're ready, tap Continue to start your first lesson.",
-        continueLabel: "I'm ready"
-      },
       {
         type: "learn",
         heading: "How Everwise Works",

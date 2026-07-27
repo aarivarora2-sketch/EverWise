@@ -65,11 +65,18 @@ export default function BlockShell({
       >
         {children}
       </div>
-      {footer && (
-        <div className="shrink-0 border-t border-ink/5 bg-cream px-6 py-5">
-          {footer}
-        </div>
-      )}
+      <div className="shrink-0 border-t border-ink/5 bg-cream px-6 py-5">
+        {footer || (
+          <button
+            type="button"
+            className="btn-primary"
+            disabled
+            aria-label="Choose an answer before continuing"
+          >
+            Continue
+          </button>
+        )}
+      </div>
     </div>
   );
 }
