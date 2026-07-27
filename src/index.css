@@ -421,10 +421,37 @@ html:is(
   pointer-events: none;
 }
 
+.flashcard-button {
+  perspective: 1200px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.flashcard-stage {
+  transform-style: preserve-3d;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.flashcard-stage.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.flashcard-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flashcard-back {
+  transform: rotateY(180deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .interface-ripple {
     animation: none;
     opacity: 0;
+  }
+
+  .flashcard-stage {
+    transition: none;
   }
 }
 
