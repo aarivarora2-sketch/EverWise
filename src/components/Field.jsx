@@ -8,6 +8,7 @@ export default function Field({
   onChange,
   autoComplete,
   placeholder,
+  min,
 }) {
   return (
     <div>
@@ -25,6 +26,7 @@ export default function Field({
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         placeholder={placeholder}
+        min={min}
         className="mt-2 w-full rounded-2xl border-2 border-ink/20 bg-cream-card px-5 text-xl text-ink placeholder:text-ink-faint transition-colors focus:border-clay"
         style={{ minHeight: "62px" }}
       />

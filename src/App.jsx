@@ -22,7 +22,8 @@ import {
 import PhoneShell from "./components/PhoneShell";
 import Badges from "./screens/Badges";
 import Landing from "./screens/Landing";
-import SignUp from "./screens/SignUp";
+import ProfileInterview from "./screens/ProfileInterview";
+import PersonalPlan from "./screens/PersonalPlan";
 import LogIn from "./screens/LogIn";
 import Loading from "./screens/Loading";
 import Home from "./screens/Home";
@@ -195,9 +196,10 @@ export default function App() {
     }
   };
 
-  const signUp = async (name, email, password) => {
+  const signUp = async (interview) => {
+    const { name, email, password, ...profileInterview } = interview;
     try {
-      // Prevent onAuthStateChanged from jumping to Home before the offer.
+      // Prevent onAuthStateChanged from jumping to Home before the plan reveal.
       skipAuthHomeRef.current = true;
       console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -206,6 +208,8 @@ export default function App() {
       const initial = {
         name,
         email,
+        profileInterview,
+        onboardingCompleted: true,
         scamsCaught: 0,
         badges: [],
         completedLessons: [],
@@ -220,7 +224,7 @@ export default function App() {
       setUser(cred.user);
       setProfile(initial);
       setPaywallVariant("subscribe");
-      setScreen("paywall");
+      setScreen("personal-plan");
     } catch (err) {
       skipAuthHomeRef.current = false;
       console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
@@ -421,17 +425,17 @@ export default function App() {
     case "landing":
       content = (
         <Landing
-          onGetStarted={() => setScreen("signup")}
+          onGetStarted={() => setScreen("interview")}
           onLogIn={() => setScreen("login")}
         />
       );
       break;
-    case "signup":
+    case "interview":
       content = (
-        <SignUp
-          onSignUp={signUp}
-          onGoToLogIn={() => setScreen("login")}
+        <ProfileInterview
+          onComplete={signUp}
           onBack={() => setScreen("landing")}
+          onLogIn={() => setScreen("login")}
         />
       );
       break;
@@ -439,7 +443,7 @@ export default function App() {
       content = (
         <LogIn
           onLogIn={logIn}
-          onGoToSignUp={() => setScreen("signup")}
+          onGoToSignUp={() => setScreen("interview")}
           onBack={() => setScreen("landing")}
         />
       );
@@ -512,6 +516,17 @@ export default function App() {
           onStartTrial={startFreeTrial}
           onStartLearning={goHome}
           onMaybeLater={goHome}
+        />
+      );
+      break;
+    case "personal-plan":
+      content = (
+        <PersonalPlan
+          profile={profile}
+          onContinue={() => {
+            setPaywallVariant("subscribe");
+            setScreen("paywall");
+          }}
         />
       );
       break;
