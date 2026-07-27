@@ -10,6 +10,46 @@
     height: 100%;
   }
 
+  html[data-text-size="size-1"] {
+    font-size: 16px;
+  }
+
+  html[data-text-size="size-2"] {
+    font-size: 18px;
+  }
+
+  html[data-text-size="size-3"] {
+    font-size: 20px;
+  }
+
+  html[data-text-size="size-4"] {
+    font-size: 22px;
+  }
+
+  html[data-text-size="size-5"] {
+    font-size: 24px;
+  }
+
+  html[data-text-size="size-6"] {
+    font-size: 26px;
+  }
+
+  html[data-text-size="size-7"] {
+    font-size: 28px;
+  }
+
+  html[data-text-size="size-8"] {
+    font-size: 30px;
+  }
+
+  html[data-text-size="size-9"] {
+    font-size: 32px;
+  }
+
+  html[data-text-size="size-10"] {
+    font-size: 34px;
+  }
+
   body,
   #root {
     height: 100%;

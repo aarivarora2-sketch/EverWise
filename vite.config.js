@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const DEFAULT_ELEVENLABS_VOICE_ID = 'pqHfZKP75CvOlQylNhV4'
+const DEFAULT_READ_ALOUD_FALLBACK =
+  'http://143.198.64.226/api/read-aloud'
 const OPENAI_MODEL = 'gpt-5.6-terra'
 
 const scamAssessmentSchema = {
@@ -172,7 +174,7 @@ Even when likely legitimate, recommend independent verification before sharing i
   }
 }
 
-function elevenLabsReadAloud(apiKey, voiceId) {
+function elevenLabsReadAloud(apiKey, voiceId, fallbackEndpoint) {
   return {
     name: 'everwise-elevenlabs-read-aloud',
     configureServer(server) {
@@ -183,12 +185,6 @@ function elevenLabsReadAloud(apiKey, voiceId) {
           return
         }
 
-        if (!apiKey) {
-          response.statusCode = 503
-          response.end('Read-aloud service is not configured')
-          return
-        }
-
         try {
           const { text } = await readJsonBody(request)
           const cleanText = typeof text === 'string' ? text.trim() : ''
@@ -196,6 +192,24 @@ function elevenLabsReadAloud(apiKey, voiceId) {
           if (!cleanText || cleanText.length > 5000) {
             response.statusCode = 400
             response.end('Text must be between 1 and 5000 characters')
+            return
+          }
+
+          if (!apiKey) {
+            const fallbackResponse = await fetch(fallbackEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: cleanText }),
+            })
+
+            response.statusCode = fallbackResponse.status
+            response.setHeader(
+              'Content-Type',
+              fallbackResponse.headers.get('content-type') ||
+                'text/plain; charset=utf-8',
+            )
+            response.setHeader('Cache-Control', 'private, no-store')
+            response.end(Buffer.from(await fallbackResponse.arrayBuffer()))
             return
           }
 
@@ -248,6 +262,7 @@ export default defineConfig(({ mode }) => {
       elevenLabsReadAloud(
         env.ELEVENLABS_API_KEY,
         env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
+        env.READ_ALOUD_FALLBACK || DEFAULT_READ_ALOUD_FALLBACK,
       ),
       openAIScamChecker(env.OPENAI_API_KEY),
     ],

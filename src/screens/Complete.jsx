@@ -99,13 +99,6 @@ export default function Complete({ lesson, onDone }) {
         >
           {lesson.badge}
         </p>
-        <p
-          className={`mt-3 font-sans font-bold text-sage ${
-            isPhaseBadge ? "text-5xl" : "text-4xl"
-          }`}
-        >
-          +{lesson.xp ?? 20} XP
-        </p>
       </div>
 
       {info.next && (
