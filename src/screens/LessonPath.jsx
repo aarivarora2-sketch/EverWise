@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   lessonsByOrder as lessons,
   examsByOrder,
@@ -61,6 +62,7 @@ export default function LessonPath({
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
+  const activePhaseRef = useRef(null);
 
   // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
@@ -198,6 +200,23 @@ export default function LessonPath({
 
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
 
+  useEffect(() => {
+    if (!currentId || !activePhaseRef.current) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      activePhaseRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+        inline: "nearest",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activePhaseNumber, currentId]);
+
   return (
     // One single scrolling area: the header lives INSIDE it and scrolls away
     // with the path, so nothing is pinned for content to catch under.
@@ -272,6 +291,11 @@ export default function LessonPath({
               return (
                 <div
                   key={`phase-${node.phase.number}`}
+                  ref={
+                    node.phase.number === activePhaseNumber
+                      ? activePhaseRef
+                      : null
+                  }
                   className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2"
                   style={{ top: node.bandTop }}
                 >
