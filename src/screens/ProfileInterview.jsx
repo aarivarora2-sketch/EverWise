@@ -3,6 +3,7 @@ import { Check, ChevronLeft, HelpCircle } from "lucide-react";
 import Field from "../components/Field";
 import ReadAloud from "../components/ReadAloud";
 import { authErrorMessage } from "../utils/authErrors";
+import { isValidEmail, normalizeEmail } from "../utils/validation";
 
 const STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
 const TOTAL_STEPS = STEP_IDS.length;
@@ -155,6 +156,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const [accessibilityNeeds, setAccessibilityNeeds] = useState([]);
   const [trustedContact, setTrustedContact] = useState("");
   const [email, setEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -208,7 +210,11 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
       return "Please choose whether you may want trusted-person help.";
     }
     if (step === 12) {
+      setEmailTouched(true);
       if (!email.trim()) return "Please enter your email.";
+      if (!isValidEmail(email)) {
+        return "Please enter a complete email like name@example.com.";
+      }
       if (password.length < 6) {
         return "Please choose a password with at least 6 characters.";
       }
@@ -235,7 +241,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
       await onComplete({
         name: name.trim(),
         age: Number(age),
-        email: email.trim(),
+        email: normalizeEmail(email),
         password,
         internetUse,
         primaryDevice,
@@ -496,15 +502,32 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
 
         {step === 12 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
-            <Field
-              id="profile-email"
-              label="Email"
-              type="email"
-              value={email}
-              onChange={setEmail}
-              autoComplete="email"
-              placeholder="jane@example.com"
-            />
+              <Field
+                id="profile-email"
+                label="Email"
+                type="email"
+                value={email}
+                onChange={setEmail}
+                onBlur={() => setEmailTouched(true)}
+                autoComplete="email"
+                placeholder="jane@example.com"
+                inputMode="email"
+                ariaInvalid={emailTouched && !isValidEmail(email)}
+                describedBy="profile-email-help"
+              />
+              <p
+                id="profile-email-help"
+                className={`-mt-3 text-base font-semibold ${
+                  emailTouched && !isValidEmail(email)
+                    ? "text-alert"
+                    : "text-ink-soft"
+                }`}
+                role={emailTouched && !isValidEmail(email) ? "alert" : undefined}
+              >
+                {emailTouched && !isValidEmail(email)
+                  ? "Enter a complete address like name@example.com."
+                  : "We’ll use this address to save your account."}
+              </p>
             <Field
               id="profile-password"
               label="Choose a password"
