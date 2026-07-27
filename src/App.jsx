@@ -118,6 +118,70 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const interactiveSelector = "button, a, summary, [role='button']";
+
+    const addRipple = (event, useCenter = false) => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if (!(event.target instanceof Element)) return;
+
+      const surface = event.target.closest(interactiveSelector);
+      if (
+        !surface ||
+        surface.matches(":disabled, [aria-disabled='true']") ||
+        surface.dataset.ripple === "off"
+      ) {
+        return;
+      }
+
+      const bounds = surface.getBoundingClientRect();
+      const diameter = Math.max(bounds.width, bounds.height) * 2;
+      const clientX = useCenter ? bounds.left + bounds.width / 2 : event.clientX;
+      const clientY = useCenter ? bounds.top + bounds.height / 2 : event.clientY;
+      const surfaceStyle = window.getComputedStyle(surface);
+      const overlay = document.createElement("span");
+      const ripple = document.createElement("span");
+
+      overlay.className = "interface-ripple-surface";
+      overlay.style.left = `${bounds.left}px`;
+      overlay.style.top = `${bounds.top}px`;
+      overlay.style.width = `${bounds.width}px`;
+      overlay.style.height = `${bounds.height}px`;
+      overlay.style.borderRadius = surfaceStyle.borderRadius;
+      overlay.style.color = surfaceStyle.color;
+
+      ripple.className = "interface-ripple";
+      ripple.style.width = `${diameter}px`;
+      ripple.style.height = `${diameter}px`;
+      ripple.style.left = `${clientX - bounds.left - diameter / 2}px`;
+      ripple.style.top = `${clientY - bounds.top - diameter / 2}px`;
+      ripple.setAttribute("aria-hidden", "true");
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.appendChild(ripple);
+      document.body.appendChild(overlay);
+      ripple.addEventListener("animationend", () => overlay.remove(), {
+        once: true,
+      });
+    };
+
+    const onPointerDown = (event) => addRipple(event);
+    const onKeyboardClick = (event) => {
+      if (event.detail === 0) addRipple(event, true);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("click", onKeyboardClick);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("click", onKeyboardClick);
+      document
+        .querySelectorAll(".interface-ripple-surface")
+        .forEach((overlay) => {
+          overlay.remove();
+        });
+    };
+  }, []);
+
+  useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
     const unsub = onAuthStateChanged(auth, async (u) => {
       console.log(
