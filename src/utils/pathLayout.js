@@ -23,9 +23,15 @@ export function pathLayoutForTextSize(textSize = "size-2") {
     nodeSlot: scaled(340, scale),
     phaseTop: scaled(32, scale),
     phaseTopFirst: scaled(8, scale),
-    phaseBand: scaled(160, scale),
+    // Fits a two-line phase title ("Protecting Your Personal Information")
+    // without leaving dead space above the first lesson.
+    phaseBand: scaled(112, scale),
     phaseBottom: scaled(32, scale),
-    nodeBoxHeight: scaled(250, scale),
+    // Where a node's reserved block ends — and therefore where the trail dots
+    // begin. Keep this close to the real height of a circle plus its label:
+    // inflating it pushes the dots down into a cluster against the next node
+    // and leaves a visible gap under each label.
+    nodeBoxHeight: scaled(182, scale),
     pathBottomClearance: scaled(96, scale),
     offsetAmplitude: Math.max(42, Math.round(60 / nodeScale)),
   };
