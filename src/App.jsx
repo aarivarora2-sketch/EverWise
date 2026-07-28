@@ -672,7 +672,6 @@ export default function App() {
       content = (
         <LessonPath
           completedLessons={completedLessons}
-          textSize={textSize}
           onSelectLesson={startLesson}
           onSelectChallenge={startChallenge}
           onSelectExam={startExam}
