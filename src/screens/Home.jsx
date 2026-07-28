@@ -30,8 +30,8 @@ export default function Home({
     );
 
   return (
-    <div className="home-screen flex flex-1 flex-col overflow-y-auto">
-      <div className="home-content flex flex-1 flex-col px-6 pb-6 pt-5">
+    <div className="home-screen flex h-full min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="home-content flex h-full min-h-full flex-1 flex-col px-6 pb-3 pt-5">
         <div className="home-header flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
@@ -95,7 +95,7 @@ export default function Home({
           </div>
         </div>
 
-        <div className="mt-6 flex flex-1 flex-col justify-center">
+        <div className="mt-5 flex min-h-0 flex-1 flex-col justify-between gap-4 pb-1">
           <button
             type="button"
             onClick={onOpenScamChecker}
@@ -116,7 +116,7 @@ export default function Home({
             </div>
           </button>
 
-          <div className="home-stats mt-4 grid grid-cols-2 gap-3">
+          <div className="home-stats grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={onOpenBadges}
@@ -144,7 +144,7 @@ export default function Home({
             </div>
           </div>
 
-          <button className="btn-primary mt-4 py-4" onClick={onStart}>
+          <button className="btn-primary py-4" onClick={onStart}>
             {allDone ? "See your path" : "Continue learning"}
           </button>
         </div>

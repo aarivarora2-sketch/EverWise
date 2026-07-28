@@ -51,6 +51,8 @@ import {
 } from "./services/purchases";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
+const subscriptionBypassEnabled =
+  import.meta.env.VITE_BYPASS_SUBSCRIPTION === "true";
 const TEXT_SIZE_OPTIONS = new Set(
   Array.from({ length: 10 }, (_, index) => `size-${index + 1}`),
 );
@@ -251,7 +253,8 @@ export default function App() {
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = completedLessons.length >= lessonsByOrder.length;
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
-  const access = hasFullAccess(subscriptionStatus);
+  const access =
+    subscriptionBypassEnabled || hasFullAccess(subscriptionStatus);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -702,7 +705,10 @@ export default function App() {
 
   return (
     <PhoneShell>
-      <div key={screen} className="flex min-h-0 flex-1 flex-col">
+      <div
+        key={screen}
+        className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
+      >
         {content}
       </div>
     </PhoneShell>

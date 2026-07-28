@@ -109,12 +109,10 @@
 .app-viewport {
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
   background: var(--everwise-screen-background, #efe9dc);
 }
 
-.app-viewport::before,
-.app-viewport::after {
+.app-viewport::before {
   position: fixed;
   z-index: 200;
   right: 0;
@@ -130,14 +128,22 @@
   background: var(--everwise-safe-top, #efe9dc);
 }
 
-.app-viewport::after {
-  bottom: 0;
-  height: env(safe-area-inset-bottom);
-  background: var(--everwise-safe-bottom, #efe9dc);
-}
-
 .app-shell {
   min-height: 0;
+  background: var(--everwise-screen-background, #efe9dc);
+}
+
+/*
+ * Let every screen paint through the iPhone home-indicator area. Controls add
+ * their own safe spacing, so the bottom is usable without hiding tap targets.
+ */
+.lesson-footer {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.complete-screen {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  scroll-padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }
 
 .home-screen {
@@ -146,6 +152,37 @@
 
 .home-content {
   min-height: 100%;
+}
+
+.path-scroll {
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 1rem 6rem;
+}
+
+@media (max-height: 760px) {
+  .landing-screen {
+    padding-top: 0.75rem;
+  }
+
+  .landing-screen .page-title {
+    margin-top: 0.75rem;
+  }
+
+  .landing-actions {
+    padding-top: 0.5rem;
+  }
+
+  .home-content {
+    padding-top: 0.75rem;
+  }
+
+  .home-intro {
+    margin-top: 0.75rem;
+  }
+
+  .home-stats {
+    margin-top: 0.5rem;
+  }
 }
 
 /*

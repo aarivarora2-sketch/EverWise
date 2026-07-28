@@ -61,11 +61,11 @@ export default function BlockShell({
       />
       <div
         ref={contentRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-6"
+        className="lesson-content flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-4 pt-3"
       >
         {children}
       </div>
-      <div className="shrink-0 border-t border-ink/5 bg-cream px-6 py-5">
+      <div className="lesson-footer shrink-0 border-t border-ink/5 bg-cream px-6 pb-3 pt-3">
         {footer || (
           <button
             type="button"

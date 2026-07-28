@@ -13,7 +13,7 @@ function Step({ n, name, children }) {
 
 export default function Landing({ onGetStarted, onLogIn }) {
   return (
-    <div className="landing-screen flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-2 pt-5">
+    <div className="landing-screen flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-0 pt-5">
       <div className="animate-fade-up">
         <div className="flex items-center gap-3">
           <img
@@ -54,7 +54,7 @@ export default function Landing({ onGetStarted, onLogIn }) {
         </ol>
       </div>
 
-      <div className="mt-auto space-y-3 pt-4">
+      <div className="landing-actions mt-auto space-y-2 pt-3">
         <button className="btn-primary" onClick={onGetStarted}>
           Get Started
         </button>
