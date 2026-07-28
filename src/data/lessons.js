@@ -26,6 +26,7 @@ import { scamPhase7Lessons } from "./scam-phase7-lessons";
 import { scamPhase8Lessons } from "./scam-phase8-lessons";
 import { scamPhase9Lessons } from "./scam-phase9-lessons";
 import { scamPhase10Lessons } from "./scam-phase10-lessons";
+import { finalExam } from "./final-exam";
 
 const phase1Lessons = [
   // ============================================================
@@ -1791,5 +1792,10 @@ export const challengesByOrder = [phase4Challenge]
 export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam, phase6Exam, phase7Exam]
   .filter((exam) => exam && exam.id && Array.isArray(exam.questions))
   .sort((a, b) => a.order - b.order);
+
+// The capstone test. Deliberately kept OUT of examsByOrder: it isn't a phase
+// exam and must not appear as an extra node inside Phase 17. LessonPath places
+// it on the final node of the path, unlocked only once everything else is done.
+export { finalExam };
 
 export { phase3Exam, phase4Challenge, phase4Exam, phase5Exam, phase6Exam, phase7Exam };

@@ -4,7 +4,7 @@
 // Profile stores earned badges as an array of badge NAME strings
 // (see App.jsx finishLesson / finishExam), so matching is by name.
 
-import { lessonsByOrder, examsByOrder } from "../data/lessons";
+import { lessonsByOrder, examsByOrder, finalExam } from "../data/lessons";
 import { allPhases as phases, getPhase, phaseLabel } from "../data/phases";
 
 /**
@@ -40,6 +40,16 @@ export function badgeCatalog() {
       order: exam.order,
     });
   });
+
+  // The capstone badge closes out the final phase's group.
+  if (finalExam?.phaseBadge) {
+    push(finalExam.phase, {
+      name: finalExam.phaseBadge,
+      source: "exam",
+      subtitle: "Everwise final test",
+      order: finalExam.order,
+    });
+  }
 
   return phases
     .filter((p) => byPhase.has(p.number))

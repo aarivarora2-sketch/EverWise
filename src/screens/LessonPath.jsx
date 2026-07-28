@@ -3,6 +3,7 @@ import {
   lessonsByOrder as lessons,
   examsByOrder,
   challengesByOrder,
+  finalExam,
   pathOrderForPhase,
 } from "../data/lessons";
 import { getPhase, phaseLabel } from "../data/phases";
@@ -128,11 +129,15 @@ export default function LessonPath({
     }
     items.push(p);
   });
+  // The capstone sits on the last node. It carries the final phase's number so
+  // it picks up the Summit color and joins the trail of dots above it.
   items.push({
-    kind: "reward",
-    id: "path-reward",
-    title: "All done",
-    fullTitle: "All done",
+    kind: "final",
+    id: finalExam.id,
+    phase: finalExam.phase,
+    title: "Final Test",
+    fullTitle: finalExam.title,
+    exam: finalExam,
   });
 
   let y = TOP_PAD;
@@ -148,11 +153,12 @@ export default function LessonPath({
       y += topPad + layout.phaseBand + layout.phaseBottom;
       return pos;
     }
+    // The capstone stays centered rather than joining the snake's swing.
     const offsetX =
-      item.kind === "reward"
+      item.kind === "final"
         ? 0
         : snakeOffset(indexInPhase, item.phase, layout.offsetAmplitude);
-    if (item.kind !== "reward") indexInPhase += 1;
+    if (item.kind !== "final") indexInPhase += 1;
     const pos = { ...item, top: y, offsetX };
     // Only gaps that actually get dots need the tall slot; the last node
     // needs no clearance below it at all.
@@ -172,7 +178,7 @@ export default function LessonPath({
       n.kind === "lesson" ||
       n.kind === "challenge" ||
       n.kind === "exam" ||
-      n.kind === "reward"
+      n.kind === "final"
   );
 
   // Curved trails per same-phase segment — never through a phase header.
@@ -204,6 +210,25 @@ export default function LessonPath({
 
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
   const activePhaseBackground = mixHex(activePhase.color, CREAM, 0.1);
+
+  // The path ripple. Every node and every trail dot animates as its own
+  // element, on its own delay, so the path assembles piece by piece instead
+  // of fading in as one block.
+  //
+  // The wave spreads OUTWARD from the lesson the learner is on rather than
+  // running from the top of the path. With 100+ nodes, a top-down wipe would
+  // put everything on screen at the same capped delay — radiating from the
+  // scroll target keeps the motion where the learner is actually looking.
+  const rippleCenterY =
+    positioned.find((n) => n.id === currentId)?.top ??
+    positioned.find(
+      (n) => n.kind === "phase" && n.phase.number === activePhaseNumber,
+    )?.top ??
+    0;
+
+  function rippleDelay(y) {
+    return Math.min(Math.abs(y - rippleCenterY) / 3.2, 620);
+  }
 
   useEffect(() => {
     const root = document.documentElement;
@@ -350,8 +375,11 @@ export default function LessonPath({
                 style={{ left: `calc(50% + ${d.x}px)`, top: d.y }}
               >
                 <span
-                  className="block h-full w-full rounded-full"
-                  style={{ backgroundColor: d.color }}
+                  className="block h-full w-full animate-ripple-in rounded-full"
+                  style={{
+                    backgroundColor: d.color,
+                    animationDelay: `${rippleDelay(d.y)}ms`,
+                  }}
                 />
               </span>
             ))}
@@ -388,8 +416,13 @@ export default function LessonPath({
               }
 
               let state;
-              if (node.kind === "reward") {
-                state = allPlayablesDone ? "reward-done" : "locked";
+              if (node.kind === "final") {
+                // Opens only after every lesson, challenge, and phase exam.
+                state = doneSet.has(node.id)
+                  ? "done"
+                  : allPlayablesDone
+                    ? "current"
+                    : "locked";
               } else if (doneSet.has(node.id)) {
                 state = "done";
               } else if (node.id === currentId) {
@@ -408,14 +441,11 @@ export default function LessonPath({
                 state = "locked";
               }
 
-              const phaseColor =
-                node.kind === "reward"
-                  ? activePhase.color
-                  : getPhase(Number(node.phase)).color;
+              const phaseColor = getPhase(Number(node.phase)).color;
 
               const onClick =
                 state === "current" || state === "done"
-                  ? node.kind === "exam"
+                  ? node.kind === "exam" || node.kind === "final"
                     ? () => onSelectExam?.(node.exam)
                     : node.kind === "challenge"
                       ? () => onSelectChallenge?.(node.challenge)
@@ -438,7 +468,10 @@ export default function LessonPath({
                     transform: "translateX(-50%)",
                   }}
                 >
-                  <div className="flex flex-col items-center">
+                  <div
+                    className="flex animate-ripple-in flex-col items-center"
+                    style={{ animationDelay: `${rippleDelay(node.top)}ms` }}
+                  >
                     <PathNode
                       state={state}
                       kind={node.kind}
@@ -464,21 +497,27 @@ export default function LessonPath({
 }
 
 function PathNode({ state, kind, onClick, title, phaseColor, scale = 1 }) {
-  const isExam = kind === "exam";
+  const isFinal = kind === "final";
+  // The capstone wears the same trophy as a phase exam, one size larger.
+  const isExam = kind === "exam" || isFinal;
   const isChallenge = kind === "challenge";
   const fill = phaseColor || CLAY;
   // Challenge sits visually between lesson (START/check) and exam (trophy).
-  const currentBase = isChallenge ? 104 : 112;
-  const doneBase = isChallenge ? 88 : 96;
+  const currentBase = isFinal ? 128 : isChallenge ? 104 : 112;
+  const doneBase = isFinal ? 112 : isChallenge ? 88 : 96;
   const currentSize = Math.round(currentBase * scale);
   const doneSize = Math.round(doneBase * scale);
 
-  const ariaStart = isExam
+  const ariaStart = isFinal
+    ? `Start the final test: ${title}`
+    : isExam
     ? `Start exam: ${title}`
     : isChallenge
     ? `Start challenge: ${title}`
     : `Start lesson: ${title}`;
-  const ariaRedo = isExam
+  const ariaRedo = isFinal
+    ? `Retake the final test: ${title}`
+    : isExam
     ? `Redo exam: ${title}`
     : isChallenge
     ? `Redo challenge: ${title}`
@@ -548,23 +587,6 @@ function PathNode({ state, kind, onClick, title, phaseColor, scale = 1 }) {
     );
   }
 
-  if (state === "reward-done") {
-    return (
-      <div
-        className="flex shrink-0 items-center justify-center rounded-full text-white"
-        style={{
-          width: doneSize,
-          height: doneSize,
-          backgroundColor: fill,
-          boxShadow: `0 5px 0 ${shade(fill, -25)}`,
-        }}
-        aria-label="Reward unlocked"
-      >
-        <TrophyIcon className="h-12 w-12" />
-      </div>
-    );
-  }
-
   // Locked: phase color ~35% over cream — biome-readable, clearly inactive.
   const lockedFill = mixHex(fill, CREAM, 0.35);
   const lockedShadow = shade(lockedFill, -22);
@@ -606,7 +628,7 @@ function Label({ state, title, phaseColor }) {
         style={
           state === "current"
             ? { color: fill }
-            : state === "done" || state === "reward-done"
+            : state === "done"
             ? { color: fill }
             : state === "locked"
             ? { color: lockedText }

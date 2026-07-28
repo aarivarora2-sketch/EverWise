@@ -56,11 +56,19 @@ export default {
           "70%": { transform: "scale(1.25)", opacity: "0" },
           "100%": { transform: "scale(1.25)", opacity: "0" },
         },
+        // One element's turn in the path ripple: swells slightly past full
+        // size, then settles. Each node and dot runs this on its own delay.
+        "ripple-in": {
+          "0%": { transform: "scale(0.4)", opacity: "0" },
+          "55%": { transform: "scale(1.1)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.5s ease-out both",
         "pop-in": "pop-in 0.4s ease-out both",
         "pulse-ring": "pulse-ring 2s ease-out infinite",
+        "ripple-in": "ripple-in 540ms cubic-bezier(0.22, 1, 0.36, 1) both",
       },
     },
   },
