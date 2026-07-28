@@ -197,12 +197,11 @@ export default function LessonPath({
     // Lights up once the lesson BEFORE the dots is complete.
     const color = doneSet.has(a.id) ? getPhase(a.phase).color : DOT_LOCKED;
 
-    // Four evenly spaced dots. A "done" label is one line, but a "current"
-    // label carries an extra "Today" line beneath it — the reserved box is
-    // sized for the taller one, so a short label leaves visible empty space
-    // above the first dot. Starting the run at 0.2 instead of 0.26 pulls the
-    // first dot up into that space so the trail reads as continuous either way.
-    [0.2, 0.4, 0.6, 0.8].forEach((t, k) => {
+    // Four dots spread across the gap between lessons. The run stops short of
+    // both ends so the first dot clears the label above it (a "current" node
+    // carries an extra "Today" line) and the last doesn't crowd the next
+    // circle.
+    [0.15, 0.38, 0.62, 0.85].forEach((t, k) => {
       const dotY = ay + (by - ay) * t;
       dots.push({
         key: `${a.id}-${b.id}-${k}`,

@@ -20,9 +20,9 @@ export function pathLayoutForTextSize(textSize = "size-2") {
   return {
     scale,
     nodeScale,
-    // Lesson-to-lesson distance. Tight enough that the trail of dots reads as
-    // one connected path rather than two islands.
-    nodeSlot: scaled(292, scale),
+    // Lesson-to-lesson distance. Wide enough that the four trail dots sit
+    // evenly spread between nodes instead of bunching into a cluster.
+    nodeSlot: scaled(340, scale),
     phaseTop: scaled(32, scale),
     phaseTopFirst: scaled(8, scale),
     // Fits a two-line phase title ("Protecting Your Personal Information")
