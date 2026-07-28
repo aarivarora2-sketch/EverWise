@@ -156,11 +156,11 @@ function InformationSheet({ type, onClose }) {
     type === "terms"
       ? {
           title: "Terms",
-          body: "Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. You can manage or cancel in your Apple Account subscription settings.",
+          body: "Annual plan: 7-day free trial, then $89.99/year ($7.50/mo) unless canceled before the trial ends. Monthly plan: $14.99/month starting immediately. Both plans renew automatically until canceled. Manage or cancel anytime in Settings or in your Apple ID subscription settings — canceling stops the next renewal but doesn't refund the current period. Full terms: everwise.app/terms",
         }
       : {
           title: "Privacy",
-          body: "Everwise uses your account details, questionnaire answers, lesson progress, and purchase status to provide and personalize the app. Everwise does not sell this information or use it for tracking.",
+          body: "Everwise stores your name, email, and lesson progress to run your account. Messages you check for scams are sent to our AI provider only to generate a result and are not stored by Everwise. We don't sell your data or show ads. Never share passwords, security codes, or full payment details in Everwise. Full policy: everwise.app/privacy",
         };
 
   return (
@@ -339,8 +339,8 @@ export default function Paywall({
           style={fixedText.reassurance}
         >
           {selectedPlan === "annual"
-            ? "No charge today. Cancel anytime."
-            : "$14.99 billed monthly. Cancel anytime."}
+            ? "No charge today. Renews at $89.99/year after your 7-day trial unless you cancel."
+            : "$14.99 billed monthly. Renews automatically unless you cancel."}
         </p>
 
         <div

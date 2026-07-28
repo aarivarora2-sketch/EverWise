@@ -2,6 +2,8 @@ import { useState } from "react";
 import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 
+const SUPPORT_EMAIL = "support@everwise.app";
+
 function Row({ label, value, onClick, hint }) {
   const interactive = typeof onClick === "function";
   const Comp = interactive ? "button" : "div";
@@ -48,6 +50,8 @@ export default function Settings({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
   const daysLeft = trialDaysLeft(trialStartedAt);
   const statusText = statusLabel(subscriptionStatus);
   const statusDetail =
@@ -73,20 +77,16 @@ export default function Settings({
     }
   };
 
-  const deleteAccount = async () => {
-    const confirmed = window.confirm(
-      "Delete your Everwise account and saved progress? This cannot be undone.",
-    );
-    if (!confirmed) return;
-
+  const handleDeleteAccount = async () => {
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      await onDeleteAccount();
-    } catch {
+      await onDeleteAccount?.();
+    } catch (err) {
       setError(
-        "Your account could not be deleted. Log out, log back in, and try again.",
+        err.message ||
+          "Your account could not be deleted. Log out, log back in, and try again.",
       );
       setBusy(false);
     }
@@ -141,10 +141,53 @@ export default function Settings({
           onClick={busy ? undefined : resetPassword}
         />
         <Row
-          label="Delete account"
-          hint="Permanently remove your account and saved progress"
-          onClick={busy ? undefined : deleteAccount}
+          label="Contact support"
+          hint={SUPPORT_EMAIL}
+          onClick={() => {
+            window.location.href = `mailto:${SUPPORT_EMAIL}`;
+          }}
         />
+
+        {!confirmingDelete ? (
+          <Row
+            label="Delete account"
+            hint="Permanently remove your account and saved progress"
+            onClick={
+              busy
+                ? undefined
+                : () => {
+                    setError("");
+                    setConfirmingDelete(true);
+                  }
+            }
+          />
+        ) : (
+          <div className="rounded-2xl border-2 border-alert/40 bg-alert/10 px-5 py-5">
+            <p className="text-xl font-bold text-ink">Delete your account?</p>
+            <p className="mt-2 text-lg leading-snug text-ink-soft">
+              This permanently deletes your account, progress, and badges.
+              This cannot be undone.
+            </p>
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                className="btn-secondary flex-1"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-2xl bg-alert px-6 py-5 text-center text-lg font-bold text-cream-card shadow-btn transition-all active:translate-y-1 active:shadow-none disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleDeleteAccount}
+                disabled={busy}
+              >
+                {busy ? "Deleting…" : "Yes, delete"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {notice ? (

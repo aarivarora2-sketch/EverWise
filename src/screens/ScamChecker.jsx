@@ -170,7 +170,8 @@ export default function ScamChecker({ onBack }) {
             {status === "loading" ? "Checking carefully…" : "Check this message"}
           </button>
           <p className="mt-3 text-center text-sm leading-snug text-ink-faint">
-            Everwise gives a careful opinion, not a guarantee.
+            Everwise gives a careful opinion, not a guarantee. Your message is
+            sent to our AI provider only to generate this result.
           </p>
         </form>
       ) : (

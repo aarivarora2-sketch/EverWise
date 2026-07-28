@@ -437,13 +437,32 @@ export default function App() {
     await sendPasswordResetEmail(auth, user.email);
   };
 
+  // Permanently deletes the learner's progress and their sign-in account.
+  // Firebase requires a "recent" sign-in for account deletion; if the
+  // session is stale we surface a friendly error asking them to log back
+  // in and try again, rather than silently failing.
   const deleteAccount = async () => {
     if (!user) throw new Error("No account is signed in.");
-    const userDocument = doc(db, "users", user.uid);
-    await deleteDoc(userDocument);
-    await deleteUser(user);
-    setProfile(null);
-    setScreen("landing");
+    try {
+      console.log("[Everwise][firestore] deleteDoc users/", user.uid);
+      await deleteDoc(doc(db, "users", user.uid));
+      console.log("[Everwise][auth] deleteUser", user.uid);
+      await deleteUser(user);
+      console.log("[Everwise][auth] account deleted.");
+      setUser(null);
+      setProfile(null);
+      setScreen("landing");
+    } catch (err) {
+      console.error("[Everwise][auth] Delete account failed:", err.code, err.message);
+      if (err.code === "auth/requires-recent-login") {
+        throw new Error(
+          "For your security, please log out and log back in, then try deleting your account again.",
+        );
+      }
+      throw new Error(
+        "We could not delete your account right now. Please try again.",
+      );
+    }
   };
 
   const finishChallenge = async () => {
