@@ -10,13 +10,6 @@
 // When those lessons are written, insert them there — the references in the
 // existing lessons already point at them.
 
-const HELPING_HABITS = [
-  "Stay calm and kind",
-  "Avoid blame",
-  "Focus on the next safe step",
-  "Use official support routes",
-];
-
 export const scamPhase9Lessons = [
   // ============================================================
   // LESSON 9.1 — NOT YET WRITTEN

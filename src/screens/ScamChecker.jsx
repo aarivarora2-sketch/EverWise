@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import BackButton from "../components/BackButton";
 import ReadAloud from "../components/ReadAloud";
 import { MessageSearchIcon } from "../components/Icons";
+import { apiEndpoint } from "../utils/apiEndpoint";
 
-const CHECK_MESSAGE_ENDPOINT =
-  import.meta.env.VITE_CHECK_MESSAGE_ENDPOINT || "/api/check-message";
+const CHECK_MESSAGE_ENDPOINT = apiEndpoint("/api/check-message");
 const MAX_MESSAGE_LENGTH = 6000;
 
 const verdictDetails = {

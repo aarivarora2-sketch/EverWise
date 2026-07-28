@@ -37,14 +37,6 @@ function snakeOffset(indexInPhase, phaseNumber) {
   return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60);
 }
 
-// Turns a node's vertical position into an entrance delay so the path
-// reveals top-to-bottom in one gentle wave when the screen opens, rather
-// than every dot and node appearing at once. Capped so far-down, off-screen
-// items don't sit invisible for long.
-function rippleDelayForY(y) {
-  return Math.min(y / 6, 800);
-}
-
 function phaseLessonsDone(phase, doneSet) {
   return lessons
     .filter((l) => l.phase === phase)
@@ -204,12 +196,25 @@ export default function LessonPath({
         x: ax + (bx - ax) * t,
         y: dotY,
         color,
-        rippleDelay: rippleDelayForY(dotY),
       });
     });
   }
 
   const allPlayablesDone = playables.every((p) => doneSet.has(p.id));
+  const activePhaseBackground = mixHex(activePhase.color, CREAM, 0.1);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--everwise-safe-top", CLAY);
+    root.style.setProperty("--everwise-safe-bottom", activePhaseBackground);
+    root.style.setProperty("--everwise-screen-background", activePhaseBackground);
+
+    return () => {
+      root.style.setProperty("--everwise-safe-top", CREAM);
+      root.style.setProperty("--everwise-safe-bottom", CREAM);
+      root.style.setProperty("--everwise-screen-background", CREAM);
+    };
+  }, [activePhaseBackground]);
 
   useEffect(() => {
     if (
@@ -261,21 +266,24 @@ export default function LessonPath({
   return (
     // The header stays outside the scrolling path so Home is always one tap
     // away, even when the learner is deep inside a phase.
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-cream">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      style={{ backgroundColor: activePhaseBackground }}
+    >
       {/* Neutral chrome — biome color only appears on phase bands/nodes */}
-      <header className="flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
-        <div className="flex items-center gap-3">
+      <header className="path-header flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-4 py-2.5 text-cream-card sm:rounded-t-[40px]">
+        <div className="flex min-w-0 items-center gap-2.5">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back to home"
-            className="rounded-full p-1.5 text-cream-card/90 transition-colors hover:bg-white/15"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-cream-card/90 transition-colors hover:bg-white/15"
           >
-            <ArrowLeftIcon className="h-7 w-7" />
+            <ArrowLeftIcon className="h-6 w-6" />
           </button>
-          <div>
-            <h1 className="font-sans text-2xl font-semibold">Your path</h1>
-            <p className="text-sm font-semibold text-cream-card/75">
+          <div className="min-w-0">
+            <h1 className="font-sans text-xl font-semibold leading-tight">Your path</h1>
+            <p className="truncate text-xs font-semibold leading-snug text-cream-card/75">
               Phase {phaseLabel(activePhase)} · {activePhase.biome}
               <span className="text-cream-card/50"> · {activePhase.title}</span>
             </p>
@@ -320,11 +328,8 @@ export default function LessonPath({
                 style={{ left: `calc(50% + ${d.x}px)`, top: d.y }}
               >
                 <span
-                  className="block h-full w-full animate-ripple-in rounded-full"
-                  style={{
-                    backgroundColor: d.color,
-                    animationDelay: `${d.rippleDelay}ms`,
-                  }}
+                  className="block h-full w-full rounded-full"
+                  style={{ backgroundColor: d.color }}
                 />
               </span>
             ))}
@@ -410,12 +415,7 @@ export default function LessonPath({
                     transform: "translateX(-50%)",
                   }}
                 >
-                  <div
-                    className="flex animate-ripple-in flex-col items-center"
-                    style={{
-                      animationDelay: `${rippleDelayForY(node.top)}ms`,
-                    }}
-                  >
+                  <div className="flex flex-col items-center">
                     <PathNode
                       state={state}
                       kind={node.kind}

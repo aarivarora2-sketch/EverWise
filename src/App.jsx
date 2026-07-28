@@ -2,16 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
+  deleteUser,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
 import {
+  deleteDoc,
   doc,
   getDoc,
   setDoc,
   updateDoc,
   Timestamp,
 } from "firebase/firestore";
+import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 import { auth, db } from "./firebase";
 import { lessonsByOrder } from "./data/lessons";
 import { getPhase } from "./data/phases";
@@ -35,6 +40,15 @@ import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
+import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
+import {
+  getCurrentEntitlement,
+  getSubscriptionProducts,
+  nativePurchasesAvailable,
+  planForProduct,
+  purchaseSubscription,
+  restoreSubscriptions,
+} from "./services/purchases";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
 const TEXT_SIZE_OPTIONS = new Set(
@@ -58,13 +72,12 @@ function getSavedTextSize() {
 
 /** Ensure subscription fields exist and expire trials past 7 days. */
 async function normalizeSubscription(uid, data) {
-  const now = Timestamp.now();
   let next = { ...data };
   const updates = {};
 
   if (!next.subscriptionStatus) {
-    updates.trialStartedAt = next.trialStartedAt || now;
-    updates.subscriptionStatus = "trial";
+    updates.trialStartedAt = next.trialStartedAt || null;
+    updates.subscriptionStatus = "expired";
     updates.plan = next.plan ?? null;
   } else if (
     next.subscriptionStatus === "trial" &&
@@ -96,12 +109,31 @@ export default function App() {
   const [activeExam, setActiveExam] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
   const [textSize, setTextSize] = useState(getSavedTextSize);
+  const [storeProducts, setStoreProducts] = useState([]);
   // After signup we route to the intro paywall; don't let auth state overwrite it.
   const skipAuthHomeRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setLaunchAnimationDone(true), 3000);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    warnIfNativeApiIsMissing();
+
+    if (Capacitor.getPlatform() === "ios") {
+      Keyboard.setAccessoryBarVisible({ isVisible: false }).catch((error) => {
+        console.warn("[Everwise] Keyboard accessory bar could not be hidden:", error);
+      });
+    }
+
+    if (nativePurchasesAvailable()) {
+      getSubscriptionProducts()
+        .then(setStoreProducts)
+        .catch((error) => {
+          console.warn("[Everwise] Subscription products unavailable:", error);
+        });
+    }
   }, []);
 
   useEffect(() => {
@@ -118,72 +150,64 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const interactiveSelector = "button, a, summary, [role='button']";
+    const screenBackground = screen === "paywall" ? "#F8F5EF" : "#EFE9DC";
+    const root = document.documentElement;
 
-    const addRipple = (event, useCenter = false) => {
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      if (!(event.target instanceof Element)) return;
+    // LessonPath owns its phase-aware safe-area colors. Do not overwrite them
+    // from the parent after the child effect has selected the active phase.
+    if (screen === "path") {
+      root.style.setProperty("--everwise-safe-top", "#B5502E");
+      const themeColor = document.querySelector('meta[name="theme-color"]');
+      themeColor?.setAttribute("content", "#B5502E");
+      return;
+    }
 
-      const surface = event.target.closest(interactiveSelector);
-      if (
-        !surface ||
-        surface.matches(":disabled, [aria-disabled='true']") ||
-        surface.dataset.ripple === "off"
-      ) {
-        return;
-      }
+    root.style.setProperty("--everwise-screen-background", screenBackground);
+    root.style.setProperty("--everwise-safe-top", screenBackground);
+    root.style.setProperty("--everwise-safe-bottom", screenBackground);
 
-      const bounds = surface.getBoundingClientRect();
-      const diameter = Math.max(bounds.width, bounds.height) * 2;
-      const clientX = useCenter ? bounds.left + bounds.width / 2 : event.clientX;
-      const clientY = useCenter ? bounds.top + bounds.height / 2 : event.clientY;
-      const surfaceStyle = window.getComputedStyle(surface);
-      const overlay = document.createElement("span");
-      const ripple = document.createElement("span");
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    themeColor?.setAttribute("content", screenBackground);
+  }, [screen]);
 
-      overlay.className = "interface-ripple-surface";
-      overlay.style.left = `${bounds.left}px`;
-      overlay.style.top = `${bounds.top}px`;
-      overlay.style.width = `${bounds.width}px`;
-      overlay.style.height = `${bounds.height}px`;
-      overlay.style.borderRadius = surfaceStyle.borderRadius;
-      overlay.style.color = surfaceStyle.color;
+  useEffect(() => {
+    if (!user || !nativePurchasesAvailable()) return undefined;
 
-      ripple.className = "interface-ripple";
-      ripple.style.width = `${diameter}px`;
-      ripple.style.height = `${diameter}px`;
-      ripple.style.left = `${clientX - bounds.left - diameter / 2}px`;
-      ripple.style.top = `${clientY - bounds.top - diameter / 2}px`;
-      ripple.setAttribute("aria-hidden", "true");
-      overlay.setAttribute("aria-hidden", "true");
-      overlay.appendChild(ripple);
-      document.body.appendChild(overlay);
-      ripple.addEventListener("animationend", () => overlay.remove(), {
-        once: true,
+    let cancelled = false;
+    getCurrentEntitlement()
+      .then(async (entitlement) => {
+        if (cancelled || !entitlement.active) return;
+        const updates = {
+          subscriptionStatus: "active",
+          plan: planForProduct(entitlement.productId),
+        };
+        setProfile((current) => (current ? { ...current, ...updates } : current));
+        await updateDoc(doc(db, "users", user.uid), updates);
+      })
+      .catch((error) => {
+        console.warn("[Everwise] Current subscription could not be checked:", error);
       });
-    };
 
-    const onPointerDown = (event) => addRipple(event);
-    const onKeyboardClick = (event) => {
-      if (event.detail === 0) addRipple(event, true);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("click", onKeyboardClick);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("click", onKeyboardClick);
-      document
-        .querySelectorAll(".interface-ripple-surface")
-        .forEach((overlay) => {
-          overlay.remove();
-        });
+      cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
+    let receivedInitialAuthState = false;
+    const startupFallback = window.setTimeout(() => {
+      if (receivedInitialAuthState) return;
+      console.warn(
+        "[Everwise][auth] Initial auth state timed out; opening signed-out experience.",
+      );
+      setAuthChecked(true);
+      setScreen("landing");
+    }, 2500);
+
     const unsub = onAuthStateChanged(auth, async (u) => {
+      receivedInitialAuthState = true;
+      window.clearTimeout(startupFallback);
       console.log(
         "[Everwise][auth] state changed:",
         u ? `logged in (uid: ${u.uid})` : "no user logged in"
@@ -217,13 +241,16 @@ export default function App() {
       }
       setAuthChecked(true);
     });
-    return unsub;
+    return () => {
+      window.clearTimeout(startupFallback);
+      unsub();
+    };
   }, []);
 
   const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = completedLessons.length >= lessonsByOrder.length;
-  const subscriptionStatus = profile?.subscriptionStatus ?? "trial";
+  const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
   const access = hasFullAccess(subscriptionStatus);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
@@ -368,13 +395,52 @@ export default function App() {
   };
 
   const startFreeTrial = async (plan = "annual") => {
-    // TODO: replace with Stripe checkout
+    if (nativePurchasesAvailable()) {
+      const entitlement = await purchaseSubscription(plan);
+      if (!entitlement.active) {
+        throw new Error("The subscription is not active yet.");
+      }
+      await updateSubscription({
+        subscriptionStatus: "active",
+        trialStartedAt: null,
+        plan: planForProduct(entitlement.productId) || plan,
+      });
+    } else {
+      // Browser preview only. App Store builds always use StoreKit above.
+      await updateSubscription({
+        subscriptionStatus: "trial",
+        trialStartedAt: Timestamp.now(),
+        plan,
+      });
+    }
+    goHome();
+  };
+
+  const restorePurchase = async () => {
+    const entitlement = await restoreSubscriptions();
+    if (!entitlement.active) {
+      throw new Error("No active subscription was found for this Apple Account.");
+    }
     await updateSubscription({
-      subscriptionStatus: "trial",
-      trialStartedAt: Timestamp.now(),
-      plan,
+      subscriptionStatus: "active",
+      trialStartedAt: null,
+      plan: planForProduct(entitlement.productId),
     });
     goHome();
+  };
+
+  const resetPassword = async () => {
+    if (!user?.email) throw new Error("No email address is available.");
+    await sendPasswordResetEmail(auth, user.email);
+  };
+
+  const deleteAccount = async () => {
+    if (!user) throw new Error("No account is signed in.");
+    const userDocument = doc(db, "users", user.uid);
+    await deleteDoc(userDocument);
+    await deleteUser(user);
+    setProfile(null);
+    setScreen("landing");
   };
 
   const finishChallenge = async () => {
@@ -545,27 +611,11 @@ export default function App() {
           onBack={goHome}
           onLogOut={logOut}
           onOpenPaywall={goPaywall}
-          onManageSubscription={() => {
-            /* placeholder — no Stripe portal yet */
-          }}
-          onDevResetTrial={() =>
-            updateSubscription({
-              trialStartedAt: Timestamp.now(),
-              subscriptionStatus: "trial",
-              plan: null,
-            })
+          onManageSubscription={() =>
+            window.open("https://apps.apple.com/account/subscriptions", "_blank")
           }
-          onDevSetActive={() =>
-            updateSubscription({
-              subscriptionStatus: "active",
-              plan: "monthly",
-            })
-          }
-          onDevSetExpired={() =>
-            updateSubscription({
-              subscriptionStatus: "expired",
-            })
-          }
+          onResetPassword={resetPassword}
+          onDeleteAccount={deleteAccount}
         />
       );
       break;
@@ -578,6 +628,8 @@ export default function App() {
           lessonsCompleted={lessonsCompletedCount}
           badgesEarned={badgesEarnedCount}
           onStartTrial={startFreeTrial}
+          onRestore={restorePurchase}
+          storeProducts={storeProducts}
           onStartLearning={goHome}
           onMaybeLater={goHome}
         />

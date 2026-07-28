@@ -30,8 +30,8 @@ export default function Home({
     );
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto pb-6">
-      <div className="flex flex-1 flex-col px-6 pt-5">
+    <div className="home-screen flex flex-1 flex-col overflow-y-auto">
+      <div className="home-content flex flex-1 flex-col px-6 pb-6 pt-5">
         <div className="home-header flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
@@ -95,7 +95,7 @@ export default function Home({
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 flex flex-1 flex-col justify-center">
           <button
             type="button"
             onClick={onOpenScamChecker}

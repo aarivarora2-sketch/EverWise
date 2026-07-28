@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { SpeakerIcon, StopIcon } from "./Icons";
+import { apiEndpoint } from "../utils/apiEndpoint";
 
-const READ_ALOUD_ENDPOINT =
-  import.meta.env.VITE_READ_ALOUD_ENDPOINT || "/api/read-aloud";
+const READ_ALOUD_ENDPOINT = apiEndpoint("/api/read-aloud");
 const AUDIO_PROFILE_VERSION = "elevenlabs-bill-v3";
 const audioCache = new Map();
 
