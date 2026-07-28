@@ -56,11 +56,17 @@ export default {
           "70%": { transform: "scale(1.25)", opacity: "0" },
           "100%": { transform: "scale(1.25)", opacity: "0" },
         },
+        "ripple-in": {
+          "0%": { transform: "scale(0.35)", opacity: "0" },
+          "60%": { transform: "scale(1.12)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.5s ease-out both",
         "pop-in": "pop-in 0.4s ease-out both",
         "pulse-ring": "pulse-ring 2s ease-out infinite",
+        "ripple-in": "ripple-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both",
       },
     },
   },

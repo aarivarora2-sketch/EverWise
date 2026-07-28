@@ -37,6 +37,14 @@ function snakeOffset(indexInPhase, phaseNumber) {
   return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60);
 }
 
+// Turns a node's vertical position into an entrance delay so the path
+// reveals top-to-bottom in one gentle wave when the screen opens, rather
+// than every dot and node appearing at once. Capped so far-down, off-screen
+// items don't sit invisible for long.
+function rippleDelayForY(y) {
+  return Math.min(y / 6, 800);
+}
+
 function phaseLessonsDone(phase, doneSet) {
   return lessons
     .filter((l) => l.phase === phase)
@@ -190,11 +198,13 @@ export default function LessonPath({
     const color = doneSet.has(a.id) ? getPhase(a.phase).color : DOT_LOCKED;
 
     [0.26, 0.74].forEach((t, k) => {
+      const dotY = ay + (by - ay) * t;
       dots.push({
         key: `${a.id}-${b.id}-${k}`,
         x: ax + (bx - ax) * t,
-        y: ay + (by - ay) * t,
+        y: dotY,
         color,
+        rippleDelay: rippleDelayForY(dotY),
       });
     });
   }
@@ -306,14 +316,17 @@ export default function LessonPath({
               <span
                 key={d.key}
                 aria-hidden="true"
-                className="absolute h-5 w-5 rounded-full"
-                style={{
-                  left: `calc(50% + ${d.x}px)`,
-                  top: d.y,
-                  transform: "translate(-50%, -50%)",
-                  backgroundColor: d.color,
-                }}
-              />
+                className="absolute block h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{ left: `calc(50% + ${d.x}px)`, top: d.y }}
+              >
+                <span
+                  className="block h-full w-full animate-ripple-in rounded-full"
+                  style={{
+                    backgroundColor: d.color,
+                    animationDelay: `${d.rippleDelay}ms`,
+                  }}
+                />
+              </span>
             ))}
 
             {positioned.map((node, i) => {
@@ -397,18 +410,25 @@ export default function LessonPath({
                     transform: "translateX(-50%)",
                   }}
                 >
-                  <PathNode
-                    state={state}
-                    kind={node.kind}
-                    phaseColor={phaseColor}
-                    onClick={onClick}
-                    title={node.fullTitle || node.title}
-                  />
-                  <Label
-                    state={state}
-                    title={node.title}
-                    phaseColor={phaseColor}
-                  />
+                  <div
+                    className="flex animate-ripple-in flex-col items-center"
+                    style={{
+                      animationDelay: `${rippleDelayForY(node.top)}ms`,
+                    }}
+                  >
+                    <PathNode
+                      state={state}
+                      kind={node.kind}
+                      phaseColor={phaseColor}
+                      onClick={onClick}
+                      title={node.fullTitle || node.title}
+                    />
+                    <Label
+                      state={state}
+                      title={node.title}
+                      phaseColor={phaseColor}
+                    />
+                  </div>
                 </div>
               );
             })}
