@@ -197,7 +197,9 @@ export default function LessonPath({
     // Lights up once the lesson BEFORE the dots is complete.
     const color = doneSet.has(a.id) ? getPhase(a.phase).color : DOT_LOCKED;
 
-    [0.26, 0.74].forEach((t, k) => {
+    // Three evenly spaced dots read as a continuous trail between lessons;
+    // two left a visible break in the middle.
+    [0.2, 0.5, 0.8].forEach((t, k) => {
       const dotY = ay + (by - ay) * t;
       dots.push({
         key: `${a.id}-${b.id}-${k}`,

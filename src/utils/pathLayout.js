@@ -20,7 +20,9 @@ export function pathLayoutForTextSize(textSize = "size-2") {
   return {
     scale,
     nodeScale,
-    nodeSlot: scaled(340, scale),
+    // Lesson-to-lesson distance. Tight enough that the trail of dots reads as
+    // one connected path rather than two islands.
+    nodeSlot: scaled(292, scale),
     phaseTop: scaled(32, scale),
     phaseTopFirst: scaled(8, scale),
     // Fits a two-line phase title ("Protecting Your Personal Information")
@@ -28,10 +30,9 @@ export function pathLayoutForTextSize(textSize = "size-2") {
     phaseBand: scaled(112, scale),
     phaseBottom: scaled(32, scale),
     // Where a node's reserved block ends — and therefore where the trail dots
-    // begin. Keep this close to the real height of a circle plus its label:
-    // inflating it pushes the dots down into a cluster against the next node
-    // and leaves a visible gap under each label.
-    nodeBoxHeight: scaled(182, scale),
+    // begin. Sized to clear the tallest label (a current lesson, which carries
+    // an extra "Today" line) so the first dot never crowds the text.
+    nodeBoxHeight: scaled(200, scale),
     pathBottomClearance: scaled(96, scale),
     offsetAmplitude: Math.max(42, Math.round(60 / nodeScale)),
   };
