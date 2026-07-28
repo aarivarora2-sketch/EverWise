@@ -2,7 +2,7 @@ import { useState } from "react";
 import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 
-const SUPPORT_EMAIL = "support@everwise.app";
+const SUPPORT_EMAIL = "everwisedigitalliteracy@gmail.com";
 
 function Row({ label, value, onClick, hint }) {
   const interactive = typeof onClick === "function";

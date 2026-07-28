@@ -55,8 +55,8 @@ These terms are governed by the laws of [YOUR STATE], without regard to conflict
 
 ## Contact us
 
-Questions about these terms: [SUPPORT_EMAIL]
+Questions about these terms: everwisedigitalliteracy@gmail.com
 
 ---
 
-*Notes for whoever finalizes this document (delete before publishing): fill in your state for governing law, decide whether to add an arbitration/dispute-resolution clause, replace bracketed placeholders, have this reviewed by an attorney before launch, and host the final version at a public URL (e.g. everwise.app/terms).*
+*Notes for whoever finalizes this document (delete before publishing): fill in your state for governing law, decide whether to add an arbitration/dispute-resolution clause, replace the remaining bracketed placeholders, have this reviewed by an attorney before launch, and host the final version at a public URL (e.g. everwise.app/terms).*

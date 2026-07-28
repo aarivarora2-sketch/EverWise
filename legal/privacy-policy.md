@@ -41,7 +41,7 @@ We keep your account and progress data as long as your account is active. If you
 
 ## Your choices and rights
 
-You can review and correct your account information from within the app. You can delete your account and all associated data at any time from Settings → Delete account. You can also reach us at [SUPPORT_EMAIL] to request access to, correction of, or deletion of your data.
+You can review and correct your account information from within the app. You can delete your account and all associated data at any time from Settings → Delete account. You can also reach us at everwisedigitalliteracy@gmail.com to request access to, correction of, or deletion of your data.
 
 Depending on where you live, you may have additional rights under laws such as the California Consumer Privacy Act (CCPA) or similar state privacy laws, including the right to know what personal information we hold and to request its deletion. Contact us at the email above to exercise these rights.
 
@@ -59,8 +59,8 @@ If we make material changes to this policy, we'll update the "Last updated" date
 
 ## Contact us
 
-Questions about this policy or your data: [SUPPORT_EMAIL]
+Questions about this policy or your data: everwisedigitalliteracy@gmail.com
 
 ---
 
-*Notes for whoever finalizes this document (delete before publishing): replace the bracketed placeholders with your real support email and publish date; have this reviewed by an attorney before it goes live; host the final version at a public URL (e.g. everwise.app/privacy) and update the link referenced in Paywall.jsx and Settings.*
+*Notes for whoever finalizes this document (delete before publishing): fill in the publish date; have this reviewed by an attorney before it goes live; host the final version at a public URL (e.g. everwise.app/privacy) and update the link referenced in Paywall.jsx and Settings.*
