@@ -54,6 +54,7 @@
   body,
   #root {
     height: 100%;
+    min-height: 100%;
   }
 
   body {
@@ -61,6 +62,17 @@
     /* Clear sans-serif with a comfortable line height for easy reading. */
     font-size: calc(1rem * var(--text-scale));
     line-height: 1.65;
+    margin: 0;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   /* Clear, visible focus outline for keyboard users */
@@ -89,6 +101,169 @@
   [role="button"] {
     max-width: 100%;
     white-space: normal;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.app-viewport {
+  position: relative;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--everwise-screen-background, #efe9dc);
+}
+
+.app-viewport::before,
+.app-viewport::after {
+  position: fixed;
+  z-index: 200;
+  right: 0;
+  left: 0;
+  display: block;
+  pointer-events: none;
+  content: "";
+}
+
+.app-viewport::before {
+  top: 0;
+  height: env(safe-area-inset-top);
+  background: var(--everwise-safe-top, #efe9dc);
+}
+
+.app-viewport::after {
+  bottom: 0;
+  height: env(safe-area-inset-bottom);
+  background: var(--everwise-safe-bottom, #efe9dc);
+}
+
+.app-shell {
+  min-height: 0;
+}
+
+.home-screen {
+  min-height: 0;
+}
+
+.home-content {
+  min-height: 100%;
+}
+
+/*
+ * Keep the App Store paywall fully visible on shorter iPhones. The paywall
+ * deliberately ignores the learner's lesson text scale: purchase terms must
+ * remain complete, readable, and on one screen at every app text setting.
+ */
+@media (max-height: 900px) {
+  .release-paywall {
+    --paywall-wordmark: 26px;
+    --paywall-headline: 31px;
+    --paywall-benefit-title: 18px;
+    --paywall-benefit-body: 15px;
+    --paywall-plan-title: 22px;
+    --paywall-price: 29px;
+    --paywall-cadence: 15px;
+    --paywall-detail: 15px;
+    --paywall-badge: 12px;
+    --paywall-cta: 22px;
+    --paywall-reassurance: 14px;
+    --paywall-footer: 15px;
+    padding: 0.5rem 1rem 0;
+  }
+
+  .paywall-header {
+    height: 3rem;
+  }
+
+  .paywall-logo {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .paywall-headline,
+  .paywall-benefits,
+  .paywall-plans {
+    margin-top: 0.65rem;
+  }
+
+  .paywall-benefit {
+    gap: 0.75rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+  }
+
+  .paywall-benefit-icon {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .paywall-plans {
+    gap: 0.5rem;
+  }
+
+  .paywall-plan-card {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+
+  .paywall-plan-annual {
+    min-height: 7.35rem;
+  }
+
+  .paywall-plan-monthly {
+    min-height: 4.9rem;
+  }
+
+  .paywall-cta {
+    min-height: 3.75rem;
+    margin-top: 0.65rem;
+  }
+
+  .paywall-reassurance {
+    margin-top: 0.4rem;
+  }
+
+  .paywall-footer {
+    min-height: 2rem;
+  }
+}
+
+@media (max-height: 740px) {
+  .release-paywall {
+    --paywall-headline: 28px;
+    --paywall-benefit-title: 16px;
+    --paywall-benefit-body: 13px;
+    --paywall-plan-title: 20px;
+    --paywall-price: 26px;
+    --paywall-cadence: 13px;
+    --paywall-detail: 13px;
+    --paywall-badge: 10px;
+    --paywall-cta: 20px;
+    --paywall-reassurance: 12px;
+    --paywall-footer: 13px;
+  }
+
+  .paywall-headline,
+  .paywall-benefits,
+  .paywall-plans,
+  .paywall-cta {
+    margin-top: 0.4rem;
+  }
+
+  .paywall-benefit {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .paywall-plan-annual {
+    min-height: 6.7rem;
+  }
+
+  .paywall-plan-monthly {
+    min-height: 4.35rem;
+  }
+
+  .paywall-footer {
+    margin-top: auto;
   }
 }
 
@@ -393,34 +568,6 @@ html:is(
   animation: plan-progress 2950ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes interface-ripple {
-  0% {
-    opacity: 0.2;
-    transform: scale(0);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1);
-  }
-}
-
-.interface-ripple {
-  position: absolute;
-  background: currentColor;
-  border-radius: 9999px;
-  pointer-events: none;
-  transform: scale(0);
-  animation: interface-ripple 520ms ease-out forwards;
-}
-
-.interface-ripple-surface {
-  position: fixed;
-  z-index: 100;
-  display: block;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 .flashcard-button {
   perspective: 1200px;
   -webkit-tap-highlight-color: transparent;
@@ -445,13 +592,17 @@ html:is(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .interface-ripple {
-    animation: none;
-    opacity: 0;
-  }
-
   .flashcard-stage {
     transition: none;
+  }
+}
+
+@media (display-mode: standalone), (max-width: 639px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    overflow: hidden;
   }
 }
 

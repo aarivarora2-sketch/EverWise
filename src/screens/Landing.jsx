@@ -1,10 +1,10 @@
 function Step({ n, name, children }) {
   return (
-    <li className="flex items-center gap-4">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-clay font-sans text-xl font-bold text-cream-card">
+    <li className="flex items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-clay font-sans text-lg font-bold text-cream-card">
         {n}
       </span>
-      <p className="text-lg leading-snug text-ink">
+      <p className="text-base leading-snug text-ink">
         <span className="font-semibold">{name}</span> — {children}
       </p>
     </li>
@@ -13,41 +13,35 @@ function Step({ n, name, children }) {
 
 export default function Landing({ onGetStarted, onLogIn }) {
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-8 pt-9">
+    <div className="landing-screen flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-2 pt-5">
       <div className="animate-fade-up">
         <div className="flex items-center gap-3">
           <img
             src="/everwise-logo-192.png"
             alt=""
             aria-hidden="true"
-            className="h-12 w-12 object-contain"
+            className="h-10 w-10 object-contain"
           />
-          <p className="font-sans text-4xl font-bold tracking-tight text-ink">
+          <p className="font-sans text-3xl font-bold tracking-tight text-ink">
             Everwise
           </p>
         </div>
 
-        <h1 className="page-title mt-6">
-          Learn to
-          <br />
-          spot scams,
-          <br />
-          one lesson
-          <br />
-          a day.
+        <h1 className="page-title mt-4">
+          Learn to spot scams, one lesson a day.
         </h1>
-        <p className="mt-4 text-xl leading-relaxed text-ink-soft">
+        <p className="mt-3 text-lg leading-snug text-ink-soft">
           Short, friendly lessons that help you use the internet with
           confidence. One lesson at a time.
         </p>
       </div>
 
       {/* How it works — three quick steps */}
-      <div className="mt-7">
-        <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+      <div className="mt-5">
+        <p className="text-sm font-bold uppercase tracking-wide text-ink-faint">
           How it works
         </p>
-        <ol className="mt-3 space-y-3">
+        <ol className="mt-2 space-y-2">
           <Step n="1" name="Learn">
             One quick lesson, in plain language.
           </Step>
@@ -60,7 +54,7 @@ export default function Landing({ onGetStarted, onLogIn }) {
         </ol>
       </div>
 
-      <div className="mt-auto space-y-3 pt-7">
+      <div className="mt-auto space-y-3 pt-4">
         <button className="btn-primary" onClick={onGetStarted}>
           Get Started
         </button>

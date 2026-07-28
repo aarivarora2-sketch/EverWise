@@ -24,24 +24,24 @@ const PLANS = {
 };
 
 const fixedText = {
-  wordmark: { fontSize: "30px", lineHeight: 1 },
-  headline: { fontSize: "36px", lineHeight: 1.05 },
-  benefitTitle: { fontSize: "20px", lineHeight: 1.15 },
-  benefitBody: { fontSize: "17px", lineHeight: 1.25 },
-  planTitle: { fontSize: "26px", lineHeight: 1 },
-  price: { fontSize: "34px", lineHeight: 1 },
-  cadence: { fontSize: "17px", lineHeight: 1 },
-  detail: { fontSize: "17px", lineHeight: 1.15 },
-  badge: { fontSize: "14px", lineHeight: 1 },
-  cta: { fontSize: "25px", lineHeight: 1.1 },
-  reassurance: { fontSize: "16px", lineHeight: 1.15 },
-  footer: { fontSize: "17px", lineHeight: 1 },
+  wordmark: { fontSize: "var(--paywall-wordmark, 30px)", lineHeight: 1 },
+  headline: { fontSize: "var(--paywall-headline, 36px)", lineHeight: 1.05 },
+  benefitTitle: { fontSize: "var(--paywall-benefit-title, 20px)", lineHeight: 1.15 },
+  benefitBody: { fontSize: "var(--paywall-benefit-body, 17px)", lineHeight: 1.25 },
+  planTitle: { fontSize: "var(--paywall-plan-title, 26px)", lineHeight: 1 },
+  price: { fontSize: "var(--paywall-price, 34px)", lineHeight: 1 },
+  cadence: { fontSize: "var(--paywall-cadence, 17px)", lineHeight: 1 },
+  detail: { fontSize: "var(--paywall-detail, 17px)", lineHeight: 1.15 },
+  badge: { fontSize: "var(--paywall-badge, 14px)", lineHeight: 1 },
+  cta: { fontSize: "var(--paywall-cta, 25px)", lineHeight: 1.1 },
+  reassurance: { fontSize: "var(--paywall-reassurance, 16px)", lineHeight: 1.15 },
+  footer: { fontSize: "var(--paywall-footer, 17px)", lineHeight: 1 },
 };
 
 function Benefit({ icon, title, body }) {
   return (
-    <li className="flex min-h-0 items-center gap-4 border-b border-ink/15 py-4 last:border-b-0">
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#F1ECE4] text-sage-dark">
+    <li className="paywall-benefit flex min-h-0 items-center gap-4 border-b border-ink/15 py-4 last:border-b-0">
+      <span className="paywall-benefit-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#F1ECE4] text-sage-dark">
         {icon}
       </span>
       <span className="min-w-0">
@@ -62,8 +62,19 @@ function Benefit({ icon, title, body }) {
   );
 }
 
-function PlanCard({ planKey, selectedPlan, onSelect }) {
-  const plan = PLANS[planKey];
+function PlanCard({ planKey, selectedPlan, onSelect, storeProducts }) {
+  const storeProduct = storeProducts.find((product) =>
+    product.id.endsWith(`.${planKey}`),
+  );
+  const plan = {
+    ...PLANS[planKey],
+    ...(planKey === "annual" && storeProduct
+      ? { detail: `Billed as ${storeProduct.displayPrice}/year` }
+      : {}),
+    ...(planKey === "monthly" && storeProduct
+      ? { price: storeProduct.displayPrice }
+      : {}),
+  };
   const selected = selectedPlan === planKey;
   const isAnnual = planKey === "annual";
   const SelectionIcon = selected ? CircleDot : Circle;
@@ -74,7 +85,7 @@ function PlanCard({ planKey, selectedPlan, onSelect }) {
       role="radio"
       aria-checked={selected}
       onClick={() => onSelect(planKey)}
-      className={`w-full rounded-[20px] bg-[#FFFCF8] px-4 text-left transition-colors ${
+      className={`paywall-plan-card paywall-plan-${planKey} w-full rounded-[20px] bg-[#FFFCF8] px-4 text-left transition-colors ${
         isAnnual ? "min-h-[148px] py-5" : "min-h-[104px] py-4"
       } ${
         selected
@@ -145,11 +156,11 @@ function InformationSheet({ type, onClose }) {
     type === "terms"
       ? {
           title: "Terms",
-          body: "No real purchase is made in this preview. Approved subscription terms will be connected before billing is enabled.",
+          body: "Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. You can manage or cancel in your Apple Account subscription settings.",
         }
       : {
           title: "Privacy",
-          body: "Never share passwords, security codes, or full payment details in Everwise. Approved privacy information will be connected before billing is enabled.",
+          body: "Everwise uses your account details, questionnaire answers, lesson progress, and purchase status to provide and personalize the app. Everwise does not sell this information or use it for tracking.",
         };
 
   return (
@@ -187,14 +198,54 @@ function InformationSheet({ type, onClose }) {
   );
 }
 
-export default function Paywall({ onStartTrial, onMaybeLater }) {
+export default function Paywall({
+  onStartTrial,
+  onMaybeLater,
+  onRestore,
+  storeProducts = [],
+}) {
   const [selectedPlan, setSelectedPlan] = useState("annual");
   const [informationType, setInformationType] = useState(null);
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const startPurchase = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await onStartTrial(selectedPlan);
+    } catch (purchaseError) {
+      if (purchaseError?.code !== "PURCHASE_CANCELLED") {
+        setError(
+          purchaseError?.message ||
+            "The subscription could not be started. Please try again.",
+        );
+      }
+      setBusy(false);
+    }
+  };
+
+  const restore = async () => {
+    setBusy(true);
+    setError("");
+    setRestoreAnnouncement("");
+    try {
+      await onRestore();
+      setRestoreAnnouncement("Purchase restored.");
+    } catch (restoreError) {
+      const message =
+        restoreError?.message ||
+        "No active subscription was found for this Apple Account.";
+      setError(message);
+      setRestoreAnnouncement(message);
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#F8F5EF] px-5 pb-4 pt-4">
-      <header className="relative flex h-14 shrink-0 items-center justify-center">
+    <div className="release-paywall relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#F8F5EF] px-5 pb-0 pt-4">
+      <header className="paywall-header relative flex h-14 shrink-0 items-center justify-center">
         <button
           type="button"
           onClick={onMaybeLater}
@@ -208,7 +259,7 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
           <img
             src="/everwise-logo-192.png"
             alt=""
-            className="h-[52px] w-[52px] shrink-0 object-contain"
+            className="paywall-logo h-[52px] w-[52px] shrink-0 object-contain"
           />
           <span
             className="truncate font-serif font-bold text-ink"
@@ -221,13 +272,13 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
 
       <main className="flex min-h-0 flex-1 flex-col">
         <h1
-          className="mt-5 shrink-0 whitespace-nowrap font-serif font-bold tracking-tight text-ink"
+          className="paywall-headline mt-5 shrink-0 text-center font-serif font-bold tracking-tight text-ink"
           style={fixedText.headline}
         >
           Feel confident online.
         </h1>
 
-        <ul className="mt-5 shrink-0">
+        <ul className="paywall-benefits mt-5 shrink-0">
           <Benefit
             icon={<Search className="h-8 w-8" strokeWidth={2.1} />}
             title="Check suspicious messages"
@@ -241,7 +292,7 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
         </ul>
 
         <div
-          className="mt-5 grid shrink-0 gap-3"
+          className="paywall-plans mt-5 grid shrink-0 gap-3"
           role="radiogroup"
           aria-label="Choose a subscription plan"
         >
@@ -249,28 +300,42 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
             planKey="annual"
             selectedPlan={selectedPlan}
             onSelect={setSelectedPlan}
+            storeProducts={storeProducts}
           />
           <PlanCard
             planKey="monthly"
             selectedPlan={selectedPlan}
             onSelect={setSelectedPlan}
+            storeProducts={storeProducts}
           />
         </div>
 
+        {error ? (
+          <p
+            className="mt-3 rounded-xl bg-alert/10 px-4 py-3 text-center font-sans text-base font-semibold leading-snug text-alert"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : null}
+
         <button
           type="button"
-          className="mt-4 flex min-h-[68px] w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-clay px-5 font-sans font-bold text-cream-card shadow-btn transition-colors hover:bg-clay-dark"
+          className="paywall-cta mt-4 flex min-h-[68px] w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-clay px-5 font-sans font-bold text-cream-card shadow-btn transition-colors hover:bg-clay-dark disabled:cursor-wait disabled:opacity-70"
           style={fixedText.cta}
-          onClick={() => onStartTrial(selectedPlan)}
+          onClick={startPurchase}
+          disabled={busy}
         >
-          {selectedPlan === "annual"
-            ? "Start your free trial"
-            : "Continue with monthly"}
+          {busy
+            ? "Please wait…"
+            : selectedPlan === "annual"
+              ? "Start your free trial"
+              : "Continue with monthly"}
           <ArrowRight className="h-7 w-7 shrink-0" aria-hidden="true" />
         </button>
 
         <p
-          className="mt-3 shrink-0 text-center font-sans text-ink"
+          className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink"
           style={fixedText.reassurance}
         >
           {selectedPlan === "annual"
@@ -279,7 +344,7 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
         </p>
 
         <div
-          className="mt-auto flex min-h-10 shrink-0 items-end justify-center gap-3 font-sans font-semibold text-teal-800"
+          className="paywall-footer mt-auto flex min-h-12 shrink-0 items-center justify-center gap-3 font-sans font-semibold text-teal-800"
           style={{ ...fixedText.footer, color: "#146F6A" }}
         >
           <button
@@ -301,7 +366,8 @@ export default function Paywall({ onStartTrial, onMaybeLater }) {
           <button
             type="button"
             className="min-h-9 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current"
-            onClick={() => setRestoreAnnouncement("Nothing to restore")}
+            onClick={restore}
+            disabled={busy}
           >
             Restore
           </button>

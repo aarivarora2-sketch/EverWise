@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 
@@ -41,10 +42,12 @@ export default function Settings({
   onLogOut,
   onOpenPaywall,
   onManageSubscription,
-  onDevResetTrial,
-  onDevSetActive,
-  onDevSetExpired,
+  onResetPassword,
+  onDeleteAccount,
 }) {
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const daysLeft = trialDaysLeft(trialStartedAt);
   const statusText = statusLabel(subscriptionStatus);
   const statusDetail =
@@ -55,6 +58,39 @@ export default function Settings({
         ? "Monthly plan"
         : plan
       : null;
+
+  const resetPassword = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await onResetPassword();
+      setNotice("Password reset email sent.");
+    } catch {
+      setError("We could not send the reset email. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    const confirmed = window.confirm(
+      "Delete your Everwise account and saved progress? This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await onDeleteAccount();
+    } catch {
+      setError(
+        "Your account could not be deleted. Log out, log back in, and try again.",
+      );
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
@@ -83,7 +119,7 @@ export default function Settings({
           <Row
             label="Manage subscription"
             onClick={onManageSubscription}
-            hint="Coming soon"
+            hint="Open Apple subscription settings"
           />
         ) : (
           <Row
@@ -99,19 +135,28 @@ export default function Settings({
           Account
         </p>
         <Row label="Log out" onClick={onLogOut} />
+        <Row
+          label="Reset password"
+          hint="Send a secure reset link to your email"
+          onClick={busy ? undefined : resetPassword}
+        />
+        <Row
+          label="Delete account"
+          hint="Permanently remove your account and saved progress"
+          onClick={busy ? undefined : deleteAccount}
+        />
       </div>
 
-      <div className="mt-auto space-y-3 pt-12">
-        <p className="text-base font-bold uppercase tracking-wide text-alert">
-          Developer tools
+      {notice ? (
+        <p className="mt-6 rounded-2xl bg-sage/10 px-5 py-4 text-lg font-semibold text-sage-dark" role="status">
+          {notice}
         </p>
-        <p className="text-lg text-ink-soft">
-          For testing only. Remove before launch.
+      ) : null}
+      {error ? (
+        <p className="mt-6 rounded-2xl bg-alert/10 px-5 py-4 text-lg font-semibold text-alert" role="alert">
+          {error}
         </p>
-        <Row label="Reset trial (dev)" onClick={onDevResetTrial} />
-        <Row label="Set active (dev)" onClick={onDevSetActive} />
-        <Row label="Set expired (dev)" onClick={onDevSetExpired} />
-      </div>
+      ) : null}
     </div>
   );
 }
