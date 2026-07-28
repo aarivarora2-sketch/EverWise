@@ -5,14 +5,14 @@ export default function Complete({ lesson, onDone }) {
   const isPhaseBadge = Boolean(lesson.phaseBadge);
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
-      <div className="mx-auto mt-6 animate-pop-in">
-        <div className="flex h-28 w-28 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage">
-          <TrophyIcon className="h-14 w-14" />
+    <div className="complete-screen flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-7 pt-5">
+      <div className="mx-auto mt-2 animate-pop-in">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage">
+          <TrophyIcon className="h-12 w-12" />
         </div>
       </div>
 
-      <h1 className="page-title mt-8 text-center animate-fade-up">
+      <h1 className="page-title mt-5 text-center animate-fade-up">
         {info.title || "Great Job!"}
       </h1>
       {info.subtitle && (
@@ -22,7 +22,7 @@ export default function Complete({ lesson, onDone }) {
       {/* Scam-protection lessons end with a habit, a warning sign, and the
           skills the learner actually used. */}
       {info.habit && (
-        <div className="mt-8 rounded-3xl bg-clay/10 px-6 py-6">
+        <div className="mt-5 rounded-3xl bg-clay/10 px-6 py-5">
           <p className="text-lg font-bold uppercase tracking-wide text-clay">
             Today's habit
           </p>
@@ -63,7 +63,7 @@ export default function Complete({ lesson, onDone }) {
       )}
 
       {info.learned?.length > 0 && (
-        <div className="mt-8">
+        <div className="mt-5">
           <p className="text-lg font-bold uppercase tracking-wide text-ink-faint">
             You learned
           </p>
@@ -85,8 +85,8 @@ export default function Complete({ lesson, onDone }) {
       )}
 
       <div
-        className={`mt-8 rounded-3xl bg-cream-card shadow-card ${
-          isPhaseBadge ? "px-7 py-8" : "px-6 py-6"
+        className={`mt-5 shrink-0 rounded-3xl bg-cream-card shadow-card ${
+          isPhaseBadge ? "px-7 py-6" : "px-6 py-5"
         }`}
       >
         <p className="text-lg font-semibold uppercase tracking-wide text-ink-faint">
@@ -108,7 +108,7 @@ export default function Complete({ lesson, onDone }) {
         </p>
       )}
 
-      <div className="mt-auto w-full pt-10">
+      <div className="mt-auto w-full pt-6">
         <button className="btn-primary" onClick={onDone}>
           Back to your path
         </button>

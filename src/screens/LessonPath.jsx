@@ -16,7 +16,7 @@ import {
 
 const TOP_PAD = 0; // phase color starts directly below the orange header
 // Tall enough for circle + 20px two-line label + trail clearance to the next node.
-const NODE_SLOT = 380;
+const NODE_SLOT = 340;
 // Generous space around the lighter phase headers (no filled block).
 const PHASE_TOP = 32; // used between later phases only
 const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
@@ -24,6 +24,7 @@ const PHASE_BAND = 88;
 const PHASE_BOTTOM = 32;
 // Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
 const NODE_BOX_H = 182;
+const PATH_BOTTOM_CLEARANCE = 96;
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
@@ -62,6 +63,7 @@ export default function LessonPath({
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
+  const pathScrollRef = useRef(null);
   const activePhaseRef = useRef(null);
   const currentNodeRef = useRef(null);
 
@@ -163,7 +165,7 @@ export default function LessonPath({
     y += !next ? NODE_BOX_H : nextHasDots ? NODE_SLOT : NODE_BOX_H + 44;
     return pos;
   });
-  const containerHeight = y + 16;
+  const containerHeight = y + PATH_BOTTOM_CLEARANCE;
 
   const trailNodes = positioned.filter(
     (n) =>
@@ -231,6 +233,20 @@ export default function LessonPath({
         "(prefers-reduced-motion: reduce)",
       ).matches;
 
+      const scrollCurrentIntoComfortableView = (behavior) => {
+        const scroller = pathScrollRef.current;
+        const currentNode = currentNodeRef.current;
+        if (!scroller || !currentNode) return;
+
+        // Keep the current lesson in the upper third so the following lesson
+        // is visible without being sliced by the bottom safe area.
+        const targetTop = Math.max(
+          0,
+          currentNode.offsetTop - scroller.clientHeight * 0.34,
+        );
+        scroller.scrollTo({ top: targetTop, behavior });
+      };
+
       activePhaseRef.current?.scrollIntoView({
         behavior: "auto",
         block: "start",
@@ -238,22 +254,14 @@ export default function LessonPath({
       });
 
       if (reduceMotion) {
-        currentNodeRef.current?.scrollIntoView({
-          behavior: "auto",
-          block: "center",
-          inline: "nearest",
-        });
+        scrollCurrentIntoComfortableView("auto");
         return;
       }
 
       // Give the learner a moment to see the phase name, then trace the path
       // down to the lesson that is ready for them now.
       scrollTimer = window.setTimeout(() => {
-        currentNodeRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-          inline: "nearest",
-        });
+        scrollCurrentIntoComfortableView("smooth");
       }, 650);
     });
 
@@ -271,28 +279,32 @@ export default function LessonPath({
       style={{ backgroundColor: activePhaseBackground }}
     >
       {/* Neutral chrome — biome color only appears on phase bands/nodes */}
-      <header className="path-header flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-4 py-2.5 text-cream-card sm:rounded-t-[40px]">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <header className="path-header flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-4 py-1 text-cream-card sm:rounded-t-[40px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back to home"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-cream-card/90 transition-colors hover:bg-white/15"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-cream-card/90 transition-colors hover:bg-white/15"
           >
-            <ArrowLeftIcon className="h-6 w-6" />
+            <ArrowLeftIcon className="h-5 w-5" />
           </button>
-          <div className="min-w-0">
-            <h1 className="font-sans text-xl font-semibold leading-tight">Your path</h1>
-            <p className="truncate text-xs font-semibold leading-snug text-cream-card/75">
+          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <h1 className="shrink-0 font-sans text-xl font-semibold leading-tight">
+              Your path
+            </h1>
+            <p className="min-w-0 truncate text-sm font-semibold leading-snug text-cream-card/85">
               Phase {phaseLabel(activePhase)} · {activePhase.biome}
-              <span className="text-cream-card/50"> · {activePhase.title}</span>
             </p>
           </div>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="pb-8">
+      <div
+        ref={pathScrollRef}
+        className="path-scroll min-h-0 flex-1 overflow-y-auto"
+      >
+        <div className="pb-12">
           <div
             className="relative mx-auto w-full max-w-none px-2"
             style={{ height: containerHeight }}
@@ -411,7 +423,7 @@ export default function LessonPath({
                     left: `calc(50% + ${node.offsetX ?? 0}px)`,
                     top: node.top,
                     width: "10.5rem",
-                    height: NODE_SLOT,
+                    height: NODE_BOX_H,
                     transform: "translateX(-50%)",
                   }}
                 >

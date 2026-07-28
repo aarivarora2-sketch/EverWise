@@ -270,7 +270,7 @@ export default function Paywall({
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="paywall-main flex min-h-0 flex-1 flex-col justify-between">
         <h1
           className="paywall-headline mt-5 shrink-0 text-center font-serif font-bold tracking-tight text-ink"
           style={fixedText.headline}
@@ -344,7 +344,7 @@ export default function Paywall({
         </p>
 
         <div
-          className="paywall-footer mt-auto flex min-h-12 shrink-0 items-center justify-center gap-3 font-sans font-semibold text-teal-800"
+          className="paywall-footer flex min-h-12 shrink-0 items-center justify-center gap-3 font-sans font-semibold text-teal-800"
           style={{ ...fixedText.footer, color: "#146F6A" }}
         >
           <button

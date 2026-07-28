@@ -13,7 +13,7 @@ export default function LessonTopBar({
     progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
 
   return (
-    <div className="lesson-top-bar shrink-0 px-6 pt-6">
+    <div className="lesson-top-bar shrink-0 px-6 pt-3">
       <div className="lesson-top-grid grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-2">
         <button
           type="button"
@@ -24,7 +24,7 @@ export default function LessonTopBar({
           <ArrowLeftIcon className="h-7 w-7" />
         </button>
 
-        <span className="lesson-top-label inline-flex min-w-0 max-w-full items-center justify-center gap-2 justify-self-center rounded-full bg-sage/15 px-4 py-1.5 text-center text-base font-bold text-sage-dark">
+        <span className="lesson-top-label inline-flex min-w-0 max-w-full items-center justify-center gap-2 justify-self-center rounded-full bg-sage/15 px-4 py-1 text-center text-base font-bold text-sage-dark">
           <BookIcon className="h-5 w-5 shrink-0" />
           <span className="lesson-top-label-text min-w-0 truncate">
             {label}
@@ -46,7 +46,7 @@ export default function LessonTopBar({
       </div>
 
       <div
-        className="mt-5 h-3 w-full overflow-hidden rounded-full bg-ink/10"
+        className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-ink/10"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={progressTotal}
