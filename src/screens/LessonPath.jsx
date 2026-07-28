@@ -13,18 +13,9 @@ import {
   BookIcon,
   ArrowLeftIcon,
 } from "../components/Icons";
+import { pathLayoutForTextSize } from "../utils/pathLayout";
 
 const TOP_PAD = 0; // phase color starts directly below the orange header
-// Tall enough for circle + 20px two-line label + trail clearance to the next node.
-const NODE_SLOT = 340;
-// Generous space around the lighter phase headers (no filled block).
-const PHASE_TOP = 32; // used between later phases only
-const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
-const PHASE_BAND = 88;
-const PHASE_BOTTOM = 32;
-// Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
-const NODE_BOX_H = 182;
-const PATH_BOTTOM_CLEARANCE = 96;
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
@@ -32,10 +23,10 @@ const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
 // Continuous wave rather than a fixed repeating cycle, so the path never
 // lands on exactly the same bend twice. The first lesson of each phase stays
 // centered under its title.
-function snakeOffset(indexInPhase, phaseNumber) {
+function snakeOffset(indexInPhase, phaseNumber, amplitude) {
   if (indexInPhase === 0) return 0;
   const seed = (phaseNumber ?? 1) * 0.83;
-  return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60);
+  return Math.round(Math.sin(indexInPhase * 1.35 + seed) * amplitude);
 }
 
 function phaseLessonsDone(phase, doneSet) {
@@ -57,11 +48,14 @@ function examUnlocked(exam, doneSet) {
 
 export default function LessonPath({
   completedLessons = [],
+  textSize = "size-2",
   onSelectLesson,
   onSelectExam,
   onSelectChallenge,
   onBack,
 }) {
+  const layout = pathLayoutForTextSize(textSize);
+  const usesStackedHeader = layout.scale >= 1.38;
   const doneSet = new Set(completedLessons);
   const pathScrollRef = useRef(null);
   const activePhaseRef = useRef(null);
@@ -149,23 +143,29 @@ export default function LessonPath({
       const isFirst = phaseCount === 0;
       phaseCount += 1;
       indexInPhase = 0;
-      const topPad = isFirst ? PHASE_TOP_FIRST : PHASE_TOP;
+      const topPad = isFirst ? layout.phaseTopFirst : layout.phaseTop;
       const pos = { ...item, top: y, bandTop: y + topPad, isFirst };
-      y += topPad + PHASE_BAND + PHASE_BOTTOM;
+      y += topPad + layout.phaseBand + layout.phaseBottom;
       return pos;
     }
     const offsetX =
-      item.kind === "reward" ? 0 : snakeOffset(indexInPhase, item.phase);
+      item.kind === "reward"
+        ? 0
+        : snakeOffset(indexInPhase, item.phase, layout.offsetAmplitude);
     if (item.kind !== "reward") indexInPhase += 1;
     const pos = { ...item, top: y, offsetX };
     // Only gaps that actually get dots need the tall slot; the last node
     // needs no clearance below it at all.
     const next = items[idx + 1];
     const nextHasDots = next && next.phase != null && next.phase === item.phase;
-    y += !next ? NODE_BOX_H : nextHasDots ? NODE_SLOT : NODE_BOX_H + 44;
+    y += !next
+      ? layout.nodeBoxHeight
+      : nextHasDots
+        ? layout.nodeSlot
+        : layout.nodeBoxHeight + Math.round(44 * layout.scale);
     return pos;
   });
-  const containerHeight = y + PATH_BOTTOM_CLEARANCE;
+  const containerHeight = y + layout.pathBottomClearance;
 
   const trailNodes = positioned.filter(
     (n) =>
@@ -184,7 +184,7 @@ export default function LessonPath({
 
     const ax = a.offsetX ?? 0;
     const bx = b.offsetX ?? 0;
-    const ay = a.top + NODE_BOX_H;
+    const ay = a.top + layout.nodeBoxHeight;
     const by = b.top;
     if (by <= ay) continue;
 
@@ -289,11 +289,21 @@ export default function LessonPath({
           >
             <ArrowLeftIcon className="h-5 w-5" />
           </button>
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <div
+            className={`flex min-w-0 flex-1 ${
+              usesStackedHeader
+                ? "flex-col items-start gap-0"
+                : "items-baseline gap-2"
+            }`}
+          >
             <h1 className="shrink-0 font-sans text-xl font-semibold leading-tight">
               Your path
             </h1>
-            <p className="min-w-0 truncate text-sm font-semibold leading-snug text-cream-card/85">
+            <p
+              className={`min-w-0 text-sm font-semibold leading-snug text-cream-card/85 ${
+                usesStackedHeader ? "whitespace-normal" : "truncate"
+              }`}
+            >
               Phase {phaseLabel(activePhase)} · {activePhase.biome}
             </p>
           </div>
@@ -422,8 +432,9 @@ export default function LessonPath({
                   style={{
                     left: `calc(50% + ${node.offsetX ?? 0}px)`,
                     top: node.top,
-                    width: "10.5rem",
-                    height: NODE_BOX_H,
+                    width: `${10.5 * layout.nodeScale}rem`,
+                    maxWidth: "calc(100vw - 2rem)",
+                    height: layout.nodeBoxHeight,
                     transform: "translateX(-50%)",
                   }}
                 >
@@ -434,6 +445,7 @@ export default function LessonPath({
                       phaseColor={phaseColor}
                       onClick={onClick}
                       title={node.fullTitle || node.title}
+                      scale={layout.nodeScale}
                     />
                     <Label
                       state={state}
@@ -451,13 +463,15 @@ export default function LessonPath({
   );
 }
 
-function PathNode({ state, kind, onClick, title, phaseColor }) {
+function PathNode({ state, kind, onClick, title, phaseColor, scale = 1 }) {
   const isExam = kind === "exam";
   const isChallenge = kind === "challenge";
   const fill = phaseColor || CLAY;
   // Challenge sits visually between lesson (START/check) and exam (trophy).
-  const nodeSizeCurrent = isChallenge ? "h-[6.5rem] w-[6.5rem]" : "h-28 w-28";
-  const nodeSizeDone = isChallenge ? "h-[5.5rem] w-[5.5rem]" : "h-24 w-24";
+  const currentBase = isChallenge ? 104 : 112;
+  const doneBase = isChallenge ? 88 : 96;
+  const currentSize = Math.round(currentBase * scale);
+  const doneSize = Math.round(doneBase * scale);
 
   const ariaStart = isExam
     ? `Start exam: ${title}`
@@ -484,10 +498,12 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
           type="button"
           onClick={onClick}
           aria-label={ariaStart}
-          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-sans text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
+          className={`relative flex items-center justify-center rounded-full font-sans text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
             isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
           }`}
           style={{
+            width: currentSize,
+            height: currentSize,
             backgroundColor: fill,
             boxShadow: `0 7px 0 ${shade(fill, -25)}`,
           }}
@@ -511,10 +527,12 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
         type="button"
         onClick={onClick}
         aria-label={ariaRedo}
-        className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full text-white transition-transform active:translate-y-1 active:shadow-none ${
+        className={`flex shrink-0 items-center justify-center rounded-full text-white transition-transform active:translate-y-1 active:shadow-none ${
           isChallenge ? "ring-[3px] ring-inset ring-white/35" : ""
         }`}
         style={{
+          width: doneSize,
+          height: doneSize,
           backgroundColor: fill,
           boxShadow: `0 5px 0 ${shade(fill, -25)}`,
         }}
@@ -533,8 +551,10 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
   if (state === "reward-done") {
     return (
       <div
-        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-white"
+        className="flex shrink-0 items-center justify-center rounded-full text-white"
         style={{
+          width: doneSize,
+          height: doneSize,
           backgroundColor: fill,
           boxShadow: `0 5px 0 ${shade(fill, -25)}`,
         }}
@@ -552,10 +572,12 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
 
   return (
     <div
-      className={`flex ${nodeSizeDone} shrink-0 items-center justify-center rounded-full ${
+      className={`flex shrink-0 items-center justify-center rounded-full ${
         isChallenge ? "ring-[3px] ring-inset ring-ink/10" : ""
       }`}
       style={{
+        width: doneSize,
+        height: doneSize,
         backgroundColor: lockedFill,
         boxShadow: `0 5px 0 ${lockedShadow}`,
         color: lockedIcon,
@@ -580,7 +602,7 @@ function Label({ state, title, phaseColor }) {
   return (
     <div className="mt-3 w-full px-1 text-center">
       <p
-        className="mx-auto line-clamp-2 max-w-[10rem] text-center text-[20px] font-semibold leading-snug"
+        className="mx-auto max-w-full text-center text-[20px] font-semibold leading-snug"
         style={
           state === "current"
             ? { color: fill }

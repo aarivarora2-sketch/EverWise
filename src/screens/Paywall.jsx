@@ -197,7 +197,12 @@ export default function Paywall({
   };
 
   return (
-    <div className="release-paywall relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#F8F5EF] px-5 pb-0 pt-4">
+    <div
+      className="release-paywall relative flex h-full min-h-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#F8F5EF] px-5 pt-4"
+      style={{
+        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+      }}
+    >
       <header className="paywall-header relative flex h-14 shrink-0 items-center justify-center">
         <button
           type="button"
