@@ -4,6 +4,7 @@ import Field from "../components/Field";
 import ReadAloud from "../components/ReadAloud";
 import { authErrorMessage } from "../utils/authErrors";
 import { isValidEmail, normalizeEmail } from "../utils/validation";
+import { validateInterviewStep } from "../utils/interviewValidation";
 
 const STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
 const TOTAL_STEPS = STEP_IDS.length;
@@ -83,7 +84,7 @@ function ChoiceButton({ selected, children, onClick, multi = false }) {
       role={multi ? "checkbox" : "radio"}
       aria-checked={selected}
       onClick={onClick}
-      className={`flex min-h-[60px] w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left text-lg font-semibold transition-colors ${
+      className={`choice-control flex min-h-[60px] w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left text-lg font-semibold transition-colors ${
         selected
           ? "border-sage bg-sage/10 text-ink"
           : "border-ink/15 bg-cream-card text-ink hover:border-ink/30"
@@ -143,6 +144,7 @@ function HelpfulNote({ children }) {
 
 export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const contentRef = useRef(null);
+  const errorRef = useRef(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
@@ -159,6 +161,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [errorTargetId, setErrorTargetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -175,6 +178,8 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   }, [stepIndex]);
 
   const toggle = (value, current, setCurrent) => {
+    setError("");
+    setErrorTargetId("");
     if (value === "Prefer not to say") {
       setCurrent(current.includes(value) ? [] : [value]);
       return;
@@ -189,46 +194,48 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
     );
   };
 
-  const validateStep = () => {
-    if (step === 1) {
-      const ageNumber = Number(age);
-      if (!name.trim()) return "Please enter your name.";
-      if (!age || !Number.isFinite(ageNumber) || ageNumber < 18 || ageNumber > 120) {
-        return "Please enter an age between 18 and 120.";
-      }
-    }
-    if (step === 2 && (!internetUse || !primaryDevice)) {
-      return "Please choose one answer for both questions.";
-    }
-    if (step === 3 && !confidence) return "Please choose one answer.";
-    if (step === 4 && concerns.length === 0) {
-      return "Please choose at least one concern, or skip this question.";
-    }
-    if (step === 5 && !scamScenario) return "Please choose one answer.";
-    if (step === 7 && !aiExperience) return "Please choose one answer.";
-    if (step === 11 && !trustedContact) {
-      return "Please choose whether you may want trusted-person help.";
-    }
-    if (step === 12) {
-      setEmailTouched(true);
-      if (!email.trim()) return "Please enter your email.";
-      if (!isValidEmail(email)) {
-        return "Please enter a complete email like name@example.com.";
-      }
-      if (password.length < 6) {
-        return "Please choose a password with at least 6 characters.";
-      }
-    }
-    return "";
+  const clearError = () => {
+    setError("");
+    setErrorTargetId("");
   };
+
+  const selectOne = (setter, value) => {
+    setter(value);
+    clearError();
+  };
+
+  const validateStep = () =>
+    validateInterviewStep(step, {
+      name,
+      age,
+      internetUse,
+      primaryDevice,
+      confidence,
+      concerns,
+      scamScenario,
+      aiExperience,
+      trustedContact,
+      email,
+      password,
+    });
 
   const submit = async () => {
     const nextError = validateStep();
     if (nextError) {
-      setError(nextError);
+      if (step === 12) setEmailTouched(true);
+      setError(nextError.message);
+      setErrorTargetId(nextError.targetId);
+      window.requestAnimationFrame(() => {
+        const target = document.getElementById(nextError.targetId);
+        target?.focus({ preventScroll: true });
+        errorRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
       return;
     }
-    setError("");
+    clearError();
 
     if (stepIndex < TOTAL_STEPS - 1) {
       setStepIndex((current) => current + 1);
@@ -255,12 +262,20 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
       });
     } catch (err) {
       setError(authErrorMessage(err));
+      setErrorTargetId("profile-email");
+      window.requestAnimationFrame(() => {
+        errorRef.current?.focus();
+        errorRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
       setBusy(false);
     }
   };
 
   const skip = () => {
-    setError("");
+    clearError();
     setShowHelp(false);
     if (stepIndex < TOTAL_STEPS - 1) {
       setStepIndex((current) => current + 1);
@@ -268,7 +283,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   };
 
   const previous = () => {
-    setError("");
+    clearError();
     setShowHelp(false);
     if (stepIndex === 0) onBack();
     else setStepIndex((current) => current - 1);
@@ -354,15 +369,31 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           </div>
         ) : null}
 
+        {error ? (
+          <div
+            ref={errorRef}
+            tabIndex={-1}
+            role="alert"
+            className="mt-4 rounded-2xl border-2 border-alert/30 bg-alert/10 px-5 py-4 text-lg font-semibold leading-snug text-alert"
+          >
+            <p className="font-bold">Please check this answer</p>
+            <p className="mt-1">{error}</p>
+          </div>
+        ) : null}
+
         {step === 1 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
             <Field
               id="profile-name"
               label="What should we call you?"
               value={name}
-              onChange={setName}
+              onChange={(value) => {
+                setName(value);
+                clearError();
+              }}
               autoComplete="name"
               placeholder="Jane"
+              error={errorTargetId === "profile-name" ? error : ""}
             />
             <Field
               id="profile-age"
@@ -370,46 +401,50 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
                 type="number"
                 value={age}
                 onChange={(value) => {
-                  if (value === "" || /^\d+$/.test(value)) setAge(value);
+                  if (value === "" || /^\d+$/.test(value)) {
+                    setAge(value);
+                    clearError();
+                  }
                 }}
                 autoComplete="age"
                 placeholder="68"
-                min="0"
+                min="18"
+                error={errorTargetId === "profile-age" ? error : ""}
             />
           </div>
         ) : null}
 
         {step === 2 ? (
           <div className="animate-fade-up">
-            <fieldset className="mt-6">
+            <fieldset id="internet-use" tabIndex={-1} className="mt-6">
               <legend className="text-xl font-bold text-ink">
                 How often do you use the internet?
               </legend>
               <Choices
                 values={options.internetUse}
                 selected={internetUse}
-                onSelect={setInternetUse}
+                onSelect={(value) => selectOne(setInternetUse, value)}
               />
             </fieldset>
-            <fieldset className="mt-7">
+            <fieldset id="primary-device" tabIndex={-1} className="mt-7">
               <legend className="text-xl font-bold text-ink">
                 Which device do you use most?
               </legend>
               <Choices
                 values={options.primaryDevice}
                 selected={primaryDevice}
-                onSelect={setPrimaryDevice}
+                onSelect={(value) => selectOne(setPrimaryDevice, value)}
               />
             </fieldset>
           </div>
         ) : null}
 
         {step === 3 ? (
-          <div className="animate-fade-up">
+          <div id="online-confidence" tabIndex={-1} className="animate-fade-up">
             <Choices
               values={options.confidence}
               selected={confidence}
-              onSelect={setConfidence}
+              onSelect={(value) => selectOne(setConfidence, value)}
             />
             <fieldset className="mt-7">
               <legend className="text-xl font-bold text-ink">
@@ -425,7 +460,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
         ) : null}
 
         {step === 4 ? (
-          <div className="animate-fade-up">
+          <div id="safety-concerns" tabIndex={-1} className="animate-fade-up">
             <p className="mt-2 text-lg text-ink-soft">
               Choose all that apply.
             </p>
@@ -439,14 +474,14 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
         ) : null}
 
         {step === 5 ? (
-          <div className="animate-fade-up">
+          <div id="scam-scenario" tabIndex={-1} className="animate-fade-up">
             <blockquote className="mt-5 rounded-2xl bg-cream-card px-5 py-4 text-xl font-semibold leading-relaxed text-ink shadow-card">
               “Your bank card is locked. Open this link immediately.”
             </blockquote>
             <Choices
               values={options.scamScenario}
               selected={scamScenario}
-              onSelect={setScamScenario}
+              onSelect={(value) => selectOne(setScamScenario, value)}
             />
             {scamScenario ? (
               <HelpfulNote>
@@ -459,11 +494,11 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
         ) : null}
 
         {step === 7 ? (
-          <div className="animate-fade-up">
+          <div id="ai-experience" tabIndex={-1} className="animate-fade-up">
             <Choices
               values={options.aiExperience}
               selected={aiExperience}
-              onSelect={setAiExperience}
+              onSelect={(value) => selectOne(setAiExperience, value)}
             />
           </div>
         ) : null}
@@ -487,14 +522,14 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
                 }
               />
             </fieldset>
-            <fieldset className="mt-7">
+            <fieldset id="trusted-contact" tabIndex={-1} className="mt-7">
               <legend className="text-xl font-bold text-ink">
                 Would you like trusted-person help later?
               </legend>
               <Choices
                 values={options.trustedContact}
                 selected={trustedContact}
-                onSelect={setTrustedContact}
+                onSelect={(value) => selectOne(setTrustedContact, value)}
               />
             </fieldset>
           </div>
@@ -507,13 +542,17 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
                 label="Email"
                 type="email"
                 value={email}
-                onChange={setEmail}
+                onChange={(value) => {
+                  setEmail(value);
+                  clearError();
+                }}
                 onBlur={() => setEmailTouched(true)}
                 autoComplete="email"
                 placeholder="jane@example.com"
                 inputMode="email"
                 ariaInvalid={emailTouched && !isValidEmail(email)}
                 describedBy="profile-email-help"
+                error={errorTargetId === "profile-email" ? error : ""}
               />
               <p
                 id="profile-email-help"
@@ -533,9 +572,13 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
               label="Choose a password"
               type="password"
               value={password}
-              onChange={setPassword}
+              onChange={(value) => {
+                setPassword(value);
+                clearError();
+              }}
               autoComplete="new-password"
               placeholder="At least 6 characters"
+              error={errorTargetId === "profile-password" ? error : ""}
             />
             <p className="text-center text-base text-ink-soft">
               Already have an account?{" "}
@@ -572,14 +615,6 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           </p>
         ) : null}
 
-        {error ? (
-          <p
-            role="alert"
-            className="mt-5 rounded-2xl bg-alert/12 px-5 py-4 text-lg font-semibold text-alert"
-          >
-            {error}
-          </p>
-        ) : null}
       </main>
 
       <footer className="shrink-0 border-t border-ink/10 bg-cream px-7 pb-6 pt-4">
