@@ -7,9 +7,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-
-const PRIVACY_POLICY_URL = "https://aarivarora2-sketch.github.io/EverWise/privacy.html";
-const TERMS_URL = "https://aarivarora2-sketch.github.io/EverWise/terms.html";
+import { openLegalPage } from "../config/legalLinks";
 
 const PLANS = {
   annual: {
@@ -154,64 +152,6 @@ function PlanCard({ planKey, selectedPlan, onSelect, storeProducts }) {
   );
 }
 
-function InformationSheet({ type, onClose }) {
-  const content =
-    type === "terms"
-      ? {
-          title: "Terms",
-          body: "Annual plan: 7-day free trial, then $89.99/year ($7.50/mo) unless canceled before the trial ends. Monthly plan: $14.99/month starting immediately. Both plans renew automatically until canceled. Manage or cancel anytime in Settings or in your Apple ID subscription settings — canceling stops the next renewal but doesn't refund the current period.",
-          url: TERMS_URL,
-        }
-      : {
-          title: "Privacy",
-          body: "Everwise stores your name, email, and lesson progress to run your account. Messages you check for scams are sent to our AI provider only to generate a result and are not stored by Everwise. We don't sell your data or show ads. Never share passwords, security codes, or full payment details in Everwise.",
-          url: PRIVACY_POLICY_URL,
-        };
-
-  return (
-    <div
-      className="absolute inset-0 z-50 flex items-end bg-ink/45"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="paywall-information-title"
-    >
-      <div className="w-full rounded-t-3xl bg-cream px-6 pb-7 pt-6 shadow-[0_-8px_40px_rgba(34,32,28,0.18)] animate-fade-up">
-        <div className="flex items-center justify-between gap-3">
-          <h2
-            id="paywall-information-title"
-            className="font-sans text-2xl font-bold text-ink"
-          >
-            {content.title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink"
-            aria-label={`Close ${content.title.toLowerCase()}`}
-          >
-            <X className="h-7 w-7" aria-hidden="true" />
-          </button>
-        </div>
-        <p className="mt-3 font-sans text-lg leading-snug text-ink-soft">
-          {content.body}
-        </p>
-        <a
-          href={content.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-block font-sans text-lg font-semibold text-teal-800 underline underline-offset-4"
-          style={{ color: "#146F6A" }}
-        >
-          Read the full {content.title.toLowerCase()} policy
-        </a>
-        <button type="button" className="btn-primary mt-5" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function Paywall({
   onStartTrial,
   onMaybeLater,
@@ -219,7 +159,6 @@ export default function Paywall({
   storeProducts = [],
 }) {
   const [selectedPlan, setSelectedPlan] = useState("annual");
-  const [informationType, setInformationType] = useState(null);
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -364,7 +303,7 @@ export default function Paywall({
           <button
             type="button"
             className="min-h-9 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current"
-            onClick={() => setInformationType("terms")}
+            onClick={() => openLegalPage("terms")}
           >
             Terms
           </button>
@@ -372,7 +311,7 @@ export default function Paywall({
           <button
             type="button"
             className="min-h-9 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current"
-            onClick={() => setInformationType("privacy")}
+            onClick={() => openLegalPage("privacy")}
           >
             Privacy
           </button>
@@ -392,13 +331,6 @@ export default function Paywall({
         <span className="sr-only" role="status">
           {restoreAnnouncement}
         </span>
-      ) : null}
-
-      {informationType ? (
-        <InformationSheet
-          type={informationType}
-          onClose={() => setInformationType(null)}
-        />
       ) : null}
     </div>
   );
