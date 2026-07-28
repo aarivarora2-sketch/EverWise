@@ -8,6 +8,9 @@ import {
   X,
 } from "lucide-react";
 
+const PRIVACY_POLICY_URL = "https://aarivarora2-sketch.github.io/EverWise/privacy.html";
+const TERMS_URL = "https://aarivarora2-sketch.github.io/EverWise/terms.html";
+
 const PLANS = {
   annual: {
     name: "Annual",
@@ -156,11 +159,13 @@ function InformationSheet({ type, onClose }) {
     type === "terms"
       ? {
           title: "Terms",
-          body: "Annual plan: 7-day free trial, then $89.99/year ($7.50/mo) unless canceled before the trial ends. Monthly plan: $14.99/month starting immediately. Both plans renew automatically until canceled. Manage or cancel anytime in Settings or in your Apple ID subscription settings — canceling stops the next renewal but doesn't refund the current period. Full terms: everwise.app/terms",
+          body: "Annual plan: 7-day free trial, then $89.99/year ($7.50/mo) unless canceled before the trial ends. Monthly plan: $14.99/month starting immediately. Both plans renew automatically until canceled. Manage or cancel anytime in Settings or in your Apple ID subscription settings — canceling stops the next renewal but doesn't refund the current period.",
+          url: TERMS_URL,
         }
       : {
           title: "Privacy",
-          body: "Everwise stores your name, email, and lesson progress to run your account. Messages you check for scams are sent to our AI provider only to generate a result and are not stored by Everwise. We don't sell your data or show ads. Never share passwords, security codes, or full payment details in Everwise. Full policy: everwise.app/privacy",
+          body: "Everwise stores your name, email, and lesson progress to run your account. Messages you check for scams are sent to our AI provider only to generate a result and are not stored by Everwise. We don't sell your data or show ads. Never share passwords, security codes, or full payment details in Everwise.",
+          url: PRIVACY_POLICY_URL,
         };
 
   return (
@@ -190,6 +195,15 @@ function InformationSheet({ type, onClose }) {
         <p className="mt-3 font-sans text-lg leading-snug text-ink-soft">
           {content.body}
         </p>
+        <a
+          href={content.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-block font-sans text-lg font-semibold text-teal-800 underline underline-offset-4"
+          style={{ color: "#146F6A" }}
+        >
+          Read the full {content.title.toLowerCase()} policy
+        </a>
         <button type="button" className="btn-primary mt-5" onClick={onClose}>
           Close
         </button>

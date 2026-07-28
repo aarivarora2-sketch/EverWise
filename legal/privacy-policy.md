@@ -1,6 +1,6 @@
 # Everwise Privacy Policy
 
-**Last updated:** [DATE — fill in when published]
+**Last updated:** July 27, 2026
 
 This policy describes what information Everwise ("we," "us") collects, why, and how you can control it. Everwise is a digital literacy and scam-awareness app for adults, offered on the Apple App Store.
 
@@ -63,4 +63,4 @@ Questions about this policy or your data: everwisedigitalliteracy@gmail.com
 
 ---
 
-*Notes for whoever finalizes this document (delete before publishing): fill in the publish date; have this reviewed by an attorney before it goes live; host the final version at a public URL (e.g. everwise.app/privacy) and update the link referenced in Paywall.jsx and Settings.*
+*Notes for whoever finalizes this document (delete before publishing): have this reviewed by an attorney before it goes live. Live version: https://aarivarora2-sketch.github.io/EverWise/privacy.html (linked from Settings and the Paywall).*

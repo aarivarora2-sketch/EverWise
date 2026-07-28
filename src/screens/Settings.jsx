@@ -3,6 +3,8 @@ import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 
 const SUPPORT_EMAIL = "everwisedigitalliteracy@gmail.com";
+const PRIVACY_POLICY_URL = "https://aarivarora2-sketch.github.io/EverWise/privacy.html";
+const TERMS_URL = "https://aarivarora2-sketch.github.io/EverWise/terms.html";
 
 function Row({ label, value, onClick, hint }) {
   const interactive = typeof onClick === "function";
@@ -188,6 +190,24 @@ export default function Settings({
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mt-8 space-y-3">
+        <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+          Legal
+        </p>
+        <Row
+          label="Privacy Policy"
+          onClick={() => {
+            window.open(PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer");
+          }}
+        />
+        <Row
+          label="Terms of Service"
+          onClick={() => {
+            window.open(TERMS_URL, "_blank", "noopener,noreferrer");
+          }}
+        />
       </div>
 
       {notice ? (

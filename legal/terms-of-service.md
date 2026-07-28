@@ -1,6 +1,6 @@
 # Everwise Terms of Service
 
-**Last updated:** [DATE — fill in when published]
+**Last updated:** July 27, 2026
 
 These terms govern your use of the Everwise app. By creating an account, you agree to them. If you don't agree, don't use the app.
 
@@ -51,7 +51,7 @@ If we make material changes, we'll update the "Last updated" date and notify you
 
 ## Governing law
 
-These terms are governed by the laws of [YOUR STATE], without regard to conflict-of-law principles. [To be finalized with legal counsel — consider whether you want an arbitration clause here.]
+These terms are governed by the laws of the State of California, without regard to conflict-of-law principles. [Consider with legal counsel whether you want to add an arbitration clause here.]
 
 ## Contact us
 
@@ -59,4 +59,4 @@ Questions about these terms: everwisedigitalliteracy@gmail.com
 
 ---
 
-*Notes for whoever finalizes this document (delete before publishing): fill in your state for governing law, decide whether to add an arbitration/dispute-resolution clause, replace the remaining bracketed placeholders, have this reviewed by an attorney before launch, and host the final version at a public URL (e.g. everwise.app/terms).*
+*Notes for whoever finalizes this document (delete before publishing): decide whether to add an arbitration/dispute-resolution clause, and have this reviewed by an attorney before launch. Live version: https://aarivarora2-sketch.github.io/EverWise/terms.html (linked from Settings and the Paywall).*
