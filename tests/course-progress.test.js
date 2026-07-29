@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   requiredCourseIds,
   isCourseComplete,
@@ -279,4 +280,21 @@ test("challenge completion copy names the real next step", () => {
       body: "You completed the Everwise course.",
     },
   );
+});
+
+test("the curriculum exports the shared phase challenge catalog", async () => {
+  const source = await readFile(
+    new URL("../src/data/lessons.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /import\s+\{\s*phaseChallenges\s*\}\s+from\s+"\.\/phase-challenges\.js"/,
+  );
+  assert.match(
+    source,
+    /export const challengesByOrder = phaseChallenges/,
+  );
+  assert.doesNotMatch(source, /\[phase4Challenge\]/);
 });

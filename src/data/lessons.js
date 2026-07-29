@@ -8,11 +8,7 @@
 
 import { phase2Lessons } from "./phase2-lessons";
 import { phase3Lessons, phase3Exam } from "./phase3-lessons";
-import {
-  phase4Lessons,
-  phase4Challenge,
-  phase4Exam,
-} from "./phase4-lessons";
+import { phase4Lessons, phase4Exam } from "./phase4-lessons";
 import { phase5Lessons, phase5Exam } from "./phase5-lessons";
 import { phase6Lessons, phase6Exam } from "./phase6-lessons";
 import { phase7Lessons, phase7Exam } from "./phase7-lessons";
@@ -26,6 +22,8 @@ import { scamPhase7Lessons } from "./scam-phase7-lessons";
 import { scamPhase8Lessons } from "./scam-phase8-lessons";
 import { scamPhase9Lessons } from "./scam-phase9-lessons";
 import { scamPhase10Lessons } from "./scam-phase10-lessons";
+import { phaseChallenges } from "./phase-challenges.js";
+import { labelFinalLessonsForChallenges } from "../utils/courseProgress.js";
 
 const phase1Lessons = [
   // ============================================================
@@ -1763,17 +1761,22 @@ const scamTrack = [
   ...scamPhase10Lessons,
 ].map(withoutRemovedActivities);
 
-export const allLessons = [...literacyTrack, ...scamTrack];
-
 /**
  * Path order is one continuous sequence: Foundations phases 1–7, then
  * Scam-Proof phases 8–17. Within each phase, lessons keep their local `order`.
  */
 // Lessons in the order they appear on the path, with a computed `pathOrder`
 // that exams and challenges are slotted against.
-export const lessonsByOrder = [...literacyTrack, ...scamTrack]
-  .sort((a, b) => a.phase - b.phase || a.order - b.order)
-  .map((lesson, i) => ({ ...lesson, pathOrder: i }));
+const sortedLessons = [...literacyTrack, ...scamTrack].sort(
+  (a, b) => a.phase - b.phase || a.order - b.order,
+);
+
+export const lessonsByOrder = labelFinalLessonsForChallenges(
+  sortedLessons,
+  phaseChallenges,
+).map((lesson, pathOrder) => ({ ...lesson, pathOrder }));
+
+export const allLessons = lessonsByOrder;
 
 /** Where a phase's last lesson sits on the path — exams follow it. */
 export function pathOrderForPhase(phase) {
@@ -1782,7 +1785,7 @@ export function pathOrderForPhase(phase) {
 }
 
 // Ungraded phase challenges (after the phase's last lesson, before the exam).
-export const challengesByOrder = [phase4Challenge]
+export const challengesByOrder = phaseChallenges
   .filter(Boolean)
   .map(withoutRemovedActivities)
   .sort((a, b) => a.order - b.order);
@@ -1792,4 +1795,4 @@ export const examsByOrder = [phase3Exam, phase4Exam, phase5Exam, phase6Exam, pha
   .filter((exam) => exam && exam.id && Array.isArray(exam.questions))
   .sort((a, b) => a.order - b.order);
 
-export { phase3Exam, phase4Challenge, phase4Exam, phase5Exam, phase6Exam, phase7Exam };
+export { phase3Exam, phase4Exam, phase5Exam, phase6Exam, phase7Exam };
