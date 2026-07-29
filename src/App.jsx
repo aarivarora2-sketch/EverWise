@@ -18,8 +18,16 @@ import {
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { auth, db } from "./firebase";
-import { lessonsByOrder } from "./data/lessons";
+import {
+  lessonsByOrder,
+  challengesByOrder,
+  examsByOrder,
+} from "./data/lessons";
 import { getPhase } from "./data/phases";
+import {
+  isCourseComplete,
+  requiredCourseIds,
+} from "./utils/courseProgress.js";
 import {
   hasFullAccess,
   isTrialExpired,
@@ -51,6 +59,11 @@ import {
 } from "./services/purchases";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
+const requiredLearningIds = requiredCourseIds(
+  lessonsByOrder,
+  challengesByOrder,
+  examsByOrder,
+);
 const subscriptionBypassEnabled =
   import.meta.env.VITE_BYPASS_SUBSCRIPTION === "true";
 const TEXT_SIZE_OPTIONS = new Set(
@@ -251,7 +264,7 @@ export default function App() {
 
   const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
-  const allDone = completedLessons.length >= lessonsByOrder.length;
+  const allDone = isCourseComplete(completedLessons, requiredLearningIds);
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
   const access =
     subscriptionBypassEnabled || hasFullAccess(subscriptionStatus);
