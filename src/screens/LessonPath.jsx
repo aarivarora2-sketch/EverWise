@@ -13,18 +13,16 @@ import {
   BookIcon,
   ArrowLeftIcon,
 } from "../components/Icons";
+import {
+  findCurrentPlayableId,
+  isPlayableUnlocked,
+} from "../utils/courseProgress.js";
+import { getPathLayoutMetrics } from "../utils/pathLayout.js";
 
 const TOP_PAD = 0; // phase color starts directly below the orange header
-// Tall enough for circle + 20px two-line label + trail clearance to the next node.
-const NODE_SLOT = 340;
 // Generous space around the lighter phase headers (no filled block).
 const PHASE_TOP = 32; // used between later phases only
 const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
-const PHASE_BAND = 88;
-const PHASE_BOTTOM = 32;
-// Full interactive block: current circle (h-28 ≈ 126px at 18px root) + label stack.
-const NODE_BOX_H = 182;
-const PATH_BOTTOM_CLEARANCE = 96;
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
@@ -38,25 +36,15 @@ function snakeOffset(indexInPhase, phaseNumber) {
   return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60);
 }
 
-function phaseLessonsDone(phase, doneSet) {
-  return lessons
-    .filter((l) => l.phase === phase)
-    .every((l) => doneSet.has(l.id));
-}
-
-function challengeUnlocked(challenge, doneSet) {
-  return phaseLessonsDone(challenge.phase, doneSet);
-}
-
-function examUnlocked(exam, doneSet) {
-  if (!phaseLessonsDone(exam.phase, doneSet)) return false;
-  const challenge = challengesByOrder.find((c) => c.phase === exam.phase);
-  if (challenge && !doneSet.has(challenge.id)) return false;
-  return true;
-}
+const curriculum = {
+  lessons,
+  challenges: challengesByOrder,
+  exams: examsByOrder,
+};
 
 export default function LessonPath({
   completedLessons = [],
+  textSize = "size-2",
   onSelectLesson,
   onSelectExam,
   onSelectChallenge,
@@ -66,6 +54,13 @@ export default function LessonPath({
   const pathScrollRef = useRef(null);
   const activePhaseRef = useRef(null);
   const currentNodeRef = useRef(null);
+  const {
+    nodeBoxHeight,
+    nodeSlot,
+    phaseBandHeight,
+    phaseBottom,
+    pathBottomClearance,
+  } = getPathLayoutMetrics(textSize);
 
   // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
@@ -107,17 +102,12 @@ export default function LessonPath({
       })),
   ].sort((a, b) => a.order - b.order);
 
-  // First incomplete playable item that is unlocked.
-  let currentId = null;
-  for (const p of playables) {
-    if (doneSet.has(p.id)) continue;
-    if (p.kind === "challenge" && !challengeUnlocked(p.challenge, doneSet)) {
-      break;
-    }
-    if (p.kind === "exam" && !examUnlocked(p.exam, doneSet)) break;
-    currentId = p.id;
-    break;
-  }
+  // First incomplete item in the shared lesson → challenge → exam sequence.
+  const currentId = findCurrentPlayableId(
+    playables,
+    completedLessons,
+    curriculum,
+  );
 
   const activePhaseNumber =
     playables.find((p) => p.id === currentId)?.phase ??
@@ -151,7 +141,7 @@ export default function LessonPath({
       indexInPhase = 0;
       const topPad = isFirst ? PHASE_TOP_FIRST : PHASE_TOP;
       const pos = { ...item, top: y, bandTop: y + topPad, isFirst };
-      y += topPad + PHASE_BAND + PHASE_BOTTOM;
+      y += topPad + phaseBandHeight + phaseBottom;
       return pos;
     }
     const offsetX =
@@ -162,10 +152,14 @@ export default function LessonPath({
     // needs no clearance below it at all.
     const next = items[idx + 1];
     const nextHasDots = next && next.phase != null && next.phase === item.phase;
-    y += !next ? NODE_BOX_H : nextHasDots ? NODE_SLOT : NODE_BOX_H + 44;
+    y += !next
+      ? nodeBoxHeight
+      : nextHasDots
+        ? nodeSlot
+        : nodeBoxHeight + 44;
     return pos;
   });
-  const containerHeight = y + PATH_BOTTOM_CLEARANCE;
+  const containerHeight = y + pathBottomClearance;
 
   const trailNodes = positioned.filter(
     (n) =>
@@ -184,7 +178,7 @@ export default function LessonPath({
 
     const ax = a.offsetX ?? 0;
     const bx = b.offsetX ?? 0;
-    const ay = a.top + NODE_BOX_H;
+    const ay = a.top + nodeBoxHeight;
     const by = b.top;
     if (by <= ay) continue;
 
@@ -385,13 +379,7 @@ export default function LessonPath({
               } else if (node.id === currentId) {
                 state = "current";
               } else if (
-                node.kind === "challenge" &&
-                !challengeUnlocked(node.challenge, doneSet)
-              ) {
-                state = "locked";
-              } else if (
-                node.kind === "exam" &&
-                !examUnlocked(node.exam, doneSet)
+                !isPlayableUnlocked(node, doneSet, curriculum)
               ) {
                 state = "locked";
               } else {
@@ -423,7 +411,7 @@ export default function LessonPath({
                     left: `calc(50% + ${node.offsetX ?? 0}px)`,
                     top: node.top,
                     width: "10.5rem",
-                    height: NODE_BOX_H,
+                    height: nodeBoxHeight,
                     transform: "translateX(-50%)",
                   }}
                 >

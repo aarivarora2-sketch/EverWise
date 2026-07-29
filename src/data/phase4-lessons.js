@@ -3,7 +3,7 @@
 // Biome: Harvest | Color: #C08B3E
 //
 // All lessons exactly as written by the team.
-// Exports: phase4Lessons (array), phase4Challenge (object), phase4Exam (object)
+// Exports: phase4Lessons (array), phase4Exam (object)
 
 export const phase4Lessons = [
   // ============================================================
@@ -1609,79 +1609,6 @@ export const phase4Lessons = [
     }
   }
 ];
-
-// ============================================================
-// PHASE 4 FINAL CHALLENGE (mixed-format review, ungraded)
-// ============================================================
-export const phase4Challenge = {
-  id: "phase4-challenge",
-  track: "literacy",
-  phase: 4,
-  order: 34,
-  title: "Phase 4 Final Challenge",
-  blocks: [
-    {
-      type: "multiselect",
-      title: "Mixed Review",
-      prompt: "Which actions are safe? Select all that apply.",
-      options: [
-        { text: "Use your bank's official app to check your balance.", correct: true },
-        { text: "Review your credit card statement every month.", correct: true },
-        { text: "Verify the recipient before sending money with Venmo or Zelle.", correct: true },
-        { text: "Type important website addresses yourself instead of clicking unexpected links.", correct: true },
-        { text: "Pay with gift cards because someone says it's required.", correct: false }
-      ],
-      feedback: "Excellent! These habits protect both your money and your information."
-    },
-    {
-      type: "match",
-      title: "Match the Scam",
-      pairs: [
-        { word: "\"Buy gift cards to receive your refund.\"", match: "Refund Scam" },
-        { word: "Fake website asking for your bank password", match: "Phishing / Fake Website" },
-        { word: "\"Send money to claim your prize.\"", match: "Payment App Scam" },
-        { word: "Tiny charge you don't recognize on your credit card", match: "Possible Credit Card Fraud" },
-        { word: "Unexpected text saying your bank account is locked", match: "Banking Phishing Scam" }
-      ]
-    },
-    {
-      type: "fillblank",
-      title: "Fill in the Blank",
-      wordBank: ["Verify", "Official", "HTTPS", "Statement"],
-      questions: [
-        { text: "Always ______ the website before entering payment information.", answer: "Verify" },
-        { text: "Review your monthly credit card ______ to look for unfamiliar charges.", answer: "Statement" },
-        { text: "Access your bank through its ______ app or website.", answer: "Official" },
-        { text: "______ helps create a secure connection, but it doesn't guarantee a website is real.", answer: "HTTPS" }
-      ]
-    },
-    {
-      type: "scenario",
-      title: "Real-Life Scenario",
-      text: "Susan receives a text: \"Your bank account has been locked. Click this link immediately.\" What should she do?",
-      options: [
-        "Click the link quickly.",
-        "Reply with her password.",
-        "Open her bank's official app or type the bank's website into her browser herself to check her account.",
-        "Buy gift cards to unlock her account."
-      ],
-      correctIndex: 2,
-      explanation: "Banks generally don't ask customers to verify accounts through unexpected text links."
-    },
-    {
-      type: "scenario",
-      title: "Real-Life Scenario",
-      text: "John wants to send $100 to his grandson using Zelle. He notices there are two contacts with similar names. What should he do?",
-      options: [
-        "Pick one and hope it's correct.",
-        "Send $50 to each.",
-        "Contact his grandson using a trusted phone number to verify the correct account before sending the money.",
-        "Cancel his bank account."
-      ],
-      correctIndex: 2
-    }
-  ]
-};
 
 // ============================================================
 // PHASE 4 FINAL EXAM
