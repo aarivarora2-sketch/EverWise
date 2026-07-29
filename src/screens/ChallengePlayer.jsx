@@ -1,6 +1,7 @@
 import { useState } from "react";
 import BlockRenderer from "../components/blocks/BlockRenderer";
 import { BookIcon } from "../components/Icons";
+import { getChallengeCompletionContent } from "../utils/courseProgress.js";
 
 // Ungraded phase review: play each block in order, then a simple complete screen.
 export default function ChallengePlayer({ challenge, onBack, onComplete }) {
@@ -9,6 +10,7 @@ export default function ChallengePlayer({ challenge, onBack, onComplete }) {
   const blocks = challenge.blocks || [];
   const total = blocks.length;
   const progress = finished ? total : blockIndex + 1;
+  const completion = getChallengeCompletionContent(challenge);
 
   const advance = () => {
     if (blockIndex + 1 < blocks.length) {
@@ -24,12 +26,9 @@ export default function ChallengePlayer({ challenge, onBack, onComplete }) {
         <div className="mt-10 animate-pop-in flex h-28 w-28 items-center justify-center rounded-full bg-clay text-cream-card shadow-btn">
           <BookIcon className="h-14 w-14" />
         </div>
-        <h1 className="page-title mt-8">
-          Review complete
-        </h1>
+        <h1 className="page-title mt-8">{completion.title}</h1>
         <p className="mt-4 text-2xl text-ink-soft">
-          Nice work refreshing Phase {challenge.phase}. You're ready for the
-          exam when you are.
+          {completion.body}
         </p>
         <div className="mt-auto w-full pt-10">
           <button className="btn-primary" onClick={onComplete}>
