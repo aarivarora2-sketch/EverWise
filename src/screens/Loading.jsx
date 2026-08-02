@@ -1,6 +1,6 @@
 export default function Loading() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-7 text-center">
+    <div className="onboarding-focus flex flex-1 flex-col items-center justify-center px-7 text-center">
       <div className="launch-logo flex h-24 w-24 items-center justify-center rounded-full bg-cream-card shadow-card">
         <img
           src="/everwise-logo-192.png"

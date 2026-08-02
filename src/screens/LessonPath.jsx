@@ -269,7 +269,7 @@ export default function LessonPath({
     // The header stays outside the scrolling path so Home is always one tap
     // away, even when the learner is deep inside a phase.
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="course-path-screen flex min-h-0 flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: activePhaseBackground }}
     >
       {/* Neutral chrome — biome color only appears on phase bands/nodes */}
@@ -300,7 +300,7 @@ export default function LessonPath({
       >
         <div className="pb-12">
           <div
-            className="relative mx-auto w-full max-w-none px-2"
+            className="course-path-canvas relative mx-auto w-full max-w-none px-2"
             style={{ height: containerHeight }}
           >
             {positioned

@@ -94,7 +94,7 @@ export default function Settings({
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
+    <div className="settings-screen flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -107,7 +107,8 @@ export default function Settings({
         <h1 className="page-title">Settings</h1>
       </div>
 
-      <div className="mt-8 space-y-3">
+      <div className="settings-grid">
+      <section className="settings-section settings-subscription mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Subscription
         </p>
@@ -129,9 +130,9 @@ export default function Settings({
             hint="See your options"
           />
         )}
-      </div>
+      </section>
 
-      <div className="mt-8 space-y-3">
+      <section className="settings-section settings-account mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Account
         </p>
@@ -189,9 +190,9 @@ export default function Settings({
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="mt-8 space-y-3">
+      <section className="settings-section settings-legal mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Legal
         </p>
@@ -203,6 +204,7 @@ export default function Settings({
           label="Terms of Service"
           onClick={() => openLegalPage("terms")}
         />
+      </section>
       </div>
 
       {notice ? (

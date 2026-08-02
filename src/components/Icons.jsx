@@ -92,6 +92,24 @@ export function BookIcon({ className = "w-6 h-6" }) {
   );
 }
 
+export function HomeIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <path d="m4 10 8-6 8 6v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <path d="M9.5 21v-7h5v7" />
+    </svg>
+  );
+}
+
+export function SettingsIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6" />
+    </svg>
+  );
+}
+
 export function MessageSearchIcon({ className = "w-6 h-6" }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>

@@ -22,7 +22,7 @@ export default function ChallengePlayer({ challenge, onBack, onComplete }) {
 
   if (finished) {
     return (
-      <div className="flex flex-1 flex-col items-center overflow-y-auto px-7 pb-10 pt-8 text-center">
+      <div className="learning-focus flex flex-1 flex-col items-center overflow-y-auto px-7 pb-10 pt-8 text-center">
         <div className="mt-10 animate-pop-in flex h-28 w-28 items-center justify-center rounded-full bg-clay text-cream-card shadow-btn">
           <BookIcon className="h-14 w-14" />
         </div>

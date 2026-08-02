@@ -5,7 +5,7 @@ export default function Complete({ lesson, onDone }) {
   const isPhaseBadge = Boolean(lesson.phaseBadge);
 
   return (
-    <div className="complete-screen flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-7 pt-5">
+    <div className="complete-screen learning-focus flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-7 pt-5">
       <div className="mx-auto mt-2 animate-pop-in">
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage">
           <TrophyIcon className="h-12 w-12" />

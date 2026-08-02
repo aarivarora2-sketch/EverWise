@@ -108,6 +108,11 @@
 
 .app-viewport {
   position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
   padding-top: env(safe-area-inset-top);
   background: var(--everwise-screen-background, #efe9dc);
 }
@@ -140,8 +145,485 @@
 }
 
 .app-shell {
+  display: flex;
+  width: 100%;
+  max-width: 430px;
+  height: 100%;
   min-height: 0;
+  margin-inline: auto;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--everwise-screen-background, #efe9dc);
+}
+
+.app-canvas {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-navigation {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
+
+  body {
+    overflow: auto;
+    overscroll-behavior-y: auto;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .app-viewport {
+    display: flex;
+    width: 100%;
+    height: auto;
+    min-height: 100dvh;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: visible;
+    padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem
+      max(1.5rem, env(safe-area-inset-bottom));
+  }
+
+  .app-shell {
+    width: 100%;
+    max-width: 920px;
+    height: auto;
+    min-height: calc(100dvh - 3rem);
+    overflow: visible;
+    border: 1px solid rgb(34 32 28 / 8%);
+    border-radius: 32px;
+    box-shadow: 0 24px 70px rgb(34 32 28 / 14%);
+  }
+
+  .app-navigation {
+    position: sticky;
+    z-index: 40;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgb(34 32 28 / 10%);
+    border-radius: 32px 32px 0 0;
+    background: rgb(251 249 244 / 94%);
+    box-shadow: 0 6px 20px rgb(34 32 28 / 5%);
+    backdrop-filter: blur(14px);
+  }
+
+  .app-navigation-brand {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.6rem;
+    color: #22201c;
+    font-size: calc(1.05rem * var(--text-scale));
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  .app-navigation-logo {
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 auto;
+    object-fit: contain;
+  }
+
+  .app-navigation-items {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 0.35rem;
+  }
+
+  .app-navigation-item {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 50px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: 14px;
+    padding: 0.55rem 0.7rem;
+    color: #4a463f;
+    font-size: calc(0.82rem * var(--text-scale));
+    font-weight: 700;
+    line-height: 1.15;
+    text-align: center;
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+
+  .app-navigation-item:hover {
+    background: #e7dfce;
+    color: #22201c;
+  }
+
+  .app-navigation-item.is-active {
+    background: #b0512f;
+    color: #fbf9f4;
+  }
+
+  .app-canvas {
+    min-height: calc(100dvh - 3rem);
+    overflow: visible;
+  }
+
+  .has-app-navigation .app-canvas {
+    min-height: calc(100dvh - 8rem);
+  }
+
+  .screen-content-frame {
+    height: auto;
+    min-height: inherit;
+    overflow: visible;
+  }
+
+  .landing-screen,
+  .home-content {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .landing-screen {
+    padding-top: clamp(2rem, 6vh, 4rem);
+    padding-bottom: clamp(2rem, 6vh, 4rem);
+  }
+
+  .landing-layout {
+    display: grid;
+    min-height: auto;
+    grid-template-columns: minmax(0, 1.05fr) minmax(19rem, 0.95fr);
+    align-items: center;
+    gap: clamp(2rem, 6vw, 4.5rem);
+  }
+
+  .landing-intro {
+    max-width: 34rem;
+  }
+
+  .landing-guide {
+    margin-top: 0;
+    padding: clamp(1.5rem, 3vw, 2.25rem);
+    border: 1px solid rgb(34 32 28 / 8%);
+    border-radius: 28px;
+    background: rgb(251 249 244 / 88%);
+    box-shadow: 0 16px 40px rgb(34 32 28 / 8%);
+  }
+
+  .landing-actions {
+    margin-top: 1.75rem;
+    padding-top: 0;
+  }
+
+  .home-content {
+    padding-top: 1.75rem;
+    padding-bottom: 1.75rem;
+  }
+
+  .scam-checker-screen,
+  .settings-screen {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+  }
+
+  .badges-screen,
+  .badges-content {
+    overflow: visible;
+  }
+
+  .badges-content {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .badges-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 1.5rem;
+  }
+
+  .app-canvas-badges .badges-screen > header {
+    border-radius: 0;
+  }
+
+  .app-canvas-path .path-header {
+    border-radius: 0;
+  }
+
+  .release-paywall {
+    height: auto;
+    min-height: calc(100dvh - 3rem);
+    overflow: visible;
+    padding: 1.5rem clamp(2rem, 5vw, 3.75rem) 0;
+  }
+
+  .learning-focus {
+    width: 100%;
+    max-width: 760px;
+    margin-inline: auto;
+  }
+
+  .onboarding-focus {
+    width: 100%;
+    max-width: 760px;
+    min-height: inherit;
+    margin-inline: auto;
+    overflow: visible;
+  }
+
+  .auth-focus {
+    max-width: 640px;
+  }
+
+  .interview-focus > main {
+    overflow: visible;
+  }
+
+  .learning-focus-shell {
+    height: auto;
+    max-height: none;
+    min-height: inherit;
+    overflow: visible;
+  }
+
+  .learning-focus-shell .lesson-content {
+    overflow: visible;
+  }
+
+  .course-path-screen,
+  .course-path-screen .path-scroll {
+    overflow: visible;
+  }
+
+  .course-path-canvas {
+    max-width: 760px;
+  }
+
+  .paywall-main,
+  .paywall-layout {
+    min-height: 0;
+  }
+
+  .paywall-layout {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 900px) {
+  .paywall-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(20rem, 1.1fr);
+    align-items: center;
+    gap: clamp(2.5rem, 7vw, 5rem);
+  }
+
+  .paywall-story,
+  .paywall-offer {
+    min-width: 0;
+  }
+
+  .paywall-headline {
+    text-align: left;
+  }
+
+  .paywall-footer {
+    margin-top: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-viewport {
+    padding: 2rem;
+  }
+
+  .app-shell {
+    max-width: 1180px;
+    min-height: calc(100dvh - 4rem);
+    border-radius: 36px;
+  }
+
+  .app-shell.has-app-navigation {
+    display: grid;
+    grid-template-columns: 238px minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .app-navigation {
+    top: 2rem;
+    height: calc(100dvh - 4rem);
+    min-height: 620px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.75rem;
+    padding: 1.5rem 1rem;
+    border-right: 1px solid rgb(34 32 28 / 10%);
+    border-bottom: 0;
+    border-radius: 36px 0 0 36px;
+    box-shadow: 8px 0 24px rgb(34 32 28 / 4%);
+  }
+
+  .app-navigation-brand {
+    padding-inline: 0.6rem;
+    font-size: calc(1.25rem * var(--text-scale));
+  }
+
+  .app-navigation-logo {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .app-navigation-items {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .app-navigation-item {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    font-size: calc(1rem * var(--text-scale));
+    text-align: left;
+  }
+
+  .app-canvas,
+  .has-app-navigation .app-canvas {
+    min-height: calc(100dvh - 4rem);
+  }
+
+  .home-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.65fr);
+    grid-template-areas:
+      "primary support"
+      "cta support";
+    align-content: center;
+    justify-content: stretch;
+    gap: 1.25rem;
+  }
+
+  .home-primary {
+    grid-area: primary;
+    align-self: end;
+    min-height: 9rem;
+  }
+
+  .home-support {
+    grid-area: support;
+    align-content: center;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-primary-cta {
+    grid-area: cta;
+    align-self: start;
+  }
+
+  .scam-checker-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
+    align-items: start;
+    gap: clamp(1.5rem, 4vw, 3rem);
+  }
+
+  .scam-checker-main,
+  .scam-checker-aside {
+    min-width: 0;
+  }
+
+  .scam-checker-aside {
+    position: sticky;
+    top: 3rem;
+    margin-top: 1rem;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 0 1.5rem;
+  }
+
+  .settings-legal {
+    grid-column: 1 / -1;
+  }
+
+  .badges-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .app-canvas-badges .badges-screen > header {
+    border-radius: 0 36px 0 0;
+  }
+
+  .app-canvas-path .path-header {
+    border-radius: 0 36px 0 0;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-navigation {
+    gap: 0.65rem;
+  }
+
+  .app-navigation-brand > span {
+    display: none;
+  }
+
+  .app-navigation-items {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.2rem;
+  }
+
+  .app-navigation-item {
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.4rem 0.25rem;
+    font-size: calc(0.76rem * var(--text-scale));
+  }
+
+  html:is(
+      [data-text-size="size-7"],
+      [data-text-size="size-8"],
+      [data-text-size="size-9"],
+      [data-text-size="size-10"]
+    )
+    .app-navigation {
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  html:is(
+      [data-text-size="size-7"],
+      [data-text-size="size-8"],
+      [data-text-size="size-9"],
+      [data-text-size="size-10"]
+    )
+    .app-navigation-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /*
@@ -547,6 +1029,38 @@ html:is(
   .responsive-split > * {
   max-width: 100%;
   text-align: left;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  :is(.landing-layout, .home-dashboard, .scam-checker-layout, .settings-grid, .paywall-layout) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  :is(.home-primary, .home-support, .home-primary-cta, .settings-legal) {
+  grid-area: auto;
+  grid-column: auto;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .scam-checker-aside {
+  position: static;
 }
 
 @keyframes launch-logo {

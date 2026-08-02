@@ -100,11 +100,11 @@ export default function Home({
           </div>
         </div>
 
-        <div className="mt-5 flex min-h-0 flex-1 flex-col justify-between gap-4 pb-1">
+        <div className="home-dashboard mt-5 flex min-h-0 flex-1 flex-col justify-between gap-4 pb-1">
           <button
             type="button"
             onClick={onOpenScamChecker}
-            className="w-full rounded-3xl border-2 border-clay/25 bg-clay/10 px-5 py-4 text-left transition-colors hover:bg-clay/15"
+            className="home-primary w-full rounded-3xl border-2 border-clay/25 bg-clay/10 px-5 py-4 text-left transition-colors hover:bg-clay/15"
           >
             <div className="flex items-center gap-3">
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-clay text-cream-card">
@@ -121,7 +121,7 @@ export default function Home({
             </div>
           </button>
 
-          <div className="home-stats grid grid-cols-2 gap-3">
+          <div className="home-support home-stats grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={onOpenBadges}
@@ -149,7 +149,7 @@ export default function Home({
             </div>
           </div>
 
-          <button className="btn-primary py-4" onClick={onStart}>
+          <button className="home-primary-cta btn-primary py-4" onClick={onStart}>
             {allDone ? "See your path" : "Continue learning"}
           </button>
         </div>
