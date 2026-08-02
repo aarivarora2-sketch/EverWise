@@ -290,6 +290,47 @@
     min-height: inherit;
     overflow: visible;
   }
+
+  .landing-screen,
+  .home-content {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .landing-screen {
+    padding-top: clamp(2rem, 6vh, 4rem);
+    padding-bottom: clamp(2rem, 6vh, 4rem);
+  }
+
+  .landing-layout {
+    display: grid;
+    min-height: auto;
+    grid-template-columns: minmax(0, 1.05fr) minmax(19rem, 0.95fr);
+    align-items: center;
+    gap: clamp(2rem, 6vw, 4.5rem);
+  }
+
+  .landing-intro {
+    max-width: 34rem;
+  }
+
+  .landing-guide {
+    margin-top: 0;
+    padding: clamp(1.5rem, 3vw, 2.25rem);
+    border: 1px solid rgb(34 32 28 / 8%);
+    border-radius: 28px;
+    background: rgb(251 249 244 / 88%);
+    box-shadow: 0 16px 40px rgb(34 32 28 / 8%);
+  }
+
+  .landing-actions {
+    margin-top: 1.75rem;
+    padding-top: 0;
+  }
+
+  .home-content {
+    padding-top: 1.75rem;
+    padding-bottom: 1.75rem;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -354,6 +395,34 @@
   .app-canvas,
   .has-app-navigation .app-canvas {
     min-height: calc(100dvh - 4rem);
+  }
+
+  .home-dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.65fr);
+    grid-template-areas:
+      "primary support"
+      "cta support";
+    align-content: center;
+    justify-content: stretch;
+    gap: 1.25rem;
+  }
+
+  .home-primary {
+    grid-area: primary;
+    align-self: end;
+    min-height: 9rem;
+  }
+
+  .home-support {
+    grid-area: support;
+    align-content: center;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-primary-cta {
+    grid-area: cta;
+    align-self: start;
   }
 }
 
