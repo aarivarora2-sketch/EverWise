@@ -24,7 +24,8 @@
 ### Task 1: Responsive shell contract
 
 **Files:**
-- Create: `tests/responsive-shell.test.mjs`
+- Create: `tests/responsive-navigation.test.js`
+- Create: `src/utils/responsiveNavigation.js`
 - Create: `src/components/AppShell.jsx`
 - Delete: `src/components/PhoneShell.jsx`
 - Modify: `src/App.jsx`
@@ -32,21 +33,21 @@
 
 **Interfaces:**
 - Consumes: `screen: string`, `isAuthenticated: boolean`, and navigation callbacks already owned by `App.jsx`.
-- Produces: `AppShell({ children, screen, isAuthenticated, onHome, onCourse, onScamChecker, onBadges, onSettings })`.
+- Produces: `primaryNavigationState(screen, isAuthenticated): Array<{ id, label, active }>` and `AppShell({ children, screen, isAuthenticated, onHome, onCourse, onScamChecker, onBadges, onSettings })`.
 
 - [ ] **Step 1: Write the failing responsive shell test**
 
-Create a source-contract test that reads `AppShell.jsx`, `App.jsx`, and `index.css` and asserts the following durable contracts: `AppShell` exists; the old 430 px global shell constraint is absent; primary navigation includes Home, Course, Scam Checker, Badges, and Settings; CSS contains 768 px and 1024 px breakpoints; desktop shell maximum width is 1180 px.
+Test the real navigation model with literal expectations: signed-out screens return no items; signed-in Home returns Home, Course, Scam Checker, Badges, and Settings in that order; Home is active on `home`; Course is active on `path`; learning activity screens return no primary navigation.
 
 - [ ] **Step 2: Run the test and verify RED**
 
-Run: `node --test tests/responsive-shell.test.mjs`
+Run: `node --test tests/responsive-navigation.test.js`
 
-Expected: FAIL because `src/components/AppShell.jsx` does not exist.
+Expected: FAIL because `src/utils/responsiveNavigation.js` does not exist.
 
 - [ ] **Step 3: Implement the responsive shell**
 
-Create `AppShell.jsx` with one layout tree:
+Create `responsiveNavigation.js` and `AppShell.jsx` with one layout tree:
 
 ```jsx
 export default function AppShell({
@@ -83,14 +84,14 @@ Keep phone `100dvh` and inner scrolling below 768 px. At 768 px and above, allow
 
 - [ ] **Step 6: Run test and verify GREEN**
 
-Run: `node --test tests/responsive-shell.test.mjs`
+Run: `node --test tests/responsive-navigation.test.js`
 
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/responsive-shell.test.mjs src/components/AppShell.jsx src/components/PhoneShell.jsx src/App.jsx src/index.css
+git add tests/responsive-navigation.test.js src/utils/responsiveNavigation.js src/components/AppShell.jsx src/components/PhoneShell.jsx src/App.jsx src/index.css
 git commit -m "feat: add adaptive browser application shell"
 ```
 
@@ -100,21 +101,20 @@ git commit -m "feat: add adaptive browser application shell"
 - Modify: `src/screens/Landing.jsx`
 - Modify: `src/screens/Home.jsx`
 - Modify: `src/index.css`
-- Modify: `tests/responsive-shell.test.mjs`
 
 **Interfaces:**
 - Consumes: existing `Landing` and `Home` props unchanged.
 - Produces: semantic class hooks `landing-layout`, `landing-intro`, `landing-guide`, `home-dashboard`, `home-primary`, and `home-support`.
 
-- [ ] **Step 1: Extend the failing test**
+- [ ] **Step 1: Capture the failing wide-screen behavior**
 
-Assert Landing and Home contain their semantic layout hooks and CSS defines tablet/desktop grid rules plus a large-text single-column override.
+At 1280 x 800, capture the current Landing page and measure `.app-shell`. Record that it is constrained to approximately 430 px and lacks a browser-native wide composition.
 
 - [ ] **Step 2: Run the test and verify RED**
 
-Run: `node --test tests/responsive-shell.test.mjs`
+Use the Browser plugin at 1280 x 800.
 
-Expected: FAIL because the new class hooks do not exist.
+Expected: the rendered shell is approximately 430 px wide, proving the desktop behavior is not yet implemented.
 
 - [ ] **Step 3: Refactor Landing without changing copy or callbacks**
 
@@ -126,14 +126,14 @@ Keep header and install banner full width. Put greeting, suspicious-message acti
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `node --test tests/responsive-shell.test.mjs && npm test`
+Run: `npm test`, then repeat the Browser check at 390 x 844, 768 x 1024, and 1280 x 800.
 
 Expected: all tests PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add tests/responsive-shell.test.mjs src/screens/Landing.jsx src/screens/Home.jsx src/index.css
+git add src/screens/Landing.jsx src/screens/Home.jsx src/index.css
 git commit -m "feat: adapt landing and home for larger browsers"
 ```
 
@@ -145,21 +145,20 @@ git commit -m "feat: adapt landing and home for larger browsers"
 - Modify: `src/screens/Badges.jsx`
 - Modify: `src/screens/Paywall.jsx`
 - Modify: `src/index.css`
-- Modify: `tests/responsive-shell.test.mjs`
 
 **Interfaces:**
 - Consumes: all existing screen props, API calls, error strings, and legal/subscription handlers unchanged.
 - Produces: layout hooks `scam-checker-layout`, `scam-checker-main`, `scam-checker-aside`, `settings-grid`, `badges-grid`, and `paywall-layout`.
 
-- [ ] **Step 1: Extend the failing contract test**
+- [ ] **Step 1: Capture the failing utility-screen behavior**
 
-Assert the semantic screen hooks exist and CSS provides desktop grids with large-text fallbacks.
+At 1280 x 800, inspect each reachable utility screen and record that its content remains constrained to the phone shell. Use source review for authenticated screens that cannot be reached without credentials.
 
 - [ ] **Step 2: Run the test and verify RED**
 
-Run: `node --test tests/responsive-shell.test.mjs`
+Use the Browser plugin at 1280 x 800 and inspect current screen containers.
 
-Expected: FAIL on missing utility-screen hooks.
+Expected: utility content remains in the phone-width composition.
 
 - [ ] **Step 3: Adapt Scam Checker**
 
@@ -175,14 +174,14 @@ Group benefits and plan choices into `paywall-layout` so desktop and landscape t
 
 - [ ] **Step 6: Run focused and full tests**
 
-Run: `node --test tests/responsive-shell.test.mjs && npm test`
+Run: `npm test`, then repeat rendered checks for every reachable changed screen.
 
 Expected: all tests PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/responsive-shell.test.mjs src/screens/ScamChecker.jsx src/screens/Settings.jsx src/screens/Badges.jsx src/screens/Paywall.jsx src/index.css
+git add src/screens/ScamChecker.jsx src/screens/Settings.jsx src/screens/Badges.jsx src/screens/Paywall.jsx src/index.css
 git commit -m "feat: adapt utility screens for tablet and desktop"
 ```
 
@@ -195,21 +194,20 @@ git commit -m "feat: adapt utility screens for tablet and desktop"
 - Modify: `src/screens/ExamPlayer.jsx`
 - Modify: `src/screens/Complete.jsx`
 - Modify: `src/index.css`
-- Modify: `tests/responsive-shell.test.mjs`
 
 **Interfaces:**
 - Consumes: existing lesson, challenge, exam, completion data and callbacks unchanged.
 - Produces: `learning-focus`, `course-path-canvas`, and responsive path/badge CSS contracts.
 
-- [ ] **Step 1: Extend the failing contract test**
+- [ ] **Step 1: Capture the failing learning-surface behavior**
 
-Assert all activity screens use `learning-focus`, the path uses `course-path-canvas`, and CSS caps focused content at 760 px while preserving single-column layout at text sizes 7-10.
+At desktop width, verify the current learning shell is still 430 px. Confirm existing `tests/path-layout.test.js` passes before changing path layout.
 
 - [ ] **Step 2: Run the test and verify RED**
 
-Run: `node --test tests/responsive-shell.test.mjs`
+Run: `node --test tests/path-layout.test.js`, then inspect the current desktop rendering.
 
-Expected: FAIL on missing learning hooks.
+Expected: path tests PASS, while the desktop rendering remains phone-constrained.
 
 - [ ] **Step 3: Add focused learning wrappers**
 
@@ -221,14 +219,14 @@ Add `course-path-canvas` to the measured path container. Allow more horizontal b
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `node --test tests/responsive-shell.test.mjs && npm test`
+Run: `node --test tests/responsive-navigation.test.js tests/path-layout.test.js && npm test`
 
 Expected: all tests PASS, including path-layout tests.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add tests/responsive-shell.test.mjs src/screens/LessonPath.jsx src/screens/LessonPlayer.jsx src/screens/ChallengePlayer.jsx src/screens/ExamPlayer.jsx src/screens/Complete.jsx src/index.css
+git add src/screens/LessonPath.jsx src/screens/LessonPlayer.jsx src/screens/ChallengePlayer.jsx src/screens/ExamPlayer.jsx src/screens/Complete.jsx src/index.css
 git commit -m "feat: improve responsive learning surfaces"
 ```
 
@@ -268,7 +266,7 @@ At desktop and iPad widths, set EverWise text size 10 through the existing contr
 
 - [ ] **Step 5: Repair any observed responsive defects test-first**
 
-For each defect, extend `tests/responsive-shell.test.mjs` or the relevant existing utility test, verify RED, make the smallest production change, and rerun the failing test plus the full suite.
+For each logic defect, extend `tests/responsive-navigation.test.js` or the relevant existing utility test, verify RED, make the smallest production change, and rerun the failing test plus the full suite. For layout-only defects, capture the failing viewport state, apply the smallest CSS or markup correction, and repeat the same rendered check.
 
 - [ ] **Step 6: Final verification and status**
 
@@ -277,6 +275,6 @@ Rerun the full static commands after all repairs. Inspect `git status`, `git log
 - [ ] **Step 7: Commit verified repairs**
 
 ```bash
-git add tests/responsive-shell.test.mjs src/index.css src/components/AppShell.jsx src/App.jsx src/screens/Landing.jsx src/screens/Home.jsx src/screens/ScamChecker.jsx src/screens/Settings.jsx src/screens/Badges.jsx src/screens/Paywall.jsx src/screens/LessonPath.jsx src/screens/LessonPlayer.jsx src/screens/ChallengePlayer.jsx src/screens/ExamPlayer.jsx src/screens/Complete.jsx
+git add tests/responsive-navigation.test.js src/utils/responsiveNavigation.js src/index.css src/components/AppShell.jsx src/App.jsx src/screens/Landing.jsx src/screens/Home.jsx src/screens/ScamChecker.jsx src/screens/Settings.jsx src/screens/Badges.jsx src/screens/Paywall.jsx src/screens/LessonPath.jsx src/screens/LessonPlayer.jsx src/screens/ChallengePlayer.jsx src/screens/ExamPlayer.jsx src/screens/Complete.jsx
 git commit -m "fix: harden responsive browser layouts"
 ```
