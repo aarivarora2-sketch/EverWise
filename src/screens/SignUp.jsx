@@ -27,7 +27,7 @@ export default function SignUp({ onSignUp, onGoToLogIn, onBack }) {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-6">
+    <div className="onboarding-focus auth-focus flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-6">
       <BackButton onClick={onBack} />
 
       <form className="flex flex-1 flex-col" onSubmit={submit} noValidate>

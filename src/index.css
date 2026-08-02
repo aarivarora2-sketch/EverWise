@@ -374,6 +374,22 @@
     margin-inline: auto;
   }
 
+  .onboarding-focus {
+    width: 100%;
+    max-width: 760px;
+    min-height: inherit;
+    margin-inline: auto;
+    overflow: visible;
+  }
+
+  .auth-focus {
+    max-width: 640px;
+  }
+
+  .interview-focus > main {
+    overflow: visible;
+  }
+
   .learning-focus-shell {
     height: auto;
     max-height: none;

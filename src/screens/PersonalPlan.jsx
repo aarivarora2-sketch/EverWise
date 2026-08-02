@@ -61,7 +61,7 @@ export default function PersonalPlan({ profile, onContinue }) {
   if (!ready) {
     return (
       <div
-        className="flex min-h-0 flex-1 flex-col items-center justify-center px-8 text-center"
+        className="onboarding-focus flex min-h-0 flex-1 flex-col items-center justify-center px-8 text-center"
         aria-live="polite"
       >
         <img
@@ -88,7 +88,7 @@ export default function PersonalPlan({ profile, onContinue }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
+    <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
       <div className="animate-fade-up">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-sage text-cream-card shadow-node-sage">
           <Check className="h-9 w-9" strokeWidth={3} aria-hidden="true" />
