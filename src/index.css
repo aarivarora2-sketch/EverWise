@@ -112,6 +112,17 @@
   background: var(--everwise-screen-background, #efe9dc);
 }
 
+/* On a computer, fill the space around the centered phone frame with a
+   subtle warm backdrop instead of flat, indistinguishable cream — otherwise
+   the app card barely reads as intentional on a wide browser window. */
+@media (min-width: 640px) {
+  .app-viewport {
+    background:
+      radial-gradient(circle at 50% 6%, rgba(176, 81, 47, 0.07) 0%, transparent 45%),
+      linear-gradient(180deg, #f3eee3 0%, #e7dfce 100%);
+  }
+}
+
 .app-viewport::before {
   position: fixed;
   z-index: 200;

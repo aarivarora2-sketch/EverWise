@@ -3,6 +3,7 @@ import {
   ShieldIcon,
   StarIcon,
 } from "../components/Icons";
+import AddToHomeScreenBanner from "../components/AddToHomeScreenBanner";
 
 export default function Home({
   name,
@@ -53,7 +54,11 @@ export default function Home({
           </button>
         </div>
 
-        <div className="home-intro mt-5 flex items-start justify-between gap-4">
+        <div className="mt-4">
+          <AddToHomeScreenBanner />
+        </div>
+
+        <div className="home-intro mt-1 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xl text-ink-soft animate-fade-up">
               Hello{firstName ? (
