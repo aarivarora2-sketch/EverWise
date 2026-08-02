@@ -357,11 +357,41 @@
     border-radius: 0;
   }
 
+  .app-canvas-path .path-header {
+    border-radius: 0;
+  }
+
   .release-paywall {
     height: auto;
     min-height: calc(100dvh - 3rem);
     overflow: visible;
     padding: 1.5rem clamp(2rem, 5vw, 3.75rem) 0;
+  }
+
+  .learning-focus {
+    width: 100%;
+    max-width: 760px;
+    margin-inline: auto;
+  }
+
+  .learning-focus-shell {
+    height: auto;
+    max-height: none;
+    min-height: inherit;
+    overflow: visible;
+  }
+
+  .learning-focus-shell .lesson-content {
+    overflow: visible;
+  }
+
+  .course-path-screen,
+  .course-path-screen .path-scroll {
+    overflow: visible;
+  }
+
+  .course-path-canvas {
+    max-width: 760px;
   }
 
   .paywall-main,
@@ -525,6 +555,10 @@
   }
 
   .app-canvas-badges .badges-screen > header {
+    border-radius: 0 36px 0 0;
+  }
+
+  .app-canvas-path .path-header {
     border-radius: 0 36px 0 0;
   }
 }

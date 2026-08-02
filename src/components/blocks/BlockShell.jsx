@@ -51,7 +51,7 @@ export default function BlockShell({
   }, [revealKey]);
 
   return (
-    <div className="flex h-full max-h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="learning-focus learning-focus-shell flex h-full max-h-full min-h-0 flex-1 flex-col overflow-hidden">
       <LessonTopBar
         label={label}
         progress={progress}
