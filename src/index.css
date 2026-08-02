@@ -564,6 +564,27 @@
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
+  .app-navigation {
+    gap: 0.65rem;
+  }
+
+  .app-navigation-brand > span {
+    display: none;
+  }
+
+  .app-navigation-items {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.2rem;
+  }
+
+  .app-navigation-item {
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.4rem 0.25rem;
+    font-size: calc(0.76rem * var(--text-scale));
+  }
+
   html:is(
       [data-text-size="size-7"],
       [data-text-size="size-8"],
@@ -585,7 +606,7 @@
     )
     .app-navigation-items {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
