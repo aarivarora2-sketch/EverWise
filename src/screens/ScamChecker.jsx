@@ -113,7 +113,7 @@ export default function ScamChecker({ onBack }) {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-4">
+    <div className="scam-checker-screen flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-4">
       <BackButton onClick={onBack} label="Back to home" />
 
       <div className="mt-3 flex items-center gap-3">
@@ -127,11 +127,13 @@ export default function ScamChecker({ onBack }) {
         opinion.
       </p>
 
-      {status !== "success" ? (
-        <form
-          className="mt-4 rounded-3xl bg-cream-card p-4 shadow-card"
-          onSubmit={checkMessage}
-        >
+      <div className="scam-checker-layout">
+        <div className="scam-checker-main">
+          {status !== "success" ? (
+            <form
+              className="mt-4 rounded-3xl bg-cream-card p-4 shadow-card"
+              onSubmit={checkMessage}
+            >
           <label htmlFor="message-to-check" className="text-lg font-bold text-ink">
             Message to check
           </label>
@@ -173,9 +175,9 @@ export default function ScamChecker({ onBack }) {
             Everwise gives a careful opinion, not a guarantee. Your message is
             sent to our AI provider only to generate this result.
           </p>
-        </form>
-      ) : (
-        <div className="mt-5 animate-fade-up" aria-live="polite">
+            </form>
+          ) : (
+            <div className="mt-5 animate-fade-up" aria-live="polite">
           <div className={`rounded-3xl border-2 px-5 py-5 ${details.className}`}>
             <p className="text-base font-bold uppercase tracking-[0.1em] text-ink-soft">
               {details.eyebrow}
@@ -213,8 +215,28 @@ export default function ScamChecker({ onBack }) {
           <button type="button" className="btn-secondary mt-5" onClick={startOver}>
             Check another message
           </button>
+            </div>
+          )}
         </div>
-      )}
+
+        <aside className="scam-checker-aside mt-5 rounded-3xl border-2 border-sage/20 bg-sage/10 px-5 py-5">
+          <h2 className="text-xl font-bold text-ink">Check more safely</h2>
+          <ul className="mt-3 space-y-3 text-lg leading-snug text-ink-soft">
+            <li className="flex gap-3">
+              <span className="font-bold text-sage-dark" aria-hidden="true">1.</span>
+              <span>Remove passwords and account numbers before pasting.</span>
+            </li>
+            <li className="flex gap-3">
+              <span className="font-bold text-sage-dark" aria-hidden="true">2.</span>
+              <span>Do not use links or phone numbers from a suspicious message.</span>
+            </li>
+            <li className="flex gap-3">
+              <span className="font-bold text-sage-dark" aria-hidden="true">3.</span>
+              <span>Contact the organization using its official website, app, card, or statement.</span>
+            </li>
+          </ul>
+        </aside>
+      </div>
     </div>
   );
 }

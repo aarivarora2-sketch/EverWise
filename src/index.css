@@ -331,6 +331,72 @@
     padding-top: 1.75rem;
     padding-bottom: 1.75rem;
   }
+
+  .scam-checker-screen,
+  .settings-screen {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+  }
+
+  .badges-screen,
+  .badges-content {
+    overflow: visible;
+  }
+
+  .badges-content {
+    padding-inline: clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .badges-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 1.5rem;
+  }
+
+  .app-canvas-badges .badges-screen > header {
+    border-radius: 0;
+  }
+
+  .release-paywall {
+    height: auto;
+    min-height: calc(100dvh - 3rem);
+    overflow: visible;
+    padding: 1.5rem clamp(2rem, 5vw, 3.75rem) 0;
+  }
+
+  .paywall-main,
+  .paywall-layout {
+    min-height: 0;
+  }
+
+  .paywall-layout {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 900px) {
+  .paywall-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(20rem, 1.1fr);
+    align-items: center;
+    gap: clamp(2.5rem, 7vw, 5rem);
+  }
+
+  .paywall-story,
+  .paywall-offer {
+    min-width: 0;
+  }
+
+  .paywall-headline {
+    text-align: left;
+  }
+
+  .paywall-footer {
+    margin-top: 1rem;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -423,6 +489,43 @@
   .home-primary-cta {
     grid-area: cta;
     align-self: start;
+  }
+
+  .scam-checker-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
+    align-items: start;
+    gap: clamp(1.5rem, 4vw, 3rem);
+  }
+
+  .scam-checker-main,
+  .scam-checker-aside {
+    min-width: 0;
+  }
+
+  .scam-checker-aside {
+    position: sticky;
+    top: 3rem;
+    margin-top: 1rem;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 0 1.5rem;
+  }
+
+  .settings-legal {
+    grid-column: 1 / -1;
+  }
+
+  .badges-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .app-canvas-badges .badges-screen > header {
+    border-radius: 0 36px 0 0;
   }
 }
 
@@ -855,6 +958,38 @@ html:is(
   .responsive-split > * {
   max-width: 100%;
   text-align: left;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  :is(.landing-layout, .home-dashboard, .scam-checker-layout, .settings-grid, .paywall-layout) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  :is(.home-primary, .home-support, .home-primary-cta, .settings-legal) {
+  grid-area: auto;
+  grid-column: auto;
+}
+
+html:is(
+    [data-text-size="size-7"],
+    [data-text-size="size-8"],
+    [data-text-size="size-9"],
+    [data-text-size="size-10"]
+  )
+  .scam-checker-aside {
+  position: static;
 }
 
 @keyframes launch-logo {

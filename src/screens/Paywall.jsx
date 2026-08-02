@@ -224,77 +224,83 @@ export default function Paywall({
       </header>
 
       <main className="paywall-main flex min-h-0 flex-1 flex-col justify-between">
-        <h1
-          className="paywall-headline mt-5 shrink-0 text-center font-serif font-bold tracking-tight text-ink"
-          style={fixedText.headline}
-        >
-          Feel confident online.
-        </h1>
+        <div className="paywall-layout">
+          <section className="paywall-story">
+            <h1
+              className="paywall-headline mt-5 shrink-0 text-center font-serif font-bold tracking-tight text-ink"
+              style={fixedText.headline}
+            >
+              Feel confident online.
+            </h1>
 
-        <ul className="paywall-benefits mt-5 shrink-0">
-          <Benefit
-            icon={<Search className="h-8 w-8" strokeWidth={2.1} />}
-            title="Check suspicious messages"
-            body="Get a clear explanation before responding."
-          />
-          <Benefit
-            icon={<MessageCircleWarning className="h-8 w-8" strokeWidth={2.1} />}
-            title="Recognize scams sooner"
-            body="Learn the warning signs and protect your money."
-          />
-        </ul>
+            <ul className="paywall-benefits mt-5 shrink-0">
+              <Benefit
+                icon={<Search className="h-8 w-8" strokeWidth={2.1} />}
+                title="Check suspicious messages"
+                body="Get a clear explanation before responding."
+              />
+              <Benefit
+                icon={<MessageCircleWarning className="h-8 w-8" strokeWidth={2.1} />}
+                title="Recognize scams sooner"
+                body="Learn the warning signs and protect your money."
+              />
+            </ul>
+          </section>
 
-        <div
-          className="paywall-plans mt-5 grid shrink-0 gap-3"
-          role="radiogroup"
-          aria-label="Choose a subscription plan"
-        >
-          <PlanCard
-            planKey="annual"
-            selectedPlan={selectedPlan}
-            onSelect={setSelectedPlan}
-            storeProducts={storeProducts}
-          />
-          <PlanCard
-            planKey="monthly"
-            selectedPlan={selectedPlan}
-            onSelect={setSelectedPlan}
-            storeProducts={storeProducts}
-          />
+          <section className="paywall-offer">
+            <div
+              className="paywall-plans mt-5 grid shrink-0 gap-3"
+              role="radiogroup"
+              aria-label="Choose a subscription plan"
+            >
+              <PlanCard
+                planKey="annual"
+                selectedPlan={selectedPlan}
+                onSelect={setSelectedPlan}
+                storeProducts={storeProducts}
+              />
+              <PlanCard
+                planKey="monthly"
+                selectedPlan={selectedPlan}
+                onSelect={setSelectedPlan}
+                storeProducts={storeProducts}
+              />
+            </div>
+
+            {error ? (
+              <p
+                className="mt-3 rounded-xl bg-alert/10 px-4 py-3 text-center font-sans text-base font-semibold leading-snug text-alert"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="button"
+              className="paywall-cta mt-4 flex min-h-[68px] w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-clay px-5 font-sans font-bold text-cream-card shadow-btn transition-colors hover:bg-clay-dark disabled:cursor-wait disabled:opacity-70"
+              style={fixedText.cta}
+              onClick={startPurchase}
+              disabled={busy}
+            >
+              {busy
+                ? "Please wait…"
+                : selectedPlan === "annual"
+                  ? "Start your free trial"
+                  : "Continue with monthly"}
+              <ArrowRight className="h-7 w-7 shrink-0" aria-hidden="true" />
+            </button>
+
+            <p
+              className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink"
+              style={fixedText.reassurance}
+            >
+              {selectedPlan === "annual"
+                ? "No charge today. Renews at $89.99/year after your 7-day trial unless you cancel."
+                : "$14.99 billed monthly. Renews automatically unless you cancel."}
+            </p>
+          </section>
         </div>
-
-        {error ? (
-          <p
-            className="mt-3 rounded-xl bg-alert/10 px-4 py-3 text-center font-sans text-base font-semibold leading-snug text-alert"
-            role="alert"
-          >
-            {error}
-          </p>
-        ) : null}
-
-        <button
-          type="button"
-          className="paywall-cta mt-4 flex min-h-[68px] w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-clay px-5 font-sans font-bold text-cream-card shadow-btn transition-colors hover:bg-clay-dark disabled:cursor-wait disabled:opacity-70"
-          style={fixedText.cta}
-          onClick={startPurchase}
-          disabled={busy}
-        >
-          {busy
-            ? "Please wait…"
-            : selectedPlan === "annual"
-              ? "Start your free trial"
-              : "Continue with monthly"}
-          <ArrowRight className="h-7 w-7 shrink-0" aria-hidden="true" />
-        </button>
-
-        <p
-          className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink"
-          style={fixedText.reassurance}
-        >
-          {selectedPlan === "annual"
-            ? "No charge today. Renews at $89.99/year after your 7-day trial unless you cancel."
-            : "$14.99 billed monthly. Renews automatically unless you cancel."}
-        </p>
 
         <div
           className="paywall-footer flex min-h-12 shrink-0 items-center justify-center gap-3 font-sans font-semibold text-teal-800"

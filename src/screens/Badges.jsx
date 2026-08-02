@@ -82,7 +82,7 @@ export default function Badges({ badges = [], onBack }) {
   const pct = total > 0 ? Math.round((earnedCount / total) * 100) : 0;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="badges-screen flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="shrink-0 rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
         <div className="flex items-center gap-3">
           <button
@@ -116,7 +116,7 @@ export default function Badges({ badges = [], onBack }) {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-7">
+      <div className="badges-content min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-7">
         {earnedCount === 0 && (
           <p className="mb-8 rounded-3xl bg-cream-card px-6 py-6 text-center text-xl leading-snug text-ink-soft shadow-card">
             Finish your first lesson to earn your first badge.
@@ -150,7 +150,7 @@ export default function Badges({ badges = [], onBack }) {
                 </span>
               </div>
 
-              <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8">
+              <div className="badges-grid mt-6 grid grid-cols-2 gap-x-4 gap-y-8">
                 {list.map((badge) => (
                   <BadgeTile
                     key={badge.name}
@@ -176,7 +176,7 @@ export default function Badges({ badges = [], onBack }) {
             <h2 className="mt-1 font-sans text-[26px] font-bold leading-tight text-ink">
               Exam honors
             </h2>
-            <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8">
+            <div className="badges-grid mt-6 grid grid-cols-2 gap-x-4 gap-y-8">
               {bonus.map((name) => (
                 <BadgeTile
                   key={name}
