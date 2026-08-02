@@ -32,7 +32,7 @@ import {
   hasFullAccess,
   isTrialExpired,
 } from "./utils/subscription";
-import PhoneShell from "./components/PhoneShell";
+import AppShell from "./components/AppShell";
 import Badges from "./screens/Badges";
 import Landing from "./screens/Landing";
 import ProfileInterview from "./screens/ProfileInterview";
@@ -579,9 +579,9 @@ export default function App() {
 
   if (!authChecked || !launchAnimationDone) {
     return (
-      <PhoneShell>
+      <AppShell screen="loading">
         <Loading />
-      </PhoneShell>
+      </AppShell>
     );
   }
 
@@ -737,13 +737,21 @@ export default function App() {
   }
 
   return (
-    <PhoneShell>
+    <AppShell
+      screen={screen}
+      isAuthenticated={Boolean(user)}
+      onHome={goHome}
+      onCourse={goPath}
+      onScamChecker={goScamChecker}
+      onBadges={goBadges}
+      onSettings={goSettings}
+    >
       <div
         key={screen}
-        className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
+        className="screen-content-frame flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
       >
         {content}
       </div>
-    </PhoneShell>
+    </AppShell>
   );
 }
