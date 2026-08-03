@@ -19,6 +19,7 @@ export default function AppShell({
   children,
   screen = "loading",
   isAuthenticated = false,
+  partner = null,
   navigationDisabled = false,
   onHome,
   onCourse,
@@ -35,6 +36,7 @@ export default function AppShell({
     settings: onSettings,
   };
   const showNavigation = navigation.length > 0;
+  const partnerName = partner?.name?.trim();
 
   return (
     <div className={`app-viewport app-screen-${screen}`}>
@@ -53,6 +55,11 @@ export default function AppShell({
                 className="app-navigation-logo"
               />
               <span>Everwise</span>
+              {partnerName ? (
+                <small className="app-navigation-partner">
+                  Access provided by {partnerName}
+                </small>
+              ) : null}
             </div>
             <div className="app-navigation-items">
               {navigation.map((item) => {

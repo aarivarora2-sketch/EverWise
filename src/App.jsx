@@ -63,6 +63,7 @@ import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
 import PartnerAccessError from "./screens/PartnerAccessError";
+import PartnerDashboard from "./screens/PartnerDashboard";
 import {
   accountDeletionErrorMessage,
   authErrorMessage,
@@ -520,8 +521,13 @@ function capturePartnerFragment() {
     hash === "#partner" ||
     hash.startsWith("#partner=") ||
     hash.startsWith("#partner&");
+  const isAdminFragment =
+    hash === "#partner-admin" ||
+    hash.startsWith("#partner-admin=") ||
+    hash.startsWith("#partner-admin&");
   const fragment = consumePartnerFragment({ hash });
   if (fragment) return fragment;
+  if (isAdminFragment) return { kind: "admin-invalid", token: null };
   return isLearnerFragment ? { kind: "learner-invalid", token: null } : null;
 }
 
@@ -594,14 +600,14 @@ async function normalizeSubscription(uid, data) {
   return next;
 }
 
-export default function App() {
+function LearnerApp({ initialPartnerFragment }) {
   const [pendingPartnerRelease, setPendingPartnerRelease] = useState(
     readStoredPartnerRelease,
   );
   const [releaseConfirmationBusy, setReleaseConfirmationBusy] =
     useState(false);
   const [accountDeletionBusy, setAccountDeletionBusy] = useState(false);
-  const [partnerFragment, setPartnerFragment] = useState(capturePartnerFragment);
+  const [partnerFragment, setPartnerFragment] = useState(initialPartnerFragment);
   const [partnerStatus, setPartnerStatus] = useState(() => {
     if (partnerFragment?.kind === "learner") return "previewing";
     if (partnerFragment?.kind === "learner-invalid") return "invalid";
@@ -2307,6 +2313,7 @@ export default function App() {
     case "home":
       content = (
         <Home
+          partner={sponsoredActive ? partner : null}
           name={profile?.name ?? ""}
           scamsCaught={profile?.scamsCaught ?? 0}
           badgesEarned={badgesEarnedCount}
@@ -2437,6 +2444,7 @@ export default function App() {
     <AppShell
       screen={screen}
       isAuthenticated={Boolean(user)}
+      partner={sponsoredActive ? partner : null}
       navigationDisabled={accountDeletionBusy}
       onHome={accountDeletionBusy ? undefined : goHome}
       onCourse={accountDeletionBusy ? undefined : goPath}
@@ -2452,4 +2460,25 @@ export default function App() {
       </div>
     </AppShell>
   );
+}
+
+export default function App() {
+  const [initialPartnerFragment] = useState(capturePartnerFragment);
+
+  if (
+    initialPartnerFragment?.kind === "admin" ||
+    initialPartnerFragment?.kind === "admin-invalid"
+  ) {
+    return (
+      <PartnerDashboard
+        adminToken={
+          initialPartnerFragment.kind === "admin"
+            ? initialPartnerFragment.token
+            : null
+        }
+      />
+    );
+  }
+
+  return <LearnerApp initialPartnerFragment={initialPartnerFragment} />;
 }

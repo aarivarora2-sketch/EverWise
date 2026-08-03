@@ -8,7 +8,11 @@ await vi.hoisted(async () => {
 });
 
 import App from "../src/App.jsx";
+import AppShell from "../src/components/AppShell.jsx";
 import Landing from "../src/screens/Landing.jsx";
+import PartnerDashboard, {
+  buildPartnerReportCsv,
+} from "../src/screens/PartnerDashboard.jsx";
 import ProfileInterview from "../src/screens/ProfileInterview.jsx";
 import PartnerAccessErrorScreen from "../src/screens/PartnerAccessError.jsx";
 import Settings from "../src/screens/Settings.jsx";
@@ -72,12 +76,14 @@ const mocks = vi.hoisted(() => ({
   deleteDoc: vi.fn(),
   deleteUser: vi.fn(),
   fetchPartnerAccess: vi.fn(),
+  fetchPartnerReport: vi.fn(),
   getDoc: vi.fn(),
   previewInvite: vi.fn(),
   reauthenticateWithCredential: vi.fn(),
   setDoc: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
+  rotatePartnerInvite: vi.fn(),
 }));
 
 vi.mock("firebase/auth", () => ({
@@ -106,7 +112,10 @@ vi.mock("firebase/firestore", () => ({
 
 vi.mock("../src/firebase", () => ({ auth: {}, db: {} }));
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { getPlatform: vi.fn(() => "web") },
+  Capacitor: {
+    getPlatform: vi.fn(() => "web"),
+    isNativePlatform: vi.fn(() => false),
+  },
 }));
 vi.mock("@capacitor/keyboard", () => ({
   Keyboard: { setAccessoryBarVisible: vi.fn(() => Promise.resolve()) },
@@ -132,7 +141,9 @@ vi.mock("../src/services/partnerAccess.js", async (importOriginal) => {
     claimPartnerSeat: mocks.claimPartnerSeat,
     confirmPartnerRelease: mocks.confirmPartnerRelease,
     fetchPartnerAccess: mocks.fetchPartnerAccess,
+    fetchPartnerReport: mocks.fetchPartnerReport,
     previewInvite: mocks.previewInvite,
+    rotatePartnerInvite: mocks.rotatePartnerInvite,
   };
 });
 vi.mock("../src/screens/Home.jsx", () => ({
@@ -200,6 +211,208 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+
+function partnerReport({ consentedCount = 5, suppressed = false } = {}) {
+  return {
+    partnerId: "community-partner",
+    name: "Community Partner",
+    status: "active",
+    branding: PARTNER,
+    seats: { claimed: 6, available: 494, limit: 500 },
+    invitation: { status: "active" },
+    research: {
+      consentedCount,
+      consentedPercentage: 83.3,
+      suppressed,
+      distributions: suppressed
+        ? null
+        : {
+            primaryDevice: { Computer: 2, Smartphone: 1, Tablet: 2 },
+            concerns: { "Account hacking": 1, "Suspicious links": 5 },
+          },
+    },
+    updatedAt: "2026-08-02T12:00:00.000Z",
+    email: "private@example.com",
+    uid: "private-firebase-uid",
+    password: "private-password",
+    tokenHash: "private-token-hash",
+    individuals: [{ name: "Jane Learner", assessment: "private answer" }],
+  };
+}
+
+describe("aggregate partner dashboard", () => {
+  beforeEach(() => {
+    mocks.fetchPartnerReport.mockReset();
+    mocks.rotatePartnerInvite.mockReset();
+  });
+
+  test("shows five-response group totals and exports only aggregate allowlisted CSV", async () => {
+    const report = partnerReport();
+    mocks.fetchPartnerReport.mockResolvedValue(report);
+
+    render(<PartnerDashboard adminToken={TOKEN} />);
+
+    expect(await screen.findByText(/Reporting for Community Partner/)).toBeVisible();
+    expect(screen.getByText("6 of 500 seats in use")).toBeVisible();
+    expect(screen.getByText("494 seats available")).toBeVisible();
+    expect(screen.getByText("83.3%")).toBeVisible();
+    expect(
+      screen.getByRole("row", { name: "Tablet 2 40%" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("row", { name: "Suspicious links 5 100%" }),
+    ).toBeVisible();
+    expect(screen.getByRole("time")).toHaveAttribute(
+      "datetime",
+      "2026-08-02T12:00:00.000Z",
+    );
+
+    const pageText = document.body.textContent;
+    for (const privateValue of [
+      "private@example.com",
+      "private-firebase-uid",
+      "private-password",
+      "private-token-hash",
+      "Jane Learner",
+      "private answer",
+    ]) {
+      expect(pageText).not.toContain(privateValue);
+    }
+    for (const forbiddenTerm of [
+      "name",
+      "email",
+      "uid",
+      "password",
+      "token",
+      "hash",
+      "individual",
+    ]) {
+      expect(pageText.toLowerCase()).not.toContain(forbiddenTerm);
+    }
+
+    const csv = buildPartnerReportCsv(report);
+    expect(csv.split("\n")[0]).toBe("metric,category,count,percentage");
+    expect(csv).toContain("seats,claimed,6,1.2");
+    expect(csv).toContain("primaryDevice,Tablet,2,40");
+    expect(csv).toContain('concerns,"Account hacking",1,20');
+    for (const forbidden of [
+      "name",
+      "email",
+      "uid",
+      "password",
+      "token",
+      "hash",
+      "individual",
+      "private answer",
+    ]) {
+      expect(csv.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+
+  test("suppresses group breakdowns below five research responses", async () => {
+    mocks.fetchPartnerReport.mockResolvedValue(
+      partnerReport({ consentedCount: 4, suppressed: true }),
+    );
+
+    render(<PartnerDashboard adminToken={TOKEN} />);
+
+    expect(
+      await screen.findByText(
+        "More responses are needed before group breakdowns can be shown.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  test("invalid admin access reveals no partner metadata", async () => {
+    mocks.fetchPartnerReport.mockRejectedValue(
+      new PartnerAccessError("INVALID_ADMIN", 401),
+    );
+
+    render(<PartnerDashboard adminToken={TOKEN} />);
+
+    expect(
+      await screen.findByText("This admin link is not available."),
+    ).toBeVisible();
+    expect(screen.queryByText("Community Partner")).not.toBeInTheDocument();
+    expect(screen.queryByText(/seat/i)).not.toBeInTheDocument();
+  });
+
+  test("confirms invite replacement before showing the one-session learner link", async () => {
+    const replacementToken = "r".repeat(43);
+    mocks.fetchPartnerReport.mockResolvedValue(partnerReport());
+    mocks.rotatePartnerInvite.mockResolvedValue({
+      partnerId: "community-partner",
+      inviteToken: replacementToken,
+    });
+    const user = userEvent.setup();
+
+    render(<PartnerDashboard adminToken={TOKEN} />);
+    await screen.findByText(/Reporting for Community Partner/);
+    await user.click(
+      screen.getByRole("button", { name: "Replace learner link" }),
+    );
+
+    expect(
+      screen.getByText(
+        "The previous learner link will stop working as soon as you replace it.",
+      ),
+    ).toBeVisible();
+    expect(mocks.rotatePartnerInvite).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Replace link now" }));
+    const replacement = await screen.findByLabelText(
+      "Replacement learner link",
+    );
+    expect(replacement).toHaveValue(
+      `${window.location.origin}/#partner=${replacementToken}`,
+    );
+    expect(screen.getByRole("button", { name: "Copy replacement link" })).toBeVisible();
+    expect(screen.getAllByDisplayValue(new RegExp(replacementToken))).toHaveLength(1);
+    expect(mocks.rotatePartnerInvite).toHaveBeenCalledWith({ adminToken: TOKEN });
+  });
+
+  test("routes a scrubbed admin fragment before Firebase learner authentication", async () => {
+    mocks.deferInitialAuth = true;
+    mocks.authCallback = null;
+    mocks.fetchPartnerReport.mockResolvedValue(partnerReport());
+    window.history.replaceState(null, "", `/#partner-admin=${TOKEN}`);
+
+    render(<App />);
+
+    expect(await screen.findByText(/Reporting for Community Partner/)).toBeVisible();
+    expect(window.location.hash).toBe("");
+    expect(mocks.authCallback).toBeNull();
+    window.history.replaceState(null, "", "/");
+    mocks.deferInitialAuth = false;
+  });
+
+  test("keeps Everwise primary while showing quiet sponsored branding in shell and Home", async () => {
+    const RealHome = (await vi.importActual("../src/screens/Home.jsx")).default;
+    const { rerender } = render(
+      <AppShell screen="home" isAuthenticated partner={PARTNER}>
+        <p>Learning</p>
+      </AppShell>,
+    );
+
+    expect(screen.getByText("Everwise")).toBeVisible();
+    expect(screen.getByText("Access provided by Community Partner")).toBeVisible();
+
+    rerender(
+      <RealHome
+        partner={PARTNER}
+        textSize="size-2"
+        onTextSizeChange={() => {}}
+        onStart={() => {}}
+        onOpenBadges={() => {}}
+        onOpenSettings={() => {}}
+        onOpenScamChecker={() => {}}
+      />,
+    );
+    expect(screen.getByText("Everwise")).toBeVisible();
+    expect(screen.getByText("Access provided by Community Partner")).toBeVisible();
+  });
+});
 
 async function reachConsent(user) {
   await user.type(screen.getByLabelText("What should we call you?"), "Jane");

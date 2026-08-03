@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   PRIVACY_POLICY_URL,
   TERMS_URL,
@@ -22,4 +23,16 @@ test("Privacy opens the approved public page safely", () => {
 
   assert.equal(PRIVACY_POLICY_URL, "https://everwise.dexio-games.com/privacy.html");
   assert.deepEqual(calls, [[PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer"]]);
+});
+
+test("Privacy explains sponsored access, optional research, aggregate reports, and data rights", async () => {
+  const html = await readFile(new URL("../public/privacy.html", import.meta.url), "utf8");
+  const copy = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  assert.match(copy, /sponsored access/i);
+  assert.match(copy, /optional research/i);
+  assert.match(copy, /partners? (?:receive|see).*(?:aggregate|group totals)/i);
+  assert.match(copy, /do not sell (?:your )?assessment answers/i);
+  assert.match(copy, /delete your account.*Settings/i);
+  assert.match(copy, /everwisedigitalliteracy@gmail\.com/i);
 });

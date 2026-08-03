@@ -6,6 +6,7 @@ import {
 import AddToHomeScreenBanner from "../components/AddToHomeScreenBanner";
 
 export default function Home({
+  partner = null,
   name,
   scamsCaught = 0,
   badgesEarned = 0,
@@ -17,6 +18,7 @@ export default function Home({
   onOpenSettings,
   onOpenScamChecker,
 }) {
+  const partnerName = partner?.name?.trim();
   const firstName = name ? name.trim().split(" ")[0] : "";
   const textSizes = Array.from(
     { length: 10 },
@@ -75,9 +77,16 @@ export default function Home({
               aria-hidden="true"
               className="h-9 w-9 object-contain"
             />
-            <p className="font-sans text-xl font-semibold tracking-tight text-ink">
-              Everwise
-            </p>
+            <div>
+              <p className="font-sans text-xl font-semibold tracking-tight text-ink">
+                Everwise
+              </p>
+              {partnerName ? (
+                <p className="home-partner-branding">
+                  Access provided by {partnerName}
+                </p>
+              ) : null}
+            </div>
           </div>
           <button
             type="button"
