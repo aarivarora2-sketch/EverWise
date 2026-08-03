@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -356,6 +356,13 @@ describe("sponsored research choice", () => {
     expect(payload.researchSnapshot).not.toHaveProperty("email");
     expect(payload.researchSnapshot).not.toHaveProperty("age");
     expect(payload.researchSnapshot).not.toHaveProperty("password");
+    expect(payload.researchSnapshot).toMatchObject({
+      internetUse: "Prefer not to say",
+      primaryDevice: "Prefer not to say",
+      confidence: "Prefer not to say",
+      scamFrequency: "Prefer not to say",
+      aiExperience: "Prefer not to say",
+    });
   });
 
   test("keeps the public interview at eight steps without a research choice", async () => {
@@ -372,6 +379,115 @@ describe("sponsored research choice", () => {
     expect(screen.getByLabelText("Email")).toBeVisible();
     expect(screen.getByText("8 of 8")).toBeVisible();
     expect(screen.queryByText(/answers are not sold/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("custom radio accessibility", () => {
+  test("names every interview radiogroup and supports wrapped arrow-key selection", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileInterview
+        partner={PARTNER}
+        onComplete={vi.fn()}
+        onBack={() => {}}
+        onLogIn={() => {}}
+      />,
+    );
+    await user.type(screen.getByLabelText("What should we call you?"), "Jane");
+    await user.type(screen.getByLabelText("Your age"), "74");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    const internetGroup = screen.getByRole("radiogroup", {
+      name: "How often do you use the internet?",
+    });
+    const internetRadios = within(internetGroup).getAllByRole("radio");
+    expect(internetRadios[0]).toHaveAttribute("tabindex", "0");
+    expect(internetRadios[1]).toHaveAttribute("tabindex", "-1");
+    internetRadios[0].focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(internetRadios.at(-1)).toHaveFocus();
+    expect(internetRadios.at(-1)).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{Home}");
+    expect(internetRadios[0]).toHaveFocus();
+    expect(internetRadios[0]).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{End}");
+    expect(internetRadios.at(-1)).toHaveFocus();
+    internetRadios[1].focus();
+    await user.keyboard("{Enter}");
+    expect(internetRadios[1]).toHaveAttribute("aria-checked", "true");
+    internetRadios[2].focus();
+    await user.keyboard(" ");
+    expect(internetRadios[2]).toHaveAttribute("aria-checked", "true");
+
+    const deviceGroup = screen.getByRole("radiogroup", {
+      name: "Which device do you use most?",
+    });
+    await user.click(within(deviceGroup).getByRole("radio", { name: "Tablet" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("radiogroup", {
+        name: "How confident do you feel online?",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("radiogroup", {
+        name: "Have you ever lost money or information to a scam?",
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    expect(
+      screen.getByRole("radiogroup", {
+        name: "What would you do about the urgent bank message?",
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    expect(
+      screen.getByRole("radiogroup", {
+        name: "Have you used artificial intelligence?",
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    expect(
+      screen.getByRole("radiogroup", {
+        name: "Would you like trusted-person help later?",
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+    expect(
+      screen.getByRole("radiogroup", { name: "Optional research choice" }),
+    ).toBeVisible();
+  });
+
+  test("subscription plan radios use roving focus and arrow, Home, and End keys", async () => {
+    const RealPaywall = (await vi.importActual("../src/screens/Paywall.jsx")).default;
+    const user = userEvent.setup();
+    render(
+      <RealPaywall
+        onStartTrial={vi.fn()}
+        onMaybeLater={() => {}}
+        onRestore={vi.fn()}
+      />,
+    );
+    const group = screen.getByRole("radiogroup", {
+      name: "Choose a subscription plan",
+    });
+    const annual = within(group).getByRole("radio", { name: /Annual/i });
+    const monthly = within(group).getByRole("radio", { name: /Monthly/i });
+    expect(annual).toHaveAttribute("tabindex", "0");
+    expect(monthly).toHaveAttribute("tabindex", "-1");
+
+    annual.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(monthly).toHaveFocus();
+    expect(monthly).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Continue with monthly" })).toBeVisible();
+    await user.keyboard("{Home}");
+    expect(annual).toHaveFocus();
+    expect(annual).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{End}");
+    expect(monthly).toHaveFocus();
+    expect(monthly).toHaveAttribute("aria-checked", "true");
   });
 });
 
@@ -708,6 +824,59 @@ describe("sponsored signup orchestration", () => {
     expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
     expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+  });
+
+  test("lets an authenticated returning learner log out of authoritative suspended access", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "returning-suspended-user",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "returning-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(
+        learnerProfile({
+          accessSource: "partner",
+          partnerId: "community-partner",
+        }),
+      ),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "suspended",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+
+    expect(
+      screen.getByText(
+        "Sponsored access from Community Partner is temporarily unavailable. Please contact Community Partner for help.",
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(await screen.findByRole("button", { name: "Get Started" })).toBeVisible();
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps a public suspended invite generic and offers no authenticated action", async () => {
+    mocks.previewInvite.mockRejectedValue(
+      new PartnerAccessError("PARTNER_SUSPENDED", 403),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByText(
+        "Sponsored access from the organization that shared this link is temporarily unavailable. Please contact the organization that shared this link for help.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Community Partner")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Log out" })).not.toBeInTheDocument();
   });
 
   test("clears active sponsorship before a different public account is routed", async () => {

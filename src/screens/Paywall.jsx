@@ -63,7 +63,7 @@ function Benefit({ icon, title, body }) {
   );
 }
 
-function PlanCard({ planKey, selectedPlan, onSelect, storeProducts }) {
+function PlanCard({ planKey, selectedPlan, onSelect, storeProducts, tabIndex }) {
   const storeProduct = storeProducts.find((product) =>
     product.id.endsWith(`.${planKey}`),
   );
@@ -85,6 +85,8 @@ function PlanCard({ planKey, selectedPlan, onSelect, storeProducts }) {
       type="button"
       role="radio"
       aria-checked={selected}
+      data-plan-key={planKey}
+      tabIndex={tabIndex}
       onClick={() => onSelect(planKey)}
       className={`paywall-plan-card paywall-plan-${planKey} w-full rounded-[20px] bg-[#FFFCF8] px-4 text-left transition-colors ${
         isAnnual ? "min-h-[148px] py-5" : "min-h-[104px] py-4"
@@ -162,6 +164,34 @@ export default function Paywall({
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const handlePlanKeyDown = (event) => {
+    const keys = [
+      "ArrowRight",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowUp",
+      "Home",
+      "End",
+    ];
+    if (!keys.includes(event.key)) return;
+    const cards = Array.from(
+      event.currentTarget.querySelectorAll('[role="radio"]'),
+    );
+    const currentIndex = cards.indexOf(event.target.closest('[role="radio"]'));
+    if (currentIndex < 0 || cards.length === 0) return;
+    event.preventDefault();
+    let nextIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = cards.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % cards.length;
+    } else {
+      nextIndex = (currentIndex - 1 + cards.length) % cards.length;
+    }
+    setSelectedPlan(cards[nextIndex].dataset.planKey);
+    cards[nextIndex].focus();
+  };
 
   const startPurchase = async () => {
     setBusy(true);
@@ -252,18 +282,21 @@ export default function Paywall({
               className="paywall-plans mt-5 grid shrink-0 gap-3"
               role="radiogroup"
               aria-label="Choose a subscription plan"
+              onKeyDown={handlePlanKeyDown}
             >
               <PlanCard
                 planKey="annual"
                 selectedPlan={selectedPlan}
                 onSelect={setSelectedPlan}
                 storeProducts={storeProducts}
+                tabIndex={selectedPlan === "annual" ? 0 : -1}
               />
               <PlanCard
                 planKey="monthly"
                 selectedPlan={selectedPlan}
                 onSelect={setSelectedPlan}
                 storeProducts={storeProducts}
+                tabIndex={selectedPlan === "monthly" ? 0 : -1}
               />
             </div>
 

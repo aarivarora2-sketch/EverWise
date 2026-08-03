@@ -18,15 +18,34 @@ const SNAPSHOT_KEYS = [
 
 const CATEGORIES = {
   ageBand: new Set(["18-39", "40-59", "60-69", "70-79", "80-89", "90+"]),
-  internetUse: new Set(["Every day", "A few times a week", "Rarely", "Almost never"]),
-  primaryDevice: new Set(["Smartphone", "Tablet", "Computer", "TV"]),
+  internetUse: new Set([
+    "Every day",
+    "A few times a week",
+    "Rarely",
+    "Almost never",
+    "Prefer not to say",
+  ]),
+  primaryDevice: new Set([
+    "Smartphone",
+    "Tablet",
+    "Computer",
+    "TV",
+    "Prefer not to say",
+  ]),
   confidence: new Set([
     "Confident",
     "Sometimes I need help",
     "I often have difficulties",
     "I’m just getting started",
+    "Prefer not to say",
   ]),
-  scamFrequency: new Set(["never", "few", "often", "many"]),
+  scamFrequency: new Set([
+    "never",
+    "few",
+    "often",
+    "many",
+    "Prefer not to say",
+  ]),
   concerns: new Set([
     "Scam calls and messages",
     "Money or bank-card theft",
@@ -40,6 +59,7 @@ const CATEGORIES = {
     "I’ve tried it a few times",
     "I’ve heard of it",
     "I don’t know what it is yet",
+    "Prefer not to say",
   ]),
   accessibilityNeeds: new Set([
     "Arthritis or joint discomfort",

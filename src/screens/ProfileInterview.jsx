@@ -78,12 +78,13 @@ const prompts = {
   12: "Create a secure account so your personal plan and lesson progress are saved.",
 };
 
-function ChoiceButton({ selected, children, onClick, multi = false }) {
+function ChoiceButton({ selected, children, onClick, multi = false, tabIndex }) {
   return (
     <button
       type="button"
       role={multi ? "checkbox" : "radio"}
       aria-checked={selected}
+      tabIndex={tabIndex}
       onClick={onClick}
       className={`flex min-h-[60px] w-full items-center gap-3 rounded-2xl border-2 px-4 py-3 text-left text-lg font-semibold transition-colors ${
         selected
@@ -108,16 +109,68 @@ function ChoiceButton({ selected, children, onClick, multi = false }) {
   );
 }
 
-function Choices({ values, selected, onSelect, multi = false }) {
+function Choices({ values, selected, onSelect, multi = false, label }) {
+  const radioValues = values.map((option) =>
+    typeof option === "string" ? option : option.value,
+  );
+  const selectedIndex = multi
+    ? -1
+    : radioValues.findIndex((value) => value === selected);
+
+  const handleKeyDown = (event) => {
+    if (multi) return;
+    const keys = [
+      "ArrowRight",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowUp",
+      "Home",
+      "End",
+    ];
+    if (!keys.includes(event.key)) return;
+    const buttons = Array.from(
+      event.currentTarget.querySelectorAll('[role="radio"]'),
+    );
+    const currentIndex = buttons.indexOf(event.target.closest('[role="radio"]'));
+    if (currentIndex < 0 || buttons.length === 0) return;
+    event.preventDefault();
+    let nextIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = buttons.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % buttons.length;
+    } else {
+      nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+    }
+    onSelect(radioValues[nextIndex]);
+    buttons[nextIndex].focus();
+  };
+
   return (
-    <div className="mt-3 space-y-3" role={multi ? undefined : "radiogroup"}>
-      {values.map((option) => {
+    <div
+      className="mt-3 space-y-3"
+      role={multi ? undefined : "radiogroup"}
+      aria-label={multi ? undefined : label}
+      onKeyDown={handleKeyDown}
+    >
+      {values.map((option, index) => {
         const value = typeof option === "string" ? option : option.value;
         const label = typeof option === "string" ? option : option.label;
         return (
           <ChoiceButton
             key={value}
             multi={multi}
+            tabIndex={
+              multi
+                ? undefined
+                : selectedIndex < 0
+                  ? index === 0
+                    ? 0
+                    : -1
+                  : index === selectedIndex
+                    ? 0
+                    : -1
+            }
             selected={
               multi ? selected.includes(value) : selected === value
             }
@@ -442,6 +495,7 @@ export default function ProfileInterview({
                 values={options.internetUse}
                 selected={internetUse}
                 onSelect={setInternetUse}
+                label="How often do you use the internet?"
               />
             </fieldset>
             <fieldset className="mt-7">
@@ -452,6 +506,7 @@ export default function ProfileInterview({
                 values={options.primaryDevice}
                 selected={primaryDevice}
                 onSelect={setPrimaryDevice}
+                label="Which device do you use most?"
               />
             </fieldset>
           </div>
@@ -463,6 +518,7 @@ export default function ProfileInterview({
               values={options.confidence}
               selected={confidence}
               onSelect={setConfidence}
+              label="How confident do you feel online?"
             />
             <fieldset className="mt-7">
               <legend className="text-xl font-bold text-ink">
@@ -472,6 +528,7 @@ export default function ProfileInterview({
                 values={options.scamFrequency}
                 selected={scamFrequency}
                 onSelect={setScamFrequency}
+                label="Have you ever lost money or information to a scam?"
               />
             </fieldset>
           </div>
@@ -500,6 +557,7 @@ export default function ProfileInterview({
               values={options.scamScenario}
               selected={scamScenario}
               onSelect={setScamScenario}
+              label="What would you do about the urgent bank message?"
             />
             {scamScenario ? (
               <HelpfulNote>
@@ -517,6 +575,7 @@ export default function ProfileInterview({
               values={options.aiExperience}
               selected={aiExperience}
               onSelect={setAiExperience}
+              label="Have you used artificial intelligence?"
             />
           </div>
         ) : null}
@@ -548,6 +607,7 @@ export default function ProfileInterview({
                 values={options.trustedContact}
                 selected={trustedContact}
                 onSelect={setTrustedContact}
+                label="Would you like trusted-person help later?"
               />
             </fieldset>
           </div>
@@ -584,6 +644,7 @@ export default function ProfileInterview({
                 ]}
                 selected={researchConsent}
                 onSelect={setResearchConsent}
+                label="Optional research choice"
               />
             </fieldset>
           </div>

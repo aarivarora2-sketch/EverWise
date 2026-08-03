@@ -1373,12 +1373,21 @@ export default function App() {
   }
 
   if (["invalid", "full", "suspended", "unavailable"].includes(partnerStatus)) {
+    const authenticatedSuspension = Boolean(
+      partnerStatus === "suspended" &&
+        user?.uid &&
+        partnerOwnerUid === user.uid,
+    );
     return (
-      <AppShell screen="partner-error">
+      <AppShell
+        screen="partner-error"
+        isAuthenticated={authenticatedSuspension}
+      >
         <PartnerAccessError
           code={codeForPartnerStatus(partnerStatus)}
           partnerName={partner?.name}
           onRetry={retryPartnerAccess}
+          onLogOut={authenticatedSuspension ? logOut : undefined}
         />
       </AppShell>
     );
