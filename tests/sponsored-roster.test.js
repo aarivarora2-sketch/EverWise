@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -173,7 +173,11 @@ test("writeRosterFile atomically updates one active row and keeps it private", a
   await createRosterFile({ filePath, repositoryRoot: process.cwd(), rows });
 
   const activeRows = markRosterActive(rows, 100);
-  await writeRosterFile({ filePath, rows: activeRows });
+  await writeRosterFile({
+    filePath,
+    repositoryRoot: process.cwd(),
+    rows: activeRows,
+  });
 
   assert.equal((await stat(filePath)).mode & 0o777, 0o600);
   assert.equal(
@@ -205,25 +209,63 @@ test("writeRosterFile rejects a destination through a symlinked parent", async (
   await assert.rejects(
     writeRosterFile({
       filePath: join(linkedDirectory, "everwise-sponsored-accounts.csv"),
+      repositoryRoot: process.cwd(),
       rows: markRosterActive(rows, 1),
     }),
     /symlink/i,
   );
 });
 
-test("writeRosterFile leaves an existing roster byte-identical when the update fails", async (t) => {
+test("writeRosterFile rejects an existing target inside the repository", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const repositoryRoot = join(directory, "repository");
+  const outsidePath = join(directory, "everwise-sponsored-accounts.csv");
+  const insidePath = join(repositoryRoot, "everwise-sponsored-accounts.csv");
+  const rows = rosterRows();
+  await mkdir(repositoryRoot);
+  await createRosterFile({
+    filePath: outsidePath,
+    repositoryRoot: process.cwd(),
+    rows,
+  });
+  const before = await readFile(outsidePath);
+  await writeFile(insidePath, before, { mode: 0o600 });
+
+  await assert.rejects(
+    writeRosterFile({
+      filePath: insidePath,
+      repositoryRoot,
+      rows: markRosterActive(rows, 1),
+    }),
+    /outside the repository/i,
+  );
+  assert.deepEqual(await readFile(insidePath), before);
+});
+
+test("writeRosterFile preserves the old roster and removes its temp file after rename failure", async (t) => {
   const directory = await temporaryDirectory(t);
   const filePath = join(directory, "everwise-sponsored-accounts.csv");
   const rows = rosterRows();
   await createRosterFile({ filePath, repositoryRoot: process.cwd(), rows });
   const before = await readFile(filePath);
-  await chmod(directory, 0o500);
-  try {
-    await assert.rejects(
-      writeRosterFile({ filePath, rows: markRosterActive(rows, 1) }),
-    );
-  } finally {
-    await chmod(directory, 0o700);
-  }
+  let temporaryPath;
+
+  await assert.rejects(
+    writeRosterFile({
+      filePath,
+      repositoryRoot: process.cwd(),
+      rows: markRosterActive(rows, 1),
+      renameImpl: async (source, destination) => {
+        temporaryPath = source;
+        assert.equal(destination, filePath);
+        throw new Error("deterministic rename failure");
+      },
+    }),
+    /deterministic rename failure/,
+  );
+
   assert.deepEqual(await readFile(filePath), before);
+  assert.ok(temporaryPath.startsWith(`${filePath}.tmp-`));
+  await assert.rejects(stat(temporaryPath), /ENOENT/);
+  assert.deepEqual(await readdir(directory), [basename(filePath)]);
 });

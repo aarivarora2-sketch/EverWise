@@ -85,6 +85,7 @@ async function assertSafeRosterPath({ filePath, repositoryRoot, mustExist = fals
   if (!repositoryRoot) throw new Error("A repository root is required");
 
   const absolutePath = resolve(filePath);
+  await assertNoSymlinkComponents(absolutePath);
   const repositoryPath = await realpath(repositoryRoot);
   let segment = absolutePath;
   const segments = [];
@@ -328,13 +329,19 @@ export async function readRosterFile({ filePath, repositoryRoot }) {
   return parseRoster(await readFile(safePath, "utf8"));
 }
 
-export async function writeRosterFile({ filePath, rows }) {
+export async function writeRosterFile({
+  filePath,
+  repositoryRoot,
+  rows,
+  renameImpl = rename,
+}) {
   validateRoster(rows);
-  const absolutePath = resolve(filePath);
-  await assertNoSymlinkComponents(absolutePath);
-  const fileStat = await lstat(absolutePath);
-  if (!fileStat.isFile()) throw new Error("Roster file must be a regular file");
-  const temporaryPath = `${absolutePath}.tmp-${randomBytes(12).toString("hex")}`;
+  const safePath = await assertSafeRosterPath({
+    filePath,
+    repositoryRoot,
+    mustExist: true,
+  });
+  const temporaryPath = `${safePath}.tmp-${randomBytes(12).toString("hex")}`;
   let handle;
   try {
     handle = await open(temporaryPath, "wx", 0o600);
@@ -342,8 +349,8 @@ export async function writeRosterFile({ filePath, rows }) {
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporaryPath, absolutePath);
-    await setPrivateMode(absolutePath);
+    await renameImpl(temporaryPath, safePath);
+    await setPrivateMode(safePath);
   } catch (error) {
     if (handle) await handle.close();
     await unlink(temporaryPath).catch((unlinkError) => {
