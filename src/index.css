@@ -515,7 +515,7 @@
     grid-template-areas:
       "primary support"
       "cta support";
-    align-content: center;
+    align-content: start;
     justify-content: stretch;
     gap: 1.25rem;
   }

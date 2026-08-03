@@ -120,6 +120,16 @@ export default function Home({
             <p className="mt-3 text-2xl leading-snug text-ink-soft">
               Learn at your own pace. Your progress is saved automatically.
             </p>
+            <ul className="mt-4 max-w-2xl list-disc space-y-2 pl-6 text-2xl leading-snug text-ink-soft marker:text-clay">
+              <li>
+                Click <strong className="font-semibold text-ink">Continue learning</strong> below to jump back into your lessons.
+              </li>
+              <li>
+                Use <strong className="font-semibold text-ink">Check a suspicious message</strong> anytime you get a text, email, or call that feels off.
+              </li>
+              <li>Your badges and scams-caught count update automatically as you go.</li>
+              <li>Revisit any of it anytime from the menu on the left.</li>
+            </ul>
           </div>
           {textSizeControl}
         </div>
@@ -128,14 +138,14 @@ export default function Home({
           <button
             type="button"
             onClick={onOpenScamChecker}
-            className="home-primary w-full rounded-3xl border-2 border-clay/25 bg-clay/10 px-5 py-4 text-left transition-colors hover:bg-clay/15 lg:px-10 lg:py-8"
+            className="home-primary w-full rounded-3xl border-2 border-clay/25 bg-clay/10 px-5 py-4 text-left transition-colors hover:bg-clay/15 lg:px-7 lg:py-5"
           >
-            <div className="flex items-center gap-3 lg:items-start lg:gap-6">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-clay text-cream-card lg:h-20 lg:w-20 lg:rounded-3xl">
-                <MessageSearchIcon className="h-7 w-7 lg:h-11 lg:w-11" />
+            <div className="flex items-center gap-3 lg:items-start lg:gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-clay text-cream-card lg:h-14 lg:w-14 lg:rounded-2xl">
+                <MessageSearchIcon className="h-7 w-7 lg:h-7 lg:w-7" />
               </span>
               <span className="min-w-0">
-                <span className="block text-lg font-bold text-ink lg:text-3xl">
+                <span className="block text-lg font-bold text-ink lg:text-xl">
                   Check a suspicious message
                 </span>
                 <span className="mt-0.5 block text-base leading-snug text-ink-soft lg:hidden">
@@ -143,15 +153,14 @@ export default function Home({
                 </span>
 
                 {/* Desktop-only: the mobile card is a compact one-line
-                    teaser, but a card this size on a computer needs real
-                    content, not padding stretched around one short line. */}
-                <p className="mt-3 hidden max-w-xl text-lg leading-relaxed text-ink-soft lg:block">
-                  Got a text, email, or phone call that felt a little off?
-                  Paste what it said in and get a clear, judgment-free
-                  breakdown of the warning signs — with plain next steps,
+                    teaser, but this card is a supporting element beside
+                    the dashboard, not the hero — keep it modest. */}
+                <p className="mt-2 hidden max-w-md text-sm leading-snug text-ink-soft lg:block">
+                  Got a text, email, or call that felt a little off? Paste
+                  it in and get a clear breakdown of the warning signs —
                   in seconds.
                 </p>
-                <div className="mt-5 hidden flex-wrap gap-2 lg:flex">
+                <div className="mt-3 hidden flex-wrap gap-1.5 lg:flex">
                   {[
                     "Fake prize texts",
                     "Tech support calls",
@@ -160,13 +169,13 @@ export default function Home({
                   ].map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-full bg-clay/15 px-4 py-2 text-base font-semibold text-clay-dark"
+                      className="rounded-full bg-clay/15 px-2.5 py-1 text-xs font-semibold text-clay-dark"
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
-                <p className="mt-6 hidden text-xl font-bold text-clay-dark lg:block">
+                <p className="mt-3 hidden text-base font-bold text-clay-dark lg:block">
                   Check a message →
                 </p>
               </span>

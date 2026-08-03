@@ -260,13 +260,34 @@ export default function LessonPath({
         const currentNode = currentNodeRef.current;
         if (!scroller || !currentNode) return;
 
-        // Keep the current lesson in the upper third so the following lesson
-        // is visible without being sliced by the bottom safe area.
+        // Above the sm/lg breakpoints, index.css switches `.path-scroll` to
+        // overflow: visible and lets the whole page scroll instead — this
+        // element stops being a scroll container at all, so scrollTo() on
+        // it silently does nothing. Detect that and scroll the window
+        // itself instead, using the node's on-screen position rather than
+        // its offsetTop (which is only meaningful within scroller).
+        const innerScrollActive =
+          window.getComputedStyle(scroller).overflowY === "auto";
+
+        if (innerScrollActive) {
+          // Keep the current lesson in the upper third so the following
+          // lesson is visible without being sliced by the bottom safe area.
+          const targetTop = Math.max(
+            0,
+            currentNode.offsetTop - scroller.clientHeight * 0.34,
+          );
+          scroller.scrollTo({ top: targetTop, behavior });
+          return;
+        }
+
+        const scrollingElement =
+          document.scrollingElement || document.documentElement;
+        const rect = currentNode.getBoundingClientRect();
         const targetTop = Math.max(
           0,
-          currentNode.offsetTop - scroller.clientHeight * 0.34,
+          scrollingElement.scrollTop + rect.top - window.innerHeight * 0.34,
         );
-        scroller.scrollTo({ top: targetTop, behavior });
+        window.scrollTo({ top: targetTop, behavior });
       };
 
       activePhaseRef.current?.scrollIntoView({
