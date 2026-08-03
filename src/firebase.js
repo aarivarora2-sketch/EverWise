@@ -7,12 +7,13 @@ import {
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCxAaPSwB1XO5Gun80Oo-d9B7Zg6QjSWuI",
-  authDomain: "everwise-46cf0.firebaseapp.com",
-  projectId: "everwise-46cf0",
-  storageBucket: "everwise-46cf0.firebasestorage.app",
-  messagingSenderId: "690378000885",
-  appId: "1:690378000885:web:6c93ab4e894f051449f8bc"
+  apiKey: "AIzaSyBh2YBYirlY1KwuPIUwmxJoNfYHhxfbahQ",
+  authDomain: "games-caf0e.firebaseapp.com",
+  projectId: "games-caf0e",
+  storageBucket: "games-caf0e.firebasestorage.app",
+  messagingSenderId: "794556700045",
+  appId: "1:794556700045:web:07bba912912e8c98a799c4",
+  measurementId: "G-VXZ2QKNLPK",
 };
 
 // Warn loudly if the placeholder config hasn't been replaced yet — this is the
@@ -36,7 +37,9 @@ const app = initializeApp(firebaseConfig);
 export const auth = initializeAuth(app, {
   persistence: [indexedDBLocalPersistence, browserLocalPersistence],
 });
-export const db = getFirestore(app);
+// This project's Firestore was created as a named database with id "default"
+// (not the special "(default)" database), so reference it by name.
+export const db = getFirestore(app, "default");
 
 console.log("[Everwise][firebase] initializeApp complete; auth and db ready.");
 
