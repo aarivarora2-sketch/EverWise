@@ -1,10 +1,21 @@
 import { createServer } from "node:http";
+import { createFirebaseTokenVerifier } from "./server/firebaseTokenVerifier.mjs";
+import { createPartnerApi } from "./server/partnerApi.mjs";
+import { createPartnerStore } from "./server/partnerStore.mjs";
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 8787);
 const ELEVENLABS_VOICE_ID =
   process.env.ELEVENLABS_VOICE_ID || "Gfpl8Yo74Is0W6cPUWWT";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const partnerStorePath =
+  process.env.EVERWISE_PARTNER_STORE_PATH ||
+  "/var/lib/everwise/partners.json";
+const partnerStore = createPartnerStore({ filePath: partnerStorePath });
+const { verifyIdToken } = createFirebaseTokenVerifier({
+  projectId: "everwise-46cf0",
+});
+const partnerApi = createPartnerApi({ store: partnerStore, verifyIdToken });
 
 const scamAssessmentSchema = {
   type: "object",
@@ -207,13 +218,18 @@ const server = createServer(async (request, response) => {
     const pathname = new URL(request.url, "http://localhost").pathname;
 
     if (request.method === "GET" && pathname === "/healthz") {
+      const partnerHealth = await partnerStore.health();
       jsonResponse(response, 200, {
         ok: true,
         readAloudConfigured: Boolean(process.env.ELEVENLABS_API_KEY),
         scamCheckerConfigured: Boolean(process.env.OPENAI_API_KEY),
+        partnerAccessConfigured: partnerHealth.configured,
+        partnerStoreHealthy: partnerHealth.healthy,
       });
       return;
     }
+
+    if (await partnerApi.handle(request, response, pathname)) return;
 
     if (request.method !== "POST") {
       textResponse(response, 405, "Method not allowed");

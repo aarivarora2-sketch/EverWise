@@ -1,0 +1,612 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { createPartnerApi } from "../server/partnerApi.mjs";
+import { createPartnerStore } from "../server/partnerStore.mjs";
+
+const PARTNER_PATHS = [
+  "/api/partner/preview",
+  "/api/partner/claim",
+  "/api/partner/access",
+  "/api/partner/release-intent",
+  "/api/partner/release-cancel",
+  "/api/partner/release-confirm",
+  "/api/partner/admin/report",
+  "/api/partner/admin/rotate-invite",
+];
+
+const BRANDING = {
+  name: "Community Partner",
+  logoPath: null,
+  accent: "#2F6B61",
+};
+
+const AUTHORIZATION = {
+  "Content-Type": "application/json",
+  Authorization: "Bearer learner-token",
+};
+
+function researchSnapshot(overrides = {}) {
+  return {
+    ageBand: "70-79",
+    internetUse: "Every day",
+    primaryDevice: "Tablet",
+    confidence: "Sometimes I need help",
+    scamFrequency: "few",
+    concerns: ["Suspicious links"],
+    safeBankChoice: true,
+    aiExperience: "I’ve heard of it",
+    accessibilityNeeds: ["Vision loss"],
+    consentedAt: "2026-08-02T12:00:00.000Z",
+    assessmentVersion: "partner-assessment-v1",
+    ...overrides,
+  };
+}
+
+async function setupApi(t, { seatLimit = 5 } = {}) {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-partner-api-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let currentTime = Date.parse("2026-08-02T12:00:00.000Z");
+  const now = () => new Date(currentTime);
+  const store = createPartnerStore({
+    filePath: join(directory, "partners.json"),
+    now,
+    testOnlyAllowCustomSeatLimits: true,
+  });
+  const created = await store.createPartner({
+    partnerId: "pilot",
+    name: "Community Partner",
+    seatLimit,
+    branding: BRANDING,
+  });
+  const tokenUids = new Map([
+    ["learner-token", "learner-uid"],
+    ["second-learner-token", "second-learner-uid"],
+  ]);
+  const verifyIdToken = async (token) => {
+    const uid = tokenUids.get(token);
+    if (!uid) throw new Error("invalid Firebase token containing private detail");
+    return { uid, email: `${uid}@private.example`, authTime: 1_775_304_000 };
+  };
+  const api = createPartnerApi({ store, verifyIdToken, now });
+  const server = createServer(async (request, response) => {
+    const pathname = new URL(request.url, "http://localhost").pathname;
+    if (!(await api.handle(request, response, pathname))) {
+      response.writeHead(404).end("not found");
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  const request = async (pathname, {
+    method = "POST",
+    body = {},
+    headers = { "Content-Type": "application/json" },
+  } = {}) => {
+    const response = await fetch(`http://127.0.0.1:${address.port}${pathname}`, {
+      method,
+      headers,
+      ...(method === "GET" || method === "HEAD"
+        ? {}
+        : { body: typeof body === "string" ? body : JSON.stringify(body) }),
+    });
+    const text = await response.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // Method and ownership checks do not require a JSON body from the fallback.
+    }
+    return { response, text, json };
+  };
+  return {
+    api,
+    store,
+    created,
+    request,
+    advance(milliseconds) {
+      currentTime += milliseconds;
+    },
+  };
+}
+
+function assertSecurityHeaders(response) {
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+}
+
+function assertGenericError(json, code) {
+  assert.equal(json.code, code);
+  assert.equal(typeof json.message, "string");
+  const serialized = JSON.stringify(json);
+  assert.equal(serialized.includes("pilot"), false);
+  assert.equal(serialized.includes("Community Partner"), false);
+  assert.equal(serialized.includes("private.example"), false);
+}
+
+async function directRequest(api, {
+  pathname,
+  body,
+  remoteAddress,
+  forwardedFor,
+}) {
+  const request = Readable.from([Buffer.from(JSON.stringify(body))]);
+  request.method = "POST";
+  request.headers = {
+    "content-type": "application/json",
+    ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+  };
+  Object.defineProperty(request, "socket", {
+    value: { remoteAddress },
+  });
+  let statusCode;
+  let headers;
+  let text = "";
+  const response = {
+    writeHead(status, responseHeaders) {
+      statusCode = status;
+      headers = responseHeaders;
+      return this;
+    },
+    end(chunk = "") {
+      text += chunk;
+    },
+  };
+  const owned = await api.handle(request, response, pathname);
+  return {
+    owned,
+    statusCode,
+    headers,
+    json: text ? JSON.parse(text) : null,
+  };
+}
+
+async function reservePort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+async function waitForServer(child, url, stderr) {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`server exited before listening: ${stderr()}`);
+    }
+    try {
+      return await fetch(url);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error(`server did not listen in time: ${stderr()}`);
+}
+
+test("owns exactly the eight partner routes and rejects non-POST methods", async (t) => {
+  const { api, request } = await setupApi(t);
+  const unknown = await directRequest(api, {
+    pathname: "/api/partner/not-a-route",
+    body: {},
+    remoteAddress: "127.0.0.1",
+  });
+  assert.equal(unknown.owned, false);
+
+  for (const pathname of PARTNER_PATHS) {
+    const { response, json } = await request(pathname, { method: "GET" });
+    assert.equal(response.status, 405, pathname);
+    assert.equal(json.code, "METHOD_NOT_ALLOWED", pathname);
+    assertSecurityHeaders(response);
+  }
+});
+
+test("bounds JSON bodies at 25 KB and rejects malformed JSON", async (t) => {
+  const { request } = await setupApi(t);
+  const tooLarge = await request("/api/partner/preview", {
+    body: { inviteToken: "a".repeat(25_001) },
+  });
+  assert.equal(tooLarge.response.status, 413);
+  assert.equal(tooLarge.json.code, "PAYLOAD_TOO_LARGE");
+  assertSecurityHeaders(tooLarge.response);
+
+  const malformed = await request("/api/partner/preview", { body: "{not json" });
+  assert.equal(malformed.response.status, 400);
+  assert.equal(malformed.json.code, "INVALID_JSON");
+  assertSecurityHeaders(malformed.response);
+});
+
+test("previews valid invitations and returns generic invalid and suspended errors", async (t) => {
+  const { store, created, request } = await setupApi(t);
+  const valid = await request("/api/partner/preview", {
+    body: { inviteToken: created.inviteToken },
+  });
+  assert.equal(valid.response.status, 200);
+  assert.deepEqual(valid.json, {
+    partnerId: "pilot",
+    branding: BRANDING,
+    seatAvailable: true,
+  });
+  assertSecurityHeaders(valid.response);
+
+  const invalid = await request("/api/partner/preview", {
+    body: { inviteToken: "not-an-invite" },
+  });
+  assert.equal(invalid.response.status, 400);
+  assertGenericError(invalid.json, "INVALID_INVITE");
+
+  await store.setPartnerStatus({ partnerId: "pilot", status: "suspended" });
+  const suspended = await request("/api/partner/preview", {
+    body: { inviteToken: created.inviteToken },
+  });
+  assert.equal(suspended.response.status, 403);
+  assertGenericError(suspended.json, "PARTNER_SUSPENDED");
+});
+
+test("requires a valid Authorization bearer for every authenticated learner route", async (t) => {
+  const { request } = await setupApi(t);
+  const authenticatedRoutes = [
+    "/api/partner/claim",
+    "/api/partner/access",
+    "/api/partner/release-intent",
+    "/api/partner/release-cancel",
+  ];
+  for (const pathname of authenticatedRoutes) {
+    for (const headers of [
+      { "Content-Type": "application/json" },
+      { "Content-Type": "application/json", Authorization: "Basic learner-token" },
+      { "Content-Type": "application/json", Authorization: "Bearer invalid-token" },
+    ]) {
+      const result = await request(pathname, {
+        headers,
+        body: { idToken: "learner-token" },
+      });
+      assert.equal(result.response.status, 401, pathname);
+      assertGenericError(result.json, "UNAUTHENTICATED");
+      assert.equal(JSON.stringify(result.json).includes("invalid-token"), false);
+      assertSecurityHeaders(result.response);
+    }
+  }
+});
+
+test("supports claim, returning access, release cancellation, and receipt-only confirmation", async (t) => {
+  const { store, created, request } = await setupApi(t);
+  const claim = await request("/api/partner/claim", {
+    headers: AUTHORIZATION,
+    body: {
+      inviteToken: created.inviteToken,
+      researchConsent: false,
+      researchSnapshot: { email: "must-not-be-stored@example.com" },
+    },
+  });
+  assert.equal(claim.response.status, 200);
+  assert.deepEqual(claim.json, {
+    status: "active",
+    partnerId: "pilot",
+    name: "Community Partner",
+    branding: BRANDING,
+  });
+
+  const access = await request("/api/partner/access", {
+    headers: AUTHORIZATION,
+  });
+  assert.equal(access.response.status, 200);
+  assert.deepEqual(access.json, claim.json);
+
+  const firstIntent = await request("/api/partner/release-intent", {
+    headers: AUTHORIZATION,
+  });
+  assert.equal(firstIntent.response.status, 200);
+  assert.match(firstIntent.json.receipt, /^[A-Za-z0-9_-]{43}$/);
+
+  const cancelled = await request("/api/partner/release-cancel", {
+    headers: AUTHORIZATION,
+    body: { receipt: firstIntent.json.receipt },
+  });
+  assert.equal(cancelled.response.status, 200);
+  assert.deepEqual(cancelled.json, { cancelled: true });
+  assert.equal((await store.getAccess("learner-uid")).status, "active");
+
+  const retryIntent = await request("/api/partner/release-intent", {
+    headers: AUTHORIZATION,
+  });
+  const confirmed = await request("/api/partner/release-confirm", {
+    body: { receipt: retryIntent.json.receipt },
+  });
+  assert.equal(confirmed.response.status, 200);
+  assert.deepEqual(confirmed.json, { released: true, idempotent: false });
+  assert.equal((await store.getAccess("learner-uid")).status, "none");
+
+  const idempotent = await request("/api/partner/release-confirm", {
+    body: { receipt: retryIntent.json.receipt },
+  });
+  assert.equal(idempotent.response.status, 200);
+  assert.deepEqual(idempotent.json, { released: true, idempotent: true });
+});
+
+test("maps full, suspended, and invalid-receipt store failures to stable safe codes", async (t) => {
+  const { store, created, request } = await setupApi(t, { seatLimit: 1 });
+  await request("/api/partner/claim", {
+    headers: AUTHORIZATION,
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+  const full = await request("/api/partner/claim", {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer second-learner-token",
+    },
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+  assert.equal(full.response.status, 409);
+  assertGenericError(full.json, "PARTNER_FULL");
+
+  await store.setPartnerStatus({ partnerId: "pilot", status: "suspended" });
+  const suspended = await request("/api/partner/claim", {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer second-learner-token",
+    },
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+  assert.equal(suspended.response.status, 403);
+  assertGenericError(suspended.json, "PARTNER_SUSPENDED");
+
+  const invalidReceipt = await request("/api/partner/release-confirm", {
+    body: { receipt: "not-a-receipt" },
+  });
+  assert.equal(invalidReceipt.response.status, 400);
+  assertGenericError(invalidReceipt.json, "INVALID_RECEIPT");
+});
+
+test("returns aggregate admin reports and rotates learner invitations using body tokens", async (t) => {
+  const { created, request } = await setupApi(t);
+  const report = await request("/api/partner/admin/report", {
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(report.response.status, 200);
+  assert.equal(report.json.partnerId, "pilot");
+  assert.deepEqual(report.json.seats, { claimed: 0, available: 5, limit: 5 });
+
+  const headerOnly = await request("/api/partner/admin/report", {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${created.adminToken}`,
+    },
+    body: {},
+  });
+  assert.equal(headerOnly.response.status, 401);
+  assertGenericError(headerOnly.json, "INVALID_ADMIN");
+
+  const rotated = await request("/api/partner/admin/rotate-invite", {
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(rotated.response.status, 200);
+  assert.equal(rotated.json.partnerId, "pilot");
+  assert.match(rotated.json.inviteToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(rotated.json.inviteToken, created.inviteToken);
+
+  const oldInvite = await request("/api/partner/preview", {
+    body: { inviteToken: created.inviteToken },
+  });
+  assert.equal(oldInvite.json.code, "INVALID_INVITE");
+  const replacement = await request("/api/partner/preview", {
+    body: { inviteToken: rotated.json.inviteToken },
+  });
+  assert.equal(replacement.response.status, 200);
+});
+
+test("cooldowns one IP for ten minutes after ten invalid admin attempts", async (t) => {
+  const { created, request, advance } = await setupApi(t);
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const invalid = await request("/api/partner/admin/report", {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "203.0.113.10",
+      },
+      body: { adminToken: "invalid-admin-token" },
+    });
+    assert.equal(invalid.response.status, 401, `attempt ${attempt}`);
+    assertGenericError(invalid.json, "INVALID_ADMIN");
+  }
+  const blocked = await request("/api/partner/admin/report", {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": "203.0.113.10",
+    },
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(blocked.response.status, 429);
+  assertGenericError(blocked.json, "RATE_LIMITED");
+
+  const otherIp = await request("/api/partner/admin/report", {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": "203.0.113.11",
+    },
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(otherIp.response.status, 200);
+
+  advance(10 * 60 * 1000);
+  const recovered = await request("/api/partner/admin/report", {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": "203.0.113.10",
+    },
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(recovered.response.status, 200);
+});
+
+test("limits 30 successful reports per token and IP without limiting invite rotation", async (t) => {
+  const { created, request, advance } = await setupApi(t);
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Forwarded-For": "198.51.100.20",
+  };
+  for (let count = 1; count <= 30; count += 1) {
+    const report = await request("/api/partner/admin/report", {
+      headers,
+      body: { adminToken: created.adminToken },
+    });
+    assert.equal(report.response.status, 200, `report ${count}`);
+  }
+  const limited = await request("/api/partner/admin/report", {
+    headers,
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(limited.response.status, 429);
+  assertGenericError(limited.json, "RATE_LIMITED");
+
+  const rotation = await request("/api/partner/admin/rotate-invite", {
+    headers,
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(rotation.response.status, 200);
+
+  const otherIp = await request("/api/partner/admin/report", {
+    headers: { ...headers, "X-Forwarded-For": "198.51.100.21" },
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(otherIp.response.status, 200);
+
+  advance(60 * 1000);
+  const nextWindow = await request("/api/partner/admin/report", {
+    headers,
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(nextWindow.response.status, 200);
+});
+
+test("ignores spoofed forwarded addresses from non-loopback direct clients", async (t) => {
+  const { api, created } = await setupApi(t);
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const invalid = await directRequest(api, {
+      pathname: "/api/partner/admin/report",
+      body: { adminToken: "invalid-admin-token" },
+      remoteAddress: "198.51.100.55",
+      forwardedFor: `203.0.113.${attempt}`,
+    });
+    assert.equal(invalid.statusCode, 401);
+  }
+  const blocked = await directRequest(api, {
+    pathname: "/api/partner/admin/report",
+    body: { adminToken: created.adminToken },
+    remoteAddress: "198.51.100.55",
+    forwardedFor: "203.0.113.250",
+  });
+  assert.equal(blocked.statusCode, 429);
+  assert.equal(blocked.json.code, "RATE_LIMITED");
+});
+
+test("admin JSON contains aggregates but no token hashes, UID keys, emails, or rows", async (t) => {
+  const { store, created, request } = await setupApi(t);
+  for (let index = 1; index <= 5; index += 1) {
+    await store.claimSeat({
+      uid: `private-learner-uid-${index}`,
+      inviteToken: created.inviteToken,
+      researchConsent: true,
+      researchSnapshot: researchSnapshot({
+        primaryDevice: index % 2 === 0 ? "Computer" : "Tablet",
+      }),
+    });
+  }
+  const report = await request("/api/partner/admin/report", {
+    body: { adminToken: created.adminToken },
+  });
+  assert.equal(report.response.status, 200);
+  assert.equal(report.json.research.suppressed, false);
+  assert.deepEqual(report.json.research.distributions.primaryDevice, {
+    Computer: 2,
+    Tablet: 3,
+  });
+
+  const forbiddenKeys = [];
+  function scan(value) {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      if (/hash|uid|email|individual|submission|row/i.test(key)) {
+        forbiddenKeys.push(key);
+      }
+      scan(child);
+    }
+  }
+  scan(report.json);
+  assert.deepEqual(forbiddenKeys, []);
+  const serialized = JSON.stringify(report.json);
+  for (const secret of [
+    created.inviteToken,
+    created.adminToken,
+    "private-learner-uid-1",
+    "private-learner-uid-5",
+    "private.example",
+  ]) {
+    assert.equal(serialized.includes(secret), false);
+  }
+});
+
+test("server composes partner health without changing narration and scam-checker routes", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-partner-server-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const port = await reservePort();
+  let stderrText = "";
+  const child = spawn(process.execPath, ["server.mjs"], {
+    cwd: join(import.meta.dirname, ".."),
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      EVERWISE_PARTNER_STORE_PATH: join(directory, "partners.json"),
+      OPENAI_API_KEY: "",
+      ELEVENLABS_API_KEY: "",
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderrText += chunk;
+  });
+  t.after(() => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+  });
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const health = await waitForServer(child, `${baseUrl}/healthz`, () => stderrText);
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), {
+    ok: true,
+    readAloudConfigured: false,
+    scamCheckerConfigured: false,
+    partnerAccessConfigured: false,
+    partnerStoreHealthy: true,
+  });
+
+  const narration = await fetch(`${baseUrl}/api/read-aloud`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "Hello" }),
+  });
+  assert.equal(narration.status, 503);
+  assert.equal(await narration.text(), "Read-aloud service is not configured");
+
+  const scamCheck = await fetch(`${baseUrl}/api/check-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "Hello" }),
+  });
+  assert.equal(scamCheck.status, 503);
+  assert.deepEqual(await scamCheck.json(), {
+    error: "Scam checker is not configured",
+  });
+});
