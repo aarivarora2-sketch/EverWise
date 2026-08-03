@@ -20,13 +20,13 @@ test("DigitalOcean deployment provisions API credentials from GitHub", () => {
     workflow,
     /ELEVENLABS_VOICE_ID: \$\{\{ vars\.ELEVENLABS_VOICE_ID \}\}/,
   );
-  assert.match(workflow, /install -m 600 .*\/etc\/everwise\/runtime\.env/);
-  assert.match(workflow, /EnvironmentFile=\/etc\/everwise\/runtime\.env/);
+  assert.match(workflow, /configure-runtime/);
+  assert.match(workflow, /< "\$credentials_file"/);
+  assert.doesNotMatch(workflow, /\bscp\b/);
 });
 
-test("DigitalOcean deployment verifies both API integrations after restart", () => {
-  assert.match(workflow, /systemctl restart everwise-api\.service/);
-  assert.match(workflow, /http:\/\/127\.0\.0\.1:8787\/healthz/);
-  assert.match(workflow, /readAloudConfigured.*true/);
-  assert.match(workflow, /scamCheckerConfigured.*true/);
+test("DigitalOcean deployment verifies both API integrations through the restricted deploy command", () => {
+  assert.match(workflow, /verify-runtime/);
+  assert.doesNotMatch(workflow, /systemctl restart everwise-api\.service/);
+  assert.doesNotMatch(workflow, /root@143\.198\.64\.226\s+\\\s+"set -eu/);
 });
