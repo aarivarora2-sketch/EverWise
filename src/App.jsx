@@ -35,6 +35,7 @@ import { resolveFullAccess } from "./utils/access.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
   claimPartnerSeat,
+  fetchPartnerAccess,
   previewInvite,
 } from "./services/partnerAccess.js";
 import AppShell from "./components/AppShell";
@@ -54,6 +55,7 @@ import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
 import PartnerAccessError from "./screens/PartnerAccessError";
+import { authErrorMessage } from "./utils/authErrors.js";
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
 import {
   getCurrentEntitlement,
@@ -116,6 +118,18 @@ function codeForPartnerStatus(status) {
   return "PARTNER_UNAVAILABLE";
 }
 
+class StalePartnerOperationError extends Error {
+  constructor() {
+    super("This sponsored access operation is no longer current.");
+    this.name = "StalePartnerOperationError";
+  }
+}
+
+async function fetchAuthoritativePartnerAccess(firebaseUser) {
+  const idToken = await firebaseUser.getIdToken(true);
+  return fetchPartnerAccess({ idToken });
+}
+
 /** Ensure subscription fields exist and expire trials past 7 days. */
 async function normalizeSubscription(uid, data) {
   let next = { ...data };
@@ -152,6 +166,10 @@ export default function App() {
     return "idle";
   });
   const [partner, setPartner] = useState(null);
+  const [partnerOwnerUid, setPartnerOwnerUid] = useState(null);
+  const [partnerRecovery, setPartnerRecovery] = useState(null);
+  const [signupRetry, setSignupRetry] = useState(null);
+  const [profileCompletion, setProfileCompletion] = useState(null);
   const [partnerPreviewAttempt, setPartnerPreviewAttempt] = useState(0);
   const [pendingSponsoredInterview, setPendingSponsoredInterview] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -165,9 +183,56 @@ export default function App() {
   const [activeChallenge, setActiveChallenge] = useState(null);
   const [textSize, setTextSize] = useState(getSavedTextSize);
   const [storeProducts, setStoreProducts] = useState([]);
-  // After signup we route to the intro paywall; don't let auth state overwrite it.
-  const skipAuthHomeRef = useRef(false);
-  const preservePartnerErrorRef = useRef(false);
+  const authGenerationRef = useRef(0);
+  const currentAuthUidRef = useRef(null);
+  const operationIdRef = useRef(0);
+  const activeOperationRef = useRef(null);
+  const partnerFragmentRef = useRef(partnerFragment);
+  const partnerRecoveryRef = useRef(null);
+
+  const updatePartnerFragment = (next) => {
+    partnerFragmentRef.current = next;
+    setPartnerFragment(next);
+  };
+
+  const updatePartnerRecovery = (next) => {
+    partnerRecoveryRef.current = next;
+    setPartnerRecovery(next);
+  };
+
+  const clearAuthoritativePartner = () => {
+    setPartnerOwnerUid(null);
+    setPartner(null);
+    if (!partnerFragmentRef.current?.token) setPartnerStatus("idle");
+  };
+
+  const beginPartnerOperation = (email) => {
+    const operation = {
+      id: operationIdRef.current + 1,
+      authGeneration: authGenerationRef.current,
+      email,
+      uid: null,
+    };
+    operationIdRef.current = operation.id;
+    activeOperationRef.current = operation;
+    return operation;
+  };
+
+  const partnerOperationIsCurrent = (operation, expectedUid = null) => {
+    if (operationIdRef.current !== operation.id) return false;
+    if (authGenerationRef.current === operation.authGeneration) return true;
+    if (expectedUid && currentAuthUidRef.current === expectedUid) {
+      operation.authGeneration = authGenerationRef.current;
+      return true;
+    }
+    return false;
+  };
+
+  const finishPartnerOperation = (operation) => {
+    if (activeOperationRef.current?.id === operation.id) {
+      activeOperationRef.current = null;
+    }
+  };
 
   useEffect(() => {
     if (partnerFragment?.kind !== "learner" || !partnerFragment.token) {
@@ -185,14 +250,14 @@ export default function App() {
           setPartnerStatus("ready");
         } else {
           setPartnerStatus("full");
-          setPartnerFragment(null);
+          updatePartnerFragment(null);
         }
       })
       .catch((error) => {
         if (cancelled) return;
         const nextStatus = statusForPartnerError(error);
         setPartnerStatus(nextStatus);
-        if (nextStatus !== "unavailable") setPartnerFragment(null);
+        if (nextStatus !== "unavailable") updatePartnerFragment(null);
       });
 
     return () => {
@@ -295,38 +360,197 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async (u) => {
       receivedInitialAuthState = true;
       window.clearTimeout(startupFallback);
+      const generation = authGenerationRef.current + 1;
+      authGenerationRef.current = generation;
+      currentAuthUidRef.current = u?.uid || null;
       console.log(
         "[Everwise][auth] state changed:",
         u ? "logged in" : "no user logged in"
       );
       setUser(u);
-      if (u) {
-        try {
-          console.log("[Everwise][firestore] Loading learner profile.");
-          const snap = await getDoc(doc(db, "users", u.uid));
-          if (snap.exists()) {
-            console.log("[Everwise][firestore] Learner profile loaded.");
-            const normalized = await normalizeSubscription(u.uid, snap.data());
-            setProfile(normalized);
-            if (skipAuthHomeRef.current) {
-              skipAuthHomeRef.current = false;
-            } else {
-              setScreen("home");
+      setAuthChecked(false);
+
+      const activeOperation = activeOperationRef.current;
+      const normalizedUserEmail = u?.email?.trim().toLowerCase() || null;
+      const belongsToActiveSignup = Boolean(
+        u &&
+          activeOperation &&
+          ((activeOperation.uid && activeOperation.uid === u.uid) ||
+            (!activeOperation.uid &&
+              normalizedUserEmail &&
+              normalizedUserEmail === activeOperation.email)),
+      );
+
+      if (!u) {
+        setProfile(null);
+        setPartnerOwnerUid(null);
+        if (partnerRecoveryRef.current?.kind !== "cleanup") {
+          updatePartnerRecovery(null);
+          setPartner(null);
+          if (!partnerFragmentRef.current?.token) setPartnerStatus("idle");
+          setPendingSponsoredInterview(null);
+          setSignupRetry(null);
+          setProfileCompletion(null);
+          setScreen("landing");
+        }
+        setAuthChecked(true);
+        return;
+      }
+
+      if (!belongsToActiveSignup) {
+        setPartnerOwnerUid(null);
+        setPartner(null);
+        setPartnerStatus("idle");
+        updatePartnerRecovery(null);
+        setPendingSponsoredInterview(null);
+        setSignupRetry(null);
+        setProfileCompletion(null);
+      }
+
+      try {
+        console.log("[Everwise][firestore] Loading learner profile.");
+        const snap = await getDoc(doc(db, "users", u.uid));
+        if (
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== u.uid
+        ) {
+          return;
+        }
+        if (!snap.exists()) {
+          console.warn("[Everwise][firestore] No profile doc for this user yet.");
+          try {
+            const authoritativeAccess = await fetchAuthoritativePartnerAccess(u);
+            if (
+              generation !== authGenerationRef.current ||
+              currentAuthUidRef.current !== u.uid
+            ) {
+              return;
             }
-          } else {
-            console.warn(
-              "[Everwise][firestore] No profile doc for this user yet (uid:",
-              u.uid + ")."
-            );
+            if (authoritativeAccess.status === "active") {
+              setPartnerOwnerUid(u.uid);
+              setPartner(
+                authoritativeAccess.branding || {
+                  name: authoritativeAccess.name,
+                },
+              );
+              setPartnerStatus("active");
+              updatePartnerRecovery({
+                kind: "missing-profile",
+                user: u,
+                entitlement: authoritativeAccess,
+              });
+              setScreen("partner-error");
+            } else if (authoritativeAccess.status === "suspended") {
+              setPartnerOwnerUid(u.uid);
+              setPartner(
+                authoritativeAccess.branding || {
+                  name: authoritativeAccess.name,
+                },
+              );
+              setPartnerStatus("suspended");
+              setScreen("partner-error");
+            } else {
+              setPartnerOwnerUid(null);
+              setPartner(null);
+              setPartnerStatus("idle");
+            }
+          } catch {
+            if (
+              generation === authGenerationRef.current &&
+              currentAuthUidRef.current === u.uid
+            ) {
+              setPartnerStatus("idle");
+            }
           }
-        } catch (err) {
+          setAuthChecked(true);
+          return;
+        }
+
+        console.log("[Everwise][firestore] Learner profile loaded.");
+        const normalized = await normalizeSubscription(u.uid, snap.data());
+        if (
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== u.uid
+        ) {
+          return;
+        }
+
+        let authoritativeAccess;
+        try {
+          authoritativeAccess = await fetchAuthoritativePartnerAccess(u);
+        } catch {
+          if (
+            generation !== authGenerationRef.current ||
+            currentAuthUidRef.current !== u.uid
+          ) {
+            return;
+          }
+          const mirroredPartner =
+            normalized.accessSource === "partner" ||
+            typeof normalized.partnerId === "string";
+          if (mirroredPartner) {
+            setProfile(normalized);
+            setPartnerStatus("unavailable");
+            updatePartnerRecovery({
+              kind: "returning-access",
+              user: u,
+              profile: normalized,
+            });
+            setScreen("partner-error");
+            setAuthChecked(true);
+            return;
+          }
+          authoritativeAccess = { status: "none" };
+        }
+
+        if (
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== u.uid
+        ) {
+          return;
+        }
+
+        setProfile(normalized);
+        if (authoritativeAccess.status === "active") {
+          setPartnerOwnerUid(u.uid);
+          setPartner(
+            authoritativeAccess.branding || { name: authoritativeAccess.name },
+          );
+          setPartnerStatus("active");
+        } else if (authoritativeAccess.status === "suspended") {
+          setPartnerOwnerUid(u.uid);
+          setPartner(
+            authoritativeAccess.branding || { name: authoritativeAccess.name },
+          );
+          setPartnerStatus("suspended");
+          setScreen("partner-error");
+        } else {
+          setPartnerOwnerUid(null);
+          setPartner(null);
+          setPartnerStatus("idle");
+        }
+        updatePartnerRecovery(null);
+        if (
+          authoritativeAccess.status !== "suspended" &&
+          !belongsToActiveSignup
+        ) {
+          setScreen("home");
+        }
+      } catch (err) {
+        if (
+          generation === authGenerationRef.current &&
+          currentAuthUidRef.current === u.uid
+        ) {
           console.error("[Everwise][firestore] Failed to load profile:", err);
         }
-      } else {
-        setProfile(null);
-        if (!preservePartnerErrorRef.current) setScreen("landing");
+      } finally {
+        if (
+          generation === authGenerationRef.current &&
+          currentAuthUidRef.current === u.uid
+        ) {
+          setAuthChecked(true);
+        }
       }
-      setAuthChecked(true);
     });
     return () => {
       window.clearTimeout(startupFallback);
@@ -338,8 +562,13 @@ export default function App() {
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = isCourseComplete(completedLessons, requiredLearningIds);
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
+  const sponsoredActive = Boolean(
+    user?.uid &&
+      partnerStatus === "active" &&
+      partnerOwnerUid === user.uid,
+  );
   const access = resolveFullAccess({
-    sponsoredStatus: partnerStatus,
+    sponsoredStatus: sponsoredActive ? "active" : "none",
     subscriptionStatus,
     developmentBypass: subscriptionBypassEnabled,
   });
@@ -356,7 +585,7 @@ export default function App() {
     setScreen("path");
   };
   const goPaywall = () => {
-    if (partnerStatus === "active") {
+    if (sponsoredActive) {
       goHome();
       return;
     }
@@ -383,19 +612,24 @@ export default function App() {
   };
 
   const cleanUpFailedSponsoredSignup = async (newUser) => {
+    let deleted = false;
+    let signedOut = false;
     try {
       await deleteUser(newUser);
+      deleted = true;
     } catch (error) {
       console.error("[Everwise][auth] New account cleanup failed:", error);
     }
     try {
       await signOut(auth);
+      signedOut = true;
     } catch (error) {
       console.error("[Everwise][auth] Sign out after cleanup failed:", error);
     }
+    return { deleted, signedOut };
   };
 
-  const signUp = async (interview) => {
+  const signUp = async (interview, { fromRetry = false } = {}) => {
     const {
       name,
       email,
@@ -404,42 +638,73 @@ export default function App() {
       researchSnapshot,
       ...profileInterview
     } = interview;
+    const inviteToken = partnerFragmentRef.current?.token;
     const sponsoredSignup =
-      partnerFragment?.kind === "learner" &&
-      Boolean(partnerFragment.token) &&
+      partnerFragmentRef.current?.kind === "learner" &&
+      Boolean(inviteToken) &&
       Boolean(partner);
+    const operation = beginPartnerOperation(email);
     let sponsoredAccountCreated = false;
+    let failureHandled = false;
     try {
-      // Prevent onAuthStateChanged from jumping to Home before the plan reveal.
-      skipAuthHomeRef.current = true;
       if (sponsoredSignup) setPartnerStatus("claiming");
       console.log("[Everwise][auth] Creating learner account.");
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       sponsoredAccountCreated = sponsoredSignup;
+      operation.uid = cred.user.uid;
+      if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+        finishPartnerOperation(operation);
+        throw new StalePartnerOperationError();
+      }
       console.log("[Everwise][auth] Learner account created.");
 
       let sponsoredEntitlement = null;
       if (sponsoredSignup) {
         try {
           const idToken = await cred.user.getIdToken(true);
+          if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+            throw new StalePartnerOperationError();
+          }
           sponsoredEntitlement = await claimPartnerSeat({
             idToken,
-            inviteToken: partnerFragment.token,
+            inviteToken,
             researchConsent,
             researchSnapshot,
           });
+          if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+            throw new StalePartnerOperationError();
+          }
         } catch (claimError) {
+          if (claimError instanceof StalePartnerOperationError) throw claimError;
+          if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+            throw new StalePartnerOperationError();
+          }
+          failureHandled = true;
           const nextStatus = statusForPartnerError(claimError);
-          preservePartnerErrorRef.current = true;
-          setPendingSponsoredInterview(
-            nextStatus === "unavailable" ? interview : null,
-          );
-          await cleanUpFailedSponsoredSignup(cred.user);
+          const cleanup = await cleanUpFailedSponsoredSignup(cred.user);
+          finishPartnerOperation(operation);
+          if (!cleanup.deleted || !cleanup.signedOut) {
+            setPendingSponsoredInterview(null);
+            setSignupRetry(null);
+            setUser(cleanup.signedOut ? null : cred.user);
+            setProfile(null);
+            setPartnerStatus("unavailable");
+            updatePartnerRecovery({
+              kind: "cleanup",
+              user: cred.user,
+              cleanup,
+              originalStatus: nextStatus,
+            });
+            setScreen("partner-error");
+            throw claimError;
+          }
+          updatePartnerRecovery(null);
+          setPendingSponsoredInterview(nextStatus === "unavailable" ? interview : null);
           setUser(null);
           setProfile(null);
           setPartnerStatus(nextStatus);
           setScreen("partner-error");
-          if (nextStatus !== "unavailable") setPartnerFragment(null);
+          if (nextStatus !== "unavailable") updatePartnerFragment(null);
           throw claimError;
         }
       }
@@ -463,28 +728,74 @@ export default function App() {
           : {}),
       };
       console.log("[Everwise][firestore] Saving learner profile.");
-      await setDoc(doc(db, "users", cred.user.uid), initial);
+      try {
+        await setDoc(doc(db, "users", cred.user.uid), initial);
+      } catch (profileError) {
+        if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+          throw new StalePartnerOperationError();
+        }
+        if (sponsoredEntitlement?.status === "active") {
+          failureHandled = true;
+          finishPartnerOperation(operation);
+          setUser(cred.user);
+          setPartnerOwnerUid(cred.user.uid);
+          setPartner(
+            sponsoredEntitlement.branding || { name: sponsoredEntitlement.name },
+          );
+          setPartnerStatus("active");
+          updatePartnerFragment(null);
+          setPendingSponsoredInterview(null);
+          setSignupRetry(null);
+          updatePartnerRecovery({
+            kind: "profile-write",
+            user: cred.user,
+            profile: initial,
+            entitlement: sponsoredEntitlement,
+            busy: false,
+          });
+          setScreen("partner-error");
+        }
+        throw profileError;
+      }
+      if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
+        finishPartnerOperation(operation);
+        throw new StalePartnerOperationError();
+      }
       console.log("[Everwise][firestore] profile document created.");
 
       setUser(cred.user);
       setProfile(initial);
       if (sponsoredEntitlement?.status === "active") {
+        setPartnerOwnerUid(cred.user.uid);
         setPartnerStatus("active");
         setPartner(sponsoredEntitlement.branding || {
           name: sponsoredEntitlement.name,
         });
-        setPartnerFragment(null);
+        updatePartnerFragment(null);
         setPendingSponsoredInterview(null);
-        preservePartnerErrorRef.current = false;
+        setSignupRetry(null);
+        updatePartnerRecovery(null);
       } else {
         setPaywallVariant("subscribe");
       }
       setScreen("personal-plan");
+      finishPartnerOperation(operation);
     } catch (err) {
-      skipAuthHomeRef.current = false;
-      if (sponsoredSignup && !sponsoredAccountCreated) {
-        setPartnerStatus("ready");
+      if (err instanceof StalePartnerOperationError) {
+        finishPartnerOperation(operation);
+        throw err;
       }
+      if (sponsoredSignup && !sponsoredAccountCreated && !failureHandled) {
+        setPartnerStatus("ready");
+        setScreen("interview");
+        if (fromRetry) {
+          setSignupRetry({
+            interview,
+            error: authErrorMessage(err),
+          });
+        }
+      }
+      if (!failureHandled) finishPartnerOperation(operation);
       console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
       throw err;
     }
@@ -492,32 +803,201 @@ export default function App() {
 
   const retryPartnerAccess = () => {
     if (pendingSponsoredInterview) {
-      void signUp(pendingSponsoredInterview).catch(() => {});
+      const interview = pendingSponsoredInterview;
+      setSignupRetry({ interview, error: "" });
+      setScreen("interview");
+      setPartnerStatus("ready");
+      void signUp(interview, { fromRetry: true }).catch(() => {});
       return;
     }
     setPartnerPreviewAttempt((current) => current + 1);
   };
 
+  const retryReturningPartnerAccess = async () => {
+    const recovery = partnerRecoveryRef.current;
+    if (recovery?.kind !== "returning-access") return;
+    const { user: returningUser, profile: returningProfile } = recovery;
+    const generation = authGenerationRef.current;
+    updatePartnerRecovery({ ...recovery, busy: true });
+    setAuthChecked(false);
+    try {
+      const authoritativeAccess = await fetchAuthoritativePartnerAccess(returningUser);
+      if (
+        generation !== authGenerationRef.current ||
+        currentAuthUidRef.current !== returningUser.uid
+      ) {
+        return;
+      }
+      setProfile(returningProfile);
+      if (authoritativeAccess.status === "active") {
+        setPartnerOwnerUid(returningUser.uid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus("active");
+        updatePartnerRecovery(null);
+        setScreen("home");
+      } else if (authoritativeAccess.status === "suspended") {
+        setPartnerOwnerUid(returningUser.uid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus("suspended");
+        updatePartnerRecovery(null);
+        setScreen("partner-error");
+      } else {
+        clearAuthoritativePartner();
+        updatePartnerRecovery(null);
+        setScreen("home");
+      }
+    } catch {
+      if (
+        generation === authGenerationRef.current &&
+        currentAuthUidRef.current === returningUser.uid
+      ) {
+        setPartnerStatus("unavailable");
+        updatePartnerRecovery({ ...recovery, busy: false });
+        setScreen("partner-error");
+      }
+    } finally {
+      if (
+        generation === authGenerationRef.current &&
+        currentAuthUidRef.current === returningUser.uid
+      ) {
+        setAuthChecked(true);
+      }
+    }
+  };
+
+  const retrySponsoredProfileWrite = async () => {
+    const recovery = partnerRecoveryRef.current;
+    if (recovery?.kind !== "profile-write" || recovery.busy) return;
+    updatePartnerRecovery({ ...recovery, busy: true });
+    try {
+      await setDoc(doc(db, "users", recovery.user.uid), recovery.profile);
+      if (
+        currentAuthUidRef.current &&
+        currentAuthUidRef.current !== recovery.user.uid
+      ) {
+        return;
+      }
+      setUser(recovery.user);
+      setProfile(recovery.profile);
+      setPartnerOwnerUid(recovery.user.uid);
+      setPartner(
+        recovery.entitlement.branding || { name: recovery.entitlement.name },
+      );
+      setPartnerStatus("active");
+      updatePartnerRecovery(null);
+      setScreen("personal-plan");
+    } catch {
+      if (
+        !currentAuthUidRef.current ||
+        currentAuthUidRef.current === recovery.user.uid
+      ) {
+        updatePartnerRecovery({ ...recovery, busy: false });
+      }
+    }
+  };
+
+  const startMissingProfileCompletion = () => {
+    const recovery = partnerRecoveryRef.current;
+    if (recovery?.kind !== "missing-profile") return;
+    setProfileCompletion({
+      user: recovery.user,
+      entitlement: recovery.entitlement,
+    });
+    updatePartnerRecovery(null);
+    setScreen("interview");
+  };
+
+  const completeMissingSponsoredProfile = async (interview) => {
+    const completion = profileCompletion;
+    if (!completion) return;
+    const {
+      name,
+      email: _email,
+      password: _password,
+      researchConsent: _researchConsent,
+      researchSnapshot: _researchSnapshot,
+      ...profileInterview
+    } = interview;
+    const initial = {
+      name,
+      email: completion.user.email || interview.email || "",
+      profileInterview,
+      onboardingCompleted: true,
+      scamsCaught: 0,
+      badges: [],
+      completedLessons: [],
+      trialStartedAt: null,
+      subscriptionStatus: "expired",
+      plan: null,
+      accessSource: "partner",
+      partnerId: completion.entitlement.partnerId,
+    };
+    try {
+      await setDoc(doc(db, "users", completion.user.uid), initial);
+      if (
+        currentAuthUidRef.current &&
+        currentAuthUidRef.current !== completion.user.uid
+      ) {
+        throw new StalePartnerOperationError();
+      }
+      setProfile(initial);
+      setPartnerOwnerUid(completion.user.uid);
+      setPartner(
+        completion.entitlement.branding || {
+          name: completion.entitlement.name,
+        },
+      );
+      setPartnerStatus("active");
+      setProfileCompletion(null);
+      updatePartnerRecovery(null);
+      setScreen("personal-plan");
+    } catch (error) {
+      if (!(error instanceof StalePartnerOperationError)) {
+        setProfileCompletion(null);
+        updatePartnerRecovery({
+          kind: "profile-write",
+          user: completion.user,
+          profile: initial,
+          entitlement: completion.entitlement,
+          busy: false,
+        });
+        setScreen("partner-error");
+      }
+      throw error;
+    }
+  };
+
+  const retryCleanupSignOut = async () => {
+    const recovery = partnerRecoveryRef.current;
+    if (recovery?.kind !== "cleanup" || recovery.busy) return;
+    updatePartnerRecovery({ ...recovery, busy: true });
+    try {
+      await signOut(auth);
+      const nextRecovery = {
+        ...recovery,
+        cleanup: { ...recovery.cleanup, signedOut: true },
+        busy: false,
+      };
+      setUser(null);
+      setProfile(null);
+      setPartnerOwnerUid(null);
+      updatePartnerRecovery(nextRecovery);
+      setPartnerStatus("unavailable");
+      setScreen("partner-error");
+    } catch {
+      updatePartnerRecovery({ ...recovery, busy: false });
+    }
+  };
+
   const logIn = async (email, password) => {
     try {
       console.log("[Everwise][auth] Signing in learner account.");
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email, password);
       console.log("[Everwise][auth] Learner account signed in.");
-
-      console.log("[Everwise][firestore] Loading learner profile.");
-      const snap = await getDoc(doc(db, "users", cred.user.uid));
-      if (snap.exists()) {
-        console.log("[Everwise][firestore] Learner profile loaded.");
-        const normalized = await normalizeSubscription(
-          cred.user.uid,
-          snap.data()
-        );
-        setProfile(normalized);
-      } else {
-        console.warn("[Everwise][firestore] Signed in but no profile doc found.");
-      }
-      setUser(cred.user);
-      setScreen("home");
     } catch (err) {
       console.error("[Everwise][auth] Log in failed:", err.code, err.message);
       throw err;
@@ -525,10 +1005,26 @@ export default function App() {
   };
 
   const logOut = async () => {
+    operationIdRef.current += 1;
+    activeOperationRef.current = null;
     try {
       console.log("[Everwise][auth] signOut");
       await signOut(auth);
       console.log("[Everwise][auth] signed out.");
+      authGenerationRef.current += 1;
+      currentAuthUidRef.current = null;
+      setUser(null);
+      setProfile(null);
+      setPartnerOwnerUid(null);
+      setPartner(null);
+      setPartnerStatus("idle");
+      updatePartnerFragment(null);
+      updatePartnerRecovery(null);
+      setPendingSponsoredInterview(null);
+      setSignupRetry(null);
+      setProfileCompletion(null);
+      setAuthChecked(true);
+      setScreen("landing");
     } catch (err) {
       console.error("[Everwise][auth] Sign out failed:", err);
     }
@@ -748,6 +1244,66 @@ export default function App() {
     );
   }
 
+  if (partnerRecovery?.kind === "returning-access") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerAccessError
+          code="PARTNER_ACCESS_UNCONFIRMED"
+          partnerName={partner?.name}
+          onRetry={retryReturningPartnerAccess}
+          onLogOut={logOut}
+        />
+      </AppShell>
+    );
+  }
+
+  if (partnerRecovery?.kind === "profile-write") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerAccessError
+          code="PARTNER_PROFILE_INCOMPLETE"
+          partnerName={partner?.name}
+          onRetry={retrySponsoredProfileWrite}
+          retryLabel={
+            partnerRecovery.busy ? "Saving profile…" : "Retry saving profile"
+          }
+        />
+      </AppShell>
+    );
+  }
+
+  if (partnerRecovery?.kind === "missing-profile") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerAccessError
+          code="PARTNER_PROFILE_MISSING"
+          partnerName={partner?.name}
+          onRetry={startMissingProfileCompletion}
+          retryLabel="Complete my profile"
+          onLogOut={logOut}
+        />
+      </AppShell>
+    );
+  }
+
+  if (partnerRecovery?.kind === "cleanup") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerAccessError
+          code="PARTNER_CLEANUP_INCOMPLETE"
+          partnerName={partner?.name}
+          onLogOut={
+            partnerRecovery.cleanup.signedOut ? null : retryCleanupSignOut
+          }
+          logOutLabel={
+            partnerRecovery.busy ? "Logging out…" : "Try to log out"
+          }
+          showSupport
+        />
+      </AppShell>
+    );
+  }
+
   if (["invalid", "full", "suspended", "unavailable"].includes(partnerStatus)) {
     return (
       <AppShell screen="partner-error">
@@ -774,14 +1330,49 @@ export default function App() {
     case "interview":
       content = (
         <ProfileInterview
+          key={
+            profileCompletion
+              ? "missing-profile-completion"
+              : signupRetry
+                ? "sponsored-retry"
+                : "new-interview"
+          }
           partner={
-            partnerStatus === "ready" || partnerStatus === "claiming"
+            profileCompletion ||
+            partnerStatus === "ready" ||
+            partnerStatus === "claiming"
               ? partner
               : null
           }
-          onComplete={signUp}
-          onBack={() => setScreen("landing")}
-          onLogIn={() => setScreen("login")}
+          initialInterview={signupRetry?.interview || null}
+          existingAccountEmail={profileCompletion?.user.email || ""}
+          externalBusy={partnerStatus === "claiming"}
+          externalError={signupRetry?.error || ""}
+          onComplete={
+            profileCompletion ? completeMissingSponsoredProfile : signUp
+          }
+          onBack={() => {
+            if (profileCompletion) {
+              updatePartnerRecovery({
+                kind: "missing-profile",
+                user: profileCompletion.user,
+                entitlement: profileCompletion.entitlement,
+              });
+              setProfileCompletion(null);
+              setScreen("partner-error");
+              return;
+            }
+            operationIdRef.current += 1;
+            activeOperationRef.current = null;
+            setSignupRetry(null);
+            setScreen("landing");
+          }}
+          onLogIn={() => {
+            operationIdRef.current += 1;
+            activeOperationRef.current = null;
+            setSignupRetry(null);
+            setScreen("login");
+          }}
         />
       );
       break;
@@ -821,6 +1412,8 @@ export default function App() {
     case "settings":
       content = (
         <Settings
+          sponsored={sponsoredActive}
+          partner={sponsoredActive ? partner : null}
           subscriptionStatus={subscriptionStatus}
           trialStartedAt={profile?.trialStartedAt}
           plan={profile?.plan ?? null}
@@ -855,9 +1448,9 @@ export default function App() {
       content = (
         <PersonalPlan
           profile={profile}
-          sponsored={partnerStatus === "active"}
+          sponsored={sponsoredActive}
           onContinue={() => {
-            if (partnerStatus === "active") goHome();
+            if (sponsoredActive) goHome();
             else {
               setPaywallVariant("subscribe");
               setScreen("paywall");

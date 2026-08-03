@@ -38,6 +38,8 @@ function Row({ label, value, onClick, hint }) {
 }
 
 export default function Settings({
+  sponsored = false,
+  partner = null,
   subscriptionStatus,
   trialStartedAt,
   plan,
@@ -108,31 +110,43 @@ export default function Settings({
       </div>
 
       <div className="settings-grid">
-      <section className="settings-section settings-subscription mt-8 space-y-3">
-        <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
-          Subscription
-        </p>
-        <Row
-          label="Status"
-          value={statusText}
-          hint={statusDetail}
-        />
-        {subscriptionStatus === "active" ? (
-          <Row
-            label="Manage subscription"
-            onClick={onManageSubscription}
-            hint="Open Apple subscription settings"
-          />
+        {sponsored ? (
+          <section className="settings-section settings-subscription mt-8 space-y-3">
+            <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Access
+            </p>
+            <div className="rounded-2xl bg-cream-card px-5 py-5 shadow-card">
+              <p className="text-xl font-semibold text-ink">
+                Full access provided by {partner?.name || "your community partner"}
+              </p>
+              <p className="mt-1 text-lg text-ink-soft">
+                No subscription or payment is required.
+              </p>
+            </div>
+          </section>
         ) : (
-          <Row
-            label="Start free trial"
-            onClick={onOpenPaywall}
-            hint="See your options"
-          />
+          <section className="settings-section settings-subscription mt-8 space-y-3">
+            <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Subscription
+            </p>
+            <Row label="Status" value={statusText} hint={statusDetail} />
+            {subscriptionStatus === "active" ? (
+              <Row
+                label="Manage subscription"
+                onClick={onManageSubscription}
+                hint="Open Apple subscription settings"
+              />
+            ) : (
+              <Row
+                label="Start free trial"
+                onClick={onOpenPaywall}
+                hint="See your options"
+              />
+            )}
+          </section>
         )}
-      </section>
 
-      <section className="settings-section settings-account mt-8 space-y-3">
+        <section className="settings-section settings-account mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Account
         </p>
@@ -190,9 +204,9 @@ export default function Settings({
             </div>
           </div>
         )}
-      </section>
+        </section>
 
-      <section className="settings-section settings-legal mt-8 space-y-3">
+        <section className="settings-section settings-legal mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Legal
         </p>
@@ -204,7 +218,7 @@ export default function Settings({
           label="Terms of Service"
           onClick={() => openLegalPage("terms")}
         />
-      </section>
+        </section>
       </div>
 
       {notice ? (

@@ -145,32 +145,49 @@ function HelpfulNote({ children }) {
 
 export default function ProfileInterview({
   partner = null,
+  initialInterview = null,
+  existingAccountEmail = "",
+  externalBusy = false,
+  externalError = "",
   onComplete,
   onBack,
   onLogIn,
 }) {
   const contentRef = useRef(null);
-  const stepIds = partner ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
+  const stepIds =
+    partner && !existingAccountEmail ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
   const totalSteps = stepIds.length;
-  const [stepIndex, setStepIndex] = useState(0);
-  const [name, setName] = useState("");
-  const [age, setAge] = useState("");
-  const [internetUse, setInternetUse] = useState("");
-  const [primaryDevice, setPrimaryDevice] = useState("");
-  const [confidence, setConfidence] = useState("");
-  const [scamFrequency, setScamFrequency] = useState("");
-  const [concerns, setConcerns] = useState([]);
-  const [scamScenario, setScamScenario] = useState("");
-  const [aiExperience, setAiExperience] = useState("");
-  const [accessibilityNeeds, setAccessibilityNeeds] = useState([]);
-  const [trustedContact, setTrustedContact] = useState("");
-  const [researchConsent, setResearchConsent] = useState(null);
-  const [email, setEmail] = useState("");
+  const initial = initialInterview || {};
+  const [stepIndex, setStepIndex] = useState(
+    initialInterview ? totalSteps - 1 : 0,
+  );
+  const [name, setName] = useState(initial.name || "");
+  const [age, setAge] = useState(
+    initial.age == null ? "" : String(initial.age),
+  );
+  const [internetUse, setInternetUse] = useState(initial.internetUse || "");
+  const [primaryDevice, setPrimaryDevice] = useState(initial.primaryDevice || "");
+  const [confidence, setConfidence] = useState(initial.confidence || "");
+  const [scamFrequency, setScamFrequency] = useState(initial.scamFrequency || "");
+  const [concerns, setConcerns] = useState(initial.concerns || []);
+  const [scamScenario, setScamScenario] = useState(initial.scamScenario || "");
+  const [aiExperience, setAiExperience] = useState(initial.aiExperience || "");
+  const [accessibilityNeeds, setAccessibilityNeeds] = useState(
+    initial.accessibilityNeeds || [],
+  );
+  const [trustedContact, setTrustedContact] = useState(initial.trustedContact || "");
+  const [researchConsent, setResearchConsent] = useState(
+    initial.researchConsent ?? null,
+  );
+  const [email, setEmail] = useState(
+    existingAccountEmail || initial.email || "",
+  );
   const [emailTouched, setEmailTouched] = useState(false);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(initial.password || "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const isBusy = busy || externalBusy;
 
   const step = stepIds[stepIndex];
   const progress = useMemo(
@@ -223,6 +240,7 @@ export default function ProfileInterview({
       return "Please choose Yes or No before continuing.";
     }
     if (step === 12) {
+      if (existingAccountEmail) return "";
       setEmailTouched(true);
       if (!email.trim()) return "Please enter your email.";
       if (!isValidEmail(email)) {
@@ -236,6 +254,7 @@ export default function ProfileInterview({
   };
 
   const submit = async () => {
+    if (isBusy) return;
     const nextError = validateStep();
     if (nextError) {
       setError(nextError);
@@ -266,7 +285,7 @@ export default function ProfileInterview({
         accessibilityNeeds,
         trustedContact,
       };
-      if (partner) {
+      if (partner && !existingAccountEmail) {
         interview.researchConsent = researchConsent;
         interview.researchSnapshot = buildResearchSnapshot(interview, {
           consent: researchConsent,
@@ -281,6 +300,7 @@ export default function ProfileInterview({
   };
 
   const skip = () => {
+    if (isBusy) return;
     setError("");
     setShowHelp(false);
     if (stepIndex < totalSteps - 1) {
@@ -289,6 +309,7 @@ export default function ProfileInterview({
   };
 
   const previous = () => {
+    if (isBusy) return;
     setError("");
     setShowHelp(false);
     if (stepIndex === 0) onBack();
@@ -308,6 +329,7 @@ export default function ProfileInterview({
           <button
             type="button"
             onClick={previous}
+            disabled={isBusy}
             className="flex h-11 w-11 items-center justify-center rounded-full text-ink hover:bg-ink/5"
             aria-label={
               stepIndex === 0 ? "Back to welcome" : "Previous question"
@@ -322,6 +344,7 @@ export default function ProfileInterview({
             <button
               type="button"
               onClick={skip}
+              disabled={isBusy}
               className="min-h-11 text-base font-bold text-ink-soft underline decoration-transparent underline-offset-4 hover:decoration-current"
             >
               Skip
@@ -357,7 +380,9 @@ export default function ProfileInterview({
                 : step === "consent"
                   ? "Your choice about research"
                 : step === 12
-                  ? "Save your personal plan"
+                  ? existingAccountEmail
+                    ? "Finish your personal profile"
+                    : "Save your personal plan"
                   : question.split("?")[0] + (question.includes("?") ? "?" : "")}
             </h1>
             {step === 1 ? (
@@ -368,8 +393,9 @@ export default function ProfileInterview({
             ) : null}
             {step === 12 ? (
               <p className="mt-3 text-lg leading-relaxed text-ink-soft">
-                Create a secure account so your answers and lesson progress stay
-                available.
+                {existingAccountEmail
+                  ? "Your secure account and sponsored access are already active. Finish these answers to rebuild your personal plan."
+                  : "Create a secure account so your answers and lesson progress stay available."}
               </p>
             ) : null}
           </div>
@@ -565,51 +591,64 @@ export default function ProfileInterview({
 
         {step === 12 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
-              <Field
-                id="profile-email"
-                label="Email"
-                type="email"
-                value={email}
-                onChange={setEmail}
-                onBlur={() => setEmailTouched(true)}
-                autoComplete="email"
-                placeholder="jane@example.com"
-                inputMode="email"
-                ariaInvalid={emailTouched && !isValidEmail(email)}
-                describedBy="profile-email-help"
-              />
-              <p
-                id="profile-email-help"
-                className={`-mt-3 text-base font-semibold ${
-                  emailTouched && !isValidEmail(email)
-                    ? "text-alert"
-                    : "text-ink-soft"
-                }`}
-                role={emailTouched && !isValidEmail(email) ? "alert" : undefined}
-              >
-                {emailTouched && !isValidEmail(email)
-                  ? "Enter a complete address like name@example.com."
-                  : "We’ll use this address to save your account."}
-              </p>
-            <Field
-              id="profile-password"
-              label="Choose a password"
-              type="password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="new-password"
-              placeholder="At least 6 characters"
-            />
-            <p className="text-center text-base text-ink-soft">
-              Already have an account?{" "}
-              <button
-                type="button"
-                onClick={onLogIn}
-                className="font-bold text-clay underline underline-offset-4"
-              >
-                Log in
-              </button>
-            </p>
+            {existingAccountEmail ? (
+              <div className="rounded-2xl bg-cream-card px-5 py-5 text-lg leading-relaxed text-ink shadow-card">
+                <p className="font-bold">Account ready</p>
+                <p className="mt-1">
+                  We will save this profile to your existing account. You do not
+                  need to enter your password or claim another sponsored place.
+                </p>
+              </div>
+            ) : (
+              <>
+                <Field
+                  id="profile-email"
+                  label="Email"
+                  type="email"
+                  value={email}
+                  onChange={setEmail}
+                  onBlur={() => setEmailTouched(true)}
+                  autoComplete="email"
+                  placeholder="jane@example.com"
+                  inputMode="email"
+                  ariaInvalid={emailTouched && !isValidEmail(email)}
+                  describedBy="profile-email-help"
+                />
+                <p
+                  id="profile-email-help"
+                  className={`-mt-3 text-base font-semibold ${
+                    emailTouched && !isValidEmail(email)
+                      ? "text-alert"
+                      : "text-ink-soft"
+                  }`}
+                  role={emailTouched && !isValidEmail(email) ? "alert" : undefined}
+                >
+                  {emailTouched && !isValidEmail(email)
+                    ? "Enter a complete address like name@example.com."
+                    : "We’ll use this address to save your account."}
+                </p>
+                <Field
+                  id="profile-password"
+                  label="Choose a password"
+                  type="password"
+                  value={password}
+                  onChange={setPassword}
+                  autoComplete="new-password"
+                  placeholder="At least 6 characters"
+                />
+                <p className="text-center text-base text-ink-soft">
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={onLogIn}
+                    disabled={isBusy}
+                    className="font-bold text-clay underline underline-offset-4"
+                  >
+                    Log in
+                  </button>
+                </p>
+              </>
+            )}
           </div>
         ) : null}
 
@@ -635,12 +674,12 @@ export default function ProfileInterview({
           </p>
         ) : null}
 
-        {error ? (
+        {externalError || error ? (
           <p
             role="alert"
             className="mt-5 rounded-2xl bg-alert/12 px-5 py-4 text-lg font-semibold text-alert"
           >
-            {error}
+            {externalError || error}
           </p>
         ) : null}
       </main>
@@ -650,14 +689,18 @@ export default function ProfileInterview({
           type="button"
           className="btn-primary"
           onClick={submit}
-          disabled={busy}
+          disabled={isBusy}
         >
-          {busy
-            ? partner
-              ? "Claiming your free access…"
+          {isBusy
+            ? existingAccountEmail
+              ? "Saving your profile…"
+              : partner
+                ? "Claiming your free access…"
               : "Saving your answers…"
             : stepIndex === totalSteps - 1
-              ? "Build my plan"
+              ? existingAccountEmail
+                ? "Finish my profile"
+                : "Build my plan"
               : stepIndex === 0
                 ? "Start"
                 : "Continue"}
