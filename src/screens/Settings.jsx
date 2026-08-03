@@ -80,14 +80,13 @@ export function PartnerReleaseRecovery({ busy = false, terminal = null, onRetry 
   );
 }
 
-export function PartnerDeletionReconciliation() {
+export function PartnerDeletionReconciliation({ reconciliation = "compensation" }) {
   return (
     <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
       <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center text-center">
         <h1 className="page-title">Account deletion needs help</h1>
         <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
-          We could not safely restore your saved profile after account deletion
-          stopped. Please contact support before trying again.
+          {terminalReleaseMessage(reconciliation)}
         </p>
         <a className="btn-primary mt-8" href={`mailto:${SUPPORT_EMAIL}`}>
           Contact support
