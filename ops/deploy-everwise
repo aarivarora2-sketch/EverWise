@@ -2,6 +2,10 @@
 set -euo pipefail
 
 runtime_path="/etc/everwise/everwise.env"
+readonly MAX_COMPRESSED_UPLOAD_BYTES=$((16 * 1024 * 1024))
+readonly MAX_ARCHIVE_ENTRIES=4096
+readonly MAX_INDIVIDUAL_ENTRY_BYTES=$((8 * 1024 * 1024))
+readonly MAX_TOTAL_EXPANDED_BYTES=$((64 * 1024 * 1024))
 
 health_is_healthy() {
   local require_partner_health="${1:-false}"
@@ -116,11 +120,129 @@ unsafe_archive_entry() {
   esac
 }
 
+validate_archive_bounds() {
+  local archive_path="$1"
+  local compressed_bytes node_path
+
+  compressed_bytes="$(wc -c < "$archive_path")"
+  if [[ ! "$compressed_bytes" =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]] ||
+     (( compressed_bytes > MAX_COMPRESSED_UPLOAD_BYTES )); then
+    echo "Release archive exceeds the compressed upload limit." >&2
+    return 1
+  fi
+
+  node_path="/usr/local/bin/node"
+  if [[ ! -x "$node_path" ]]; then
+    node_path="$(command -v node)"
+  fi
+
+  "$node_path" --input-type=module - "$archive_path" \
+    "$MAX_ARCHIVE_ENTRIES" \
+    "$MAX_INDIVIDUAL_ENTRY_BYTES" \
+    "$MAX_TOTAL_EXPANDED_BYTES" <<'NODE'
+import { createReadStream } from "node:fs";
+import { createGunzip } from "node:zlib";
+
+const [archivePath, entryLimitText, entrySizeLimitText, totalSizeLimitText] =
+  process.argv.slice(2);
+const entryLimit = Number(entryLimitText);
+const entrySizeLimit = Number(entrySizeLimitText);
+const totalSizeLimit = Number(totalSizeLimitText);
+const streamSizeLimit = totalSizeLimit + entryLimit * 1024 + 1024;
+
+function invalidArchive() {
+  throw new Error("Release archive exceeds safe extraction bounds.");
+}
+
+function parseOctalSize(field) {
+  if (field[0] & 0x80) invalidArchive();
+  for (const byte of field) {
+    const isOctal = byte >= 0x30 && byte <= 0x37;
+    if (!isOctal && byte !== 0 && byte !== 0x20) invalidArchive();
+  }
+  const text = field.toString("ascii").replaceAll("\0", " ").trim();
+  if (!/^[0-7]+$/.test(text)) invalidArchive();
+  let value = 0n;
+  for (const digit of text) value = value * 8n + BigInt(digit);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) invalidArchive();
+  return Number(value);
+}
+
+let pending = Buffer.alloc(0);
+let paddedPayloadBytes = 0;
+let entries = 0;
+let expandedBytes = 0;
+let tarStreamBytes = 0;
+let zeroBlocks = 0;
+let reachedEnd = false;
+
+function consume(chunk) {
+  tarStreamBytes += chunk.length;
+  if (tarStreamBytes > streamSizeLimit) invalidArchive();
+  pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+
+  while (pending.length > 0) {
+    if (paddedPayloadBytes > 0) {
+      const consumed = Math.min(paddedPayloadBytes, pending.length);
+      pending = pending.subarray(consumed);
+      paddedPayloadBytes -= consumed;
+      if (paddedPayloadBytes > 0) return;
+      continue;
+    }
+    if (pending.length < 512) return;
+
+    const header = pending.subarray(0, 512);
+    pending = pending.subarray(512);
+    const zero = header.every((byte) => byte === 0);
+    if (zero) {
+      zeroBlocks += 1;
+      if (zeroBlocks >= 2) reachedEnd = true;
+      continue;
+    }
+    if (reachedEnd) invalidArchive();
+    zeroBlocks = 0;
+
+    entries += 1;
+    if (entries > entryLimit) invalidArchive();
+    const type = header[156];
+    if (type !== 0 && type !== 0x30 && type !== 0x35) invalidArchive();
+    const size = parseOctalSize(header.subarray(124, 136));
+    if (type === 0x35 && size !== 0) invalidArchive();
+    if (size > entrySizeLimit) invalidArchive();
+    expandedBytes += size;
+    if (expandedBytes > totalSizeLimit) invalidArchive();
+    paddedPayloadBytes = Math.ceil(size / 512) * 512;
+  }
+}
+
+const input = createReadStream(archivePath);
+const gunzip = createGunzip();
+input.pipe(gunzip);
+try {
+  for await (const chunk of gunzip) consume(chunk);
+  if (
+    paddedPayloadBytes !== 0 ||
+    pending.length !== 0 ||
+    zeroBlocks < 2 ||
+    !reachedEnd
+  ) {
+    invalidArchive();
+  }
+} catch {
+  input.destroy();
+  gunzip.destroy();
+  console.error("Release archive exceeds safe extraction bounds.");
+  process.exitCode = 1;
+}
+NODE
+}
+
 validate_release_archive() {
   local archive_path="$1"
   local archive_entry listing
   local saw_server=false saw_server_directory=false saw_script=false saw_index=false
 
+  validate_archive_bounds "$archive_path"
   tar -tzf "$archive_path" >/dev/null
 
   while IFS= read -r archive_entry; do
@@ -221,7 +343,7 @@ deploy_release() {
   }
   trap cleanup_release_files EXIT
 
-  cat > "$archive_path"
+  head -c "$((MAX_COMPRESSED_UPLOAD_BYTES + 1))" > "$archive_path"
   validate_release_archive "$archive_path"
 
   tar -xzf "$archive_path" \

@@ -9,6 +9,7 @@ const MAX_CERTIFICATE_CHARS = 16 * 1024;
 const MAX_HEADER_SEGMENT_CHARS = 4 * 1024;
 const MAX_PAYLOAD_SEGMENT_CHARS = 16 * 1024;
 const MAX_SIGNATURE_SEGMENT_CHARS = 1024;
+const CERTIFICATE_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TOKEN_CHARS =
   MAX_HEADER_SEGMENT_CHARS +
   MAX_PAYLOAD_SEGMENT_CHARS +
@@ -291,23 +292,33 @@ export function createFirebaseTokenVerifier({
   let certificateFetch = null;
 
   async function fetchCertificates() {
-    let response;
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(
+      () => controller.abort(),
+      CERTIFICATE_REQUEST_TIMEOUT_MS,
+    );
     try {
-      response = await fetchImpl(FIREBASE_CERTIFICATE_URL, {
-        method: "GET",
-        headers: { accept: "application/json" },
-      });
-    } catch {
-      throw certificateError();
+      let response;
+      try {
+        response = await fetchImpl(FIREBASE_CERTIFICATE_URL, {
+          method: "GET",
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+      } catch {
+        throw certificateError();
+      }
+      if (!response?.ok) throw certificateError();
+      const body = await readCertificateBody(response);
+      const certificates = parseCertificateBody(body);
+      const cacheControl = responseHeader(response, "cache-control");
+      const lifetimeMilliseconds = maxAgeSeconds(cacheControl) * 1000;
+      cachedCertificates = certificates;
+      cacheExpiresAt = currentTimeMilliseconds(now) + lifetimeMilliseconds;
+      return certificates;
+    } finally {
+      globalThis.clearTimeout(timeoutId);
     }
-    if (!response?.ok) throw certificateError();
-    const body = await readCertificateBody(response);
-    const certificates = parseCertificateBody(body);
-    const cacheControl = responseHeader(response, "cache-control");
-    const lifetimeMilliseconds = maxAgeSeconds(cacheControl) * 1000;
-    cachedCertificates = certificates;
-    cacheExpiresAt = currentTimeMilliseconds(now) + lifetimeMilliseconds;
-    return certificates;
   }
 
   async function getCertificates() {

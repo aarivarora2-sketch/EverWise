@@ -1,18 +1,18 @@
 import { PartnerStoreError } from "./partnerErrors.mjs";
 
-export const ASSESSMENT_VERSION = "partner-assessment-v1";
+export const ASSESSMENT_VERSION = "partner-assessment-v2";
 
 const SNAPSHOT_KEYS = [
   "accessibilityNeeds",
   "ageBand",
   "aiExperience",
   "assessmentVersion",
+  "bankSafetyCategory",
   "concerns",
   "confidence",
   "consentedAt",
   "internetUse",
   "primaryDevice",
-  "safeBankChoice",
   "scamFrequency",
 ];
 
@@ -70,6 +70,7 @@ const CATEGORIES = {
     "Another need",
     "Prefer not to say",
   ]),
+  bankSafetyCategory: new Set(["safe", "unsafe-or-other", "skipped"]),
 };
 
 function invalidResearch() {
@@ -113,10 +114,6 @@ export function minimizeResearchSnapshot(snapshot) {
   ) {
     throw invalidResearch();
   }
-  if (typeof snapshot.safeBankChoice !== "boolean") {
-    throw invalidResearch();
-  }
-
   return {
     assessmentVersion: ASSESSMENT_VERSION,
     consentedAt: snapshot.consentedAt,
@@ -126,7 +123,10 @@ export function minimizeResearchSnapshot(snapshot) {
     confidence: requireCategory("confidence", snapshot.confidence),
     scamFrequency: requireCategory("scamFrequency", snapshot.scamFrequency),
     concerns: requireCategoryArray("concerns", snapshot.concerns),
-    safeBankChoice: snapshot.safeBankChoice,
+    bankSafetyCategory: requireCategory(
+      "bankSafetyCategory",
+      snapshot.bankSafetyCategory,
+    ),
     aiExperience: requireCategory("aiExperience", snapshot.aiExperience),
     accessibilityNeeds: requireCategoryArray(
       "accessibilityNeeds",
@@ -151,8 +151,8 @@ export function aggregateResearch(records) {
     confidence: sortedCounts(snapshots.map(({ confidence }) => confidence)),
     scamFrequency: sortedCounts(snapshots.map(({ scamFrequency }) => scamFrequency)),
     concerns: sortedCounts(snapshots.flatMap(({ concerns }) => concerns)),
-    safeBankChoice: sortedCounts(
-      snapshots.map(({ safeBankChoice }) => (safeBankChoice ? "safe" : "other")),
+    bankSafetyCategory: sortedCounts(
+      snapshots.map(({ bankSafetyCategory }) => bankSafetyCategory),
     ),
     aiExperience: sortedCounts(snapshots.map(({ aiExperience }) => aiExperience)),
     accessibilityNeeds: sortedCounts(

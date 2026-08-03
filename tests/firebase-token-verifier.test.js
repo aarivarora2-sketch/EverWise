@@ -287,6 +287,49 @@ test("does not retain a failed in-flight certificate request", async () => {
   assert.equal(fetchCount, 2);
 });
 
+test("aborts Google certificate retrieval at its bounded timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  const { verifier } = setupVerifier({
+    fetchImpl: async (_url, options) => {
+      signal = options.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    },
+  });
+
+  const verification = verifier.verifyIdToken(createToken());
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.ok(signal instanceof AbortSignal);
+  t.mock.timers.tick(60_000);
+  await assert.rejects(verification, (error) => {
+    assert.equal(error.code, "INVALID_FIREBASE_TOKEN");
+    assert.equal(error.message, "Firebase signing certificates are unavailable.");
+    return true;
+  });
+  assert.equal(signal.aborted, true);
+});
+
+test("clears the certificate timeout after retrieval completes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  const { verifier } = setupVerifier({
+    fetchImpl: async (_url, options) => {
+      signal = options.signal;
+      return certificateResponse();
+    },
+  });
+
+  await verifier.verifyIdToken(createToken());
+  assert.ok(signal instanceof AbortSignal);
+  t.mock.timers.tick(60_000);
+  assert.equal(signal.aborted, false);
+});
+
 test("rejects failed, malformed, and oversized certificate responses", async () => {
   const invalidResponses = [
     certificateResponse({}, { ok: false, status: 503 }),

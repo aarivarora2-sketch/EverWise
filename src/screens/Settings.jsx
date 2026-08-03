@@ -48,6 +48,9 @@ function terminalReleaseMessage(terminal) {
   if (terminal === "storage-cleanup") {
     return "We could not safely clear the private deletion recovery record. Please contact support so it can be reconciled without exposing your information.";
   }
+  if (terminal === "deletion-status") {
+    return "We could not confirm whether Firebase deleted your account. The sponsored-place release is paused; please contact support before trying again.";
+  }
   return "We cannot safely retry the sponsored-place release. Please contact support so we can reconcile it without risking your information.";
 }
 

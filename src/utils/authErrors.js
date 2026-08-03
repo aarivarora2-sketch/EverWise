@@ -28,6 +28,8 @@ export function accountDeletionErrorMessage(error) {
   switch (code) {
     case "partner/release-preparation-failed":
       return "We could not safely prepare account deletion. Your account and progress are still here. Please try again.";
+    case "RECENT_AUTH_REQUIRED":
+      return "For your security, please log out and log back in, then try deleting your account again.";
     case "auth/invalid-credential":
     case "auth/wrong-password":
       return "That password isn't right. Please try again.";

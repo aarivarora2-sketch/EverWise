@@ -1,4 +1,4 @@
-export const ASSESSMENT_VERSION = "partner-assessment-v1";
+export const ASSESSMENT_VERSION = "partner-assessment-v2";
 
 const SAFE_BANK_SCENARIO = "Call the bank using its official number";
 const PREFER_NOT_TO_SAY = "Prefer not to say";
@@ -7,6 +7,14 @@ function categoryOrPrivateDefault(value) {
   return typeof value === "string" && value.trim()
     ? value
     : PREFER_NOT_TO_SAY;
+}
+
+function bankSafetyCategory(value) {
+  if (value === SAFE_BANK_SCENARIO) return "safe";
+  if (typeof value !== "string" || !value.trim() || value === PREFER_NOT_TO_SAY) {
+    return "skipped";
+  }
+  return "unsafe-or-other";
 }
 
 export function ageBand(age) {
@@ -42,7 +50,7 @@ export function buildResearchSnapshot(
     concerns: Array.isArray(interview.concerns)
       ? [...interview.concerns]
       : [],
-    safeBankChoice: interview.scamScenario === SAFE_BANK_SCENARIO,
+    bankSafetyCategory: bankSafetyCategory(interview.scamScenario),
     aiExperience: categoryOrPrivateDefault(interview.aiExperience),
     accessibilityNeeds: Array.isArray(interview.accessibilityNeeds)
       ? [...interview.accessibilityNeeds]

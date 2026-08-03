@@ -98,9 +98,9 @@ The current eight-step Profile Interview remains the starting assessment because
 Sponsored onboarding adds a clear consent panel before the account step:
 
 - **Required use:** “Save my answers to create my personal plan and remember my accessibility preferences.”
-- **Optional research use:** “EverWise may use a de-identified copy of my answers and learning progress to improve lessons and measure whether the program helps.”
+- **Optional research use:** “EverWise may use a minimized, pseudonymized copy of selected answers to improve lessons and measure whether the program helps.”
 
-The optional choice defaults to off. The copy states that EverWise will not sell the answers, the partner will receive only group totals, and declining will not affect free access. The learner can continue after making an explicit yes/no choice. “Prefer not to say” remains available for accessibility questions.
+The optional choice defaults to off. The copy states that EverWise will not sell the answers, the partner will receive only group totals, and declining will not affect free access. It also explains that an internal account link is retained only so EverWise can delete the research copy with the account and include it in aggregate reporting. The learner can continue after making an explicit yes/no choice. “Prefer not to say” remains available for accessibility questions.
 
 The learner's full answers remain in their private Firestore profile for personalization. The partner service stores a research snapshot only when optional consent is yes. That snapshot excludes name, email, password, exact age, raw UID in exports, trusted-person contact details, free text, and message-checker content.
 
@@ -112,7 +112,7 @@ The stored research snapshot contains:
 - confidence category;
 - scam-frequency category;
 - selected concern categories;
-- whether the safe bank-verification answer was selected;
+- bank-safety category: safe, unsafe-or-other, or skipped;
 - AI-experience category;
 - accessibility preference categories, including “prefer not to say”;
 - consent timestamp and assessment version.
@@ -144,7 +144,7 @@ Within one serialized store mutation, the server:
 8. atomically commits the file;
 9. returns the sponsored entitlement and branding.
 
-If the claim fails after Firebase account creation, the client immediately attempts to delete the new Firebase account and signs out. It explains what happened without showing a paywall. A full-seat race therefore does not silently create a paid learner.
+If the claim receives a definitive business rejection after Firebase account creation, the client immediately attempts to delete the new Firebase account and signs out. For a timeout, network failure, malformed success body, 5xx response, or other indeterminate result, it preserves the same Firebase UID, probes authoritative access, and retries the idempotent claim as needed. It never creates a replacement UID merely because a response was lost. A definitive full-seat race therefore does not silently create a paid learner.
 
 ## Returning Login and Access Resolution
 
@@ -194,13 +194,13 @@ A versioned production utility provisions partners directly against the protecte
 
 generates the learner and admin tokens internally, creates the partner record, and prints the two URLs once. Token arguments are not accepted, preventing secrets from entering shell history. Additional commands list non-sensitive partner status, rotate either token, suspend, and reactivate a partner.
 
-The exact partner name and logo are supplied when a real organization signs the pilot. Until then, production verification uses a clearly labeled disposable test partner with a two-seat limit and removes it after the test. No organization is implied to have purchased EverWise before an agreement exists.
+The exact partner name and logo are supplied when a real organization signs the pilot. Until then, production verification uses a clearly labeled disposable test partner with the required 500-seat limit and removes it after the test. Only a few disposable Firebase accounts are used for real signup, login, and deletion proof. Capacity rejection is proven by automated, file-isolated 500/501 tests; production QA never creates 500 Firebase accounts. No organization is implied to have purchased EverWise before an agreement exists.
 
 ## Account Deletion and Privacy
 
 Sponsored account deletion first requires Firebase reauthentication. After successful reauthentication, the app calls `POST /api/partner/release-intent` with the learner's Firebase ID token. The server keeps the seat active, marks a 15-minute pending deletion, and returns a high-entropy, single-use release receipt. The app then deletes the Firestore profile and Firebase account. Only after Firebase deletion succeeds does it call `POST /api/partner/release-confirm` with that receipt. Confirmation removes membership and research data and frees the seat.
 
-If Firestore or Firebase deletion fails, the still-authenticated client calls `POST /api/partner/release-cancel`. Unconfirmed intents automatically return to active after 15 minutes and continue counting against the seat limit. A confirmed receipt is idempotent so the client can safely retry after a network interruption. The receipt is stored in session storage until confirmation succeeds and expires after 24 hours; an expired orphaned receipt requires the owner-side provisioning utility to reconcile that membership.
+If Firestore deletion fails, or Firebase conclusively reports that the account still exists, the still-authenticated client calls `POST /api/partner/release-cancel` and restores the profile when necessary. If Firebase deletion may have committed but its response was lost, the client performs a conclusive account check. A confirmed missing account proceeds to release confirmation; an indeterminate check retains the durable receipt for support reconciliation and never automatically cancels or restores. Unconfirmed intents automatically return to active after 15 minutes and continue counting against the seat limit. A confirmed receipt is idempotent so the client can safely retry after a network interruption. The receipt is stored in session storage until confirmation succeeds and expires after 24 hours; an expired orphaned receipt requires the owner-side provisioning utility to reconcile that membership.
 
 The privacy policy will describe sponsored access, partner group reporting, optional research consent, categories collected, retention, deletion, and contact information. Consent version and timestamp are retained with a submission while the account exists.
 
@@ -270,18 +270,17 @@ Automated tests cover:
 
 Browser verification covers desktop and iPad layouts, keyboard-only navigation, visible focus, read-aloud controls, maximum supported text size, reduced motion, and screen-reader labels.
 
-Production verification uses a disposable two-seat partner and disposable Firebase accounts to prove:
+Production verification uses a disposable 500-seat partner and only a few disposable Firebase accounts to prove:
 
 1. co-branded invite preview;
 2. assessment and opt-out signup;
 3. unrestricted access without pricing;
 4. logout and returning login;
-5. opt-in signup and aggregate report;
-6. third-account rejection at capacity;
-7. deletion, seat release, and successful replacement claim;
-8. removal of all disposable accounts and partner data.
+5. opt-in signup and privacy-preserving report behavior below the aggregation threshold;
+6. deletion, seat release, and successful replacement claim;
+7. removal of all disposable accounts and partner data.
 
-The 500-seat invariant is proven by automated store tests and a production partner configured with `seatLimit: 500`; production QA does not create 500 real Firebase accounts.
+The 500-seat invariant and 501st-account rejection are proven by automated, file-isolated store tests and a production partner configured with `seatLimit: 500`; production QA does not create 500 real Firebase accounts.
 
 ## Rollout
 

@@ -88,6 +88,7 @@ const mocks = vi.hoisted(() => ({
   getDoc: vi.fn(),
   previewInvite: vi.fn(),
   reauthenticateWithCredential: vi.fn(),
+  reload: vi.fn(),
   setDoc: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
@@ -104,6 +105,7 @@ vi.mock("firebase/auth", () => ({
     return vi.fn();
   }),
   reauthenticateWithCredential: mocks.reauthenticateWithCredential,
+  reload: mocks.reload,
   sendPasswordResetEmail: vi.fn(),
   signInWithEmailAndPassword: mocks.signInWithEmailAndPassword,
   signOut: mocks.signOut,
@@ -925,7 +927,7 @@ describe("sponsored research choice", () => {
 
     await user.click(
       screen.getByRole("radio", {
-        name: "Yes, share a de-identified copy to improve EverWise",
+        name: "Yes, share a minimized copy to improve EverWise",
       }),
     );
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -937,7 +939,7 @@ describe("sponsored research choice", () => {
     const payload = onComplete.mock.calls[0][0];
     expect(payload.researchConsent).toBe(true);
     expect(payload.researchSnapshot).toMatchObject({
-      assessmentVersion: "partner-assessment-v1",
+      assessmentVersion: "partner-assessment-v2",
       ageBand: "70-79",
     });
     expect(payload.researchSnapshot).not.toHaveProperty("name");
@@ -1102,6 +1104,7 @@ describe("sponsored signup orchestration", () => {
     mocks.getDoc.mockReset();
     mocks.previewInvite.mockReset();
     mocks.reauthenticateWithCredential.mockReset();
+    mocks.reload.mockReset();
     mocks.setDoc.mockReset();
     mocks.signInWithEmailAndPassword.mockReset();
     mocks.signOut.mockReset();
@@ -1123,6 +1126,7 @@ describe("sponsored signup orchestration", () => {
     mocks.deleteDoc.mockResolvedValue(undefined);
     mocks.deleteUser.mockResolvedValue(undefined);
     mocks.reauthenticateWithCredential.mockResolvedValue(undefined);
+    mocks.reload.mockResolvedValue(undefined);
     mocks.signOut.mockResolvedValue(undefined);
     mocks.setDoc.mockResolvedValue(undefined);
   });
@@ -1198,6 +1202,43 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
+  test("recovers a committed claim whose successful response was lost", async () => {
+    const firebaseUser = {
+      uid: "claim-response-lost",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "same-account-token"),
+    };
+    mocks.createUserWithEmailAndPassword.mockResolvedValue({ user: firebaseUser });
+    mocks.claimPartnerSeat.mockRejectedValue(
+      new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Everwise with Community Partner");
+
+    await completeSponsoredAppInterview(
+      user,
+      "No, use my answers only for my personal plan",
+    );
+
+    expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
+    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(1);
+    expect(mocks.claimPartnerSeat).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.setDoc.mock.calls[0][1]).toMatchObject({
+      accessSource: "partner",
+      partnerId: "community-partner",
+    });
+  });
+
   test("deletes the newly created Firebase user and signs out after a full-seat claim race", async () => {
     const order = [];
     const firebaseUser = {
@@ -1259,18 +1300,16 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
-  test("retries an unavailable claim from answers kept in memory without showing pricing", async () => {
-    const firstUser = {
-      uid: "learner-retry-1",
-      getIdToken: vi.fn(async () => "first-id-token"),
+  test("retries an indeterminate claim with the same Firebase UID", async () => {
+    const firebaseUser = {
+      uid: "learner-retry-same-uid",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "same-id-token"),
     };
-    const secondUser = {
-      uid: "learner-retry-2",
-      getIdToken: vi.fn(async () => "second-id-token"),
-    };
-    mocks.createUserWithEmailAndPassword
-      .mockResolvedValueOnce({ user: firstUser })
-      .mockResolvedValueOnce({ user: secondUser });
+    mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+      await mocks.authCallback(firebaseUser);
+      return { user: firebaseUser };
+    });
     mocks.claimPartnerSeat
       .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
       .mockResolvedValueOnce({
@@ -1279,6 +1318,9 @@ describe("sponsored signup orchestration", () => {
         name: "Community Partner",
         branding: PARTNER,
       });
+    mocks.fetchPartnerAccess
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
+      .mockResolvedValueOnce({ status: "none" });
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByText("Everwise with Community Partner")).toBeVisible();
@@ -1292,7 +1334,7 @@ describe("sponsored signup orchestration", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(mocks.setDoc).toHaveBeenCalledTimes(1));
-    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(2);
+    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(1);
     expect(mocks.claimPartnerSeat.mock.calls[0][0]).toMatchObject({
       researchConsent: false,
       researchSnapshot: null,
@@ -1301,6 +1343,9 @@ describe("sponsored signup orchestration", () => {
       researchConsent: false,
       researchSnapshot: null,
     });
+    expect(mocks.claimPartnerSeat.mock.calls[1][0].idToken).toBe("same-id-token");
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
     expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
@@ -1637,6 +1682,67 @@ describe("sponsored signup orchestration", () => {
             "profile-restore",
           ],
     );
+  });
+
+  test("confirms release when Firebase deletion committed but its response was lost", async () => {
+    const receipt = "q".repeat(43);
+    mocks.beginPartnerRelease.mockResolvedValue({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+    });
+    mocks.deleteUser.mockRejectedValue({
+      code: "auth/network-request-failed",
+      message: "response lost after commit",
+    });
+    mocks.reload.mockRejectedValue({
+      code: "auth/user-not-found",
+      message: "account no longer exists",
+    });
+    const { returningUser, user } = await openReturningSponsoredSettings();
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+
+    expect(await screen.findByRole("button", { name: "Get Started" })).toBeVisible();
+    expect(mocks.reload).toHaveBeenCalledWith(returningUser);
+    expect(mocks.cancelPartnerRelease).not.toHaveBeenCalled();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(mocks.confirmPartnerRelease).toHaveBeenCalledWith({ receipt });
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_CONFIRMABLE_KEY)).toBeNull();
+  });
+
+  test("retains the receipt when Firebase deletion outcome remains indeterminate", async () => {
+    const receipt = "u".repeat(43);
+    mocks.beginPartnerRelease.mockResolvedValue({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+    });
+    mocks.deleteUser.mockRejectedValue({
+      code: "auth/network-request-failed",
+      message: "deletion response unavailable",
+    });
+    mocks.reload.mockRejectedValue({
+      code: "auth/network-request-failed",
+      message: "account lookup unavailable",
+    });
+    const { user } = await openReturningSponsoredSettings();
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+
+    expect(
+      await screen.findByText(/could not confirm whether Firebase deleted your account/i),
+    ).toBeVisible();
+    expect(mocks.cancelPartnerRelease).not.toHaveBeenCalled();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(mocks.confirmPartnerRelease).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)),
+    ).toEqual({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+      state: "prepared",
+      reconciliation: "deletion-status",
+    });
   });
 
   test("shows support reconciliation when a cancelled Firebase failure cannot restore the profile", async () => {
@@ -2728,18 +2834,20 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
   });
 
-  test("restores the prefilled sponsored account form if Retry cannot recreate Firebase auth", async () => {
+  test("keeps the same sponsored account when repeated claim reconciliation is unavailable", async () => {
     const firstUser = {
       uid: "retry-source-user",
+      email: "jane@example.com",
       getIdToken: vi.fn(async () => "first-id-token"),
     };
-    mocks.createUserWithEmailAndPassword
-      .mockResolvedValueOnce({ user: firstUser })
-      .mockRejectedValueOnce({
-        code: "auth/email-already-in-use",
-        message: "Email already in use",
-      });
+    mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+      await mocks.authCallback(firstUser);
+      return { user: firstUser };
+    });
     mocks.claimPartnerSeat.mockRejectedValue(
+      new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
+    );
+    mocks.fetchPartnerAccess.mockRejectedValue(
       new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
     );
     const user = userEvent.setup();
@@ -2751,10 +2859,11 @@ describe("sponsored signup orchestration", () => {
     );
     await user.click(await screen.findByRole("button", { name: "Retry" }));
 
-    expect(await screen.findByLabelText("Email")).toHaveValue("jane@example.com");
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "That email already has an account. Try logging in instead.",
-    );
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
@@ -3164,49 +3273,6 @@ describe("sponsored signup orchestration", () => {
     expect(mocks.getDoc).not.toHaveBeenCalled();
     expect(mocks.fetchPartnerAccess).not.toHaveBeenCalled();
     expect(mocks.setDoc).not.toHaveBeenCalled();
-  });
-
-  test("auth timing: cleanup callbacks preserve sponsored Retry identity", async () => {
-    const firstUser = {
-      uid: "cleanup-callback-user",
-      email: "jane@example.com",
-      getIdToken: vi.fn(async () => "first-id-token"),
-    };
-    const retryUser = {
-      uid: "cleanup-callback-retry-user",
-      email: "jane@example.com",
-      getIdToken: vi.fn(async () => "retry-id-token"),
-    };
-    mocks.createUserWithEmailAndPassword
-      .mockResolvedValueOnce({ user: firstUser })
-      .mockResolvedValueOnce({ user: retryUser });
-    mocks.claimPartnerSeat
-      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
-      .mockResolvedValueOnce({
-        status: "active",
-        partnerId: "community-partner",
-        name: "Community Partner",
-        branding: PARTNER,
-      });
-    mocks.deleteUser.mockImplementation(async () => {
-      await mocks.authCallback(null);
-    });
-    mocks.signOut.mockImplementation(async () => {
-      await mocks.authCallback(null);
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    await screen.findByText("Everwise with Community Partner");
-    await completeSponsoredAppInterview(
-      user,
-      "No, use my answers only for my personal plan",
-    );
-
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(mocks.claimPartnerSeat).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
-    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
   test("preserves the ordinary public signup route to plan options", async () => {

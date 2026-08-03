@@ -14,7 +14,7 @@ const DISTRIBUTION_LABELS = {
   confidence: "Online confidence",
   scamFrequency: "Scam experience",
   concerns: "Main concerns",
-  safeBankChoice: "Bank-message response",
+  bankSafetyCategory: "Bank-message response",
   aiExperience: "AI experience",
   accessibilityNeeds: "Accessibility needs",
 };

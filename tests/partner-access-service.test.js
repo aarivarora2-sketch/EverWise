@@ -16,6 +16,37 @@ const INVITE_TOKEN = "i".repeat(43);
 const ADMIN_TOKEN = "a".repeat(43);
 const RECEIPT = "r".repeat(43);
 const ID_TOKEN = "firebase.id.token";
+const BRANDING = {
+  name: "Community Partner",
+  logoPath: null,
+  accent: "#2F6B61",
+};
+const ACTIVE_ACCESS = {
+  status: "active",
+  partnerId: "community-partner",
+  name: "Community Partner",
+  branding: BRANDING,
+};
+const PREVIEW = {
+  partnerId: "community-partner",
+  branding: BRANDING,
+  seatAvailable: true,
+};
+const REPORT = {
+  partnerId: "community-partner",
+  name: "Community Partner",
+  status: "active",
+  branding: BRANDING,
+  seats: { claimed: 0, available: 500, limit: 500 },
+  invitation: { status: "active" },
+  research: {
+    consentedCount: 0,
+    consentedPercentage: 0,
+    suppressed: true,
+    distributions: null,
+  },
+  updatedAt: "2026-08-03T00:00:00.000Z",
+};
 
 function successfulFetch(calls, responseBody = { ok: true }) {
   return async (url, options) => {
@@ -51,6 +82,7 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
       args: { inviteToken: INVITE_TOKEN },
       path: "/api/partner/preview",
       body: { inviteToken: INVITE_TOKEN },
+      response: PREVIEW,
     },
     {
       method: claimPartnerSeat,
@@ -67,6 +99,7 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
         researchSnapshot: null,
       },
       authenticated: true,
+      response: ACTIVE_ACCESS,
     },
     {
       method: fetchPartnerAccess,
@@ -74,6 +107,7 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
       path: "/api/partner/access",
       body: {},
       authenticated: true,
+      response: { status: "none" },
     },
     {
       method: beginPartnerRelease,
@@ -81,6 +115,10 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
       path: "/api/partner/release-intent",
       body: {},
       authenticated: true,
+      response: {
+        receipt: RECEIPT,
+        expiresAt: "2026-08-04T00:00:00.000Z",
+      },
     },
     {
       method: cancelPartnerRelease,
@@ -88,24 +126,31 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
       path: "/api/partner/release-cancel",
       body: { receipt: RECEIPT },
       authenticated: true,
+      response: { cancelled: true },
     },
     {
       method: confirmPartnerRelease,
       args: { receipt: RECEIPT },
       path: "/api/partner/release-confirm",
       body: { receipt: RECEIPT },
+      response: { released: true, idempotent: false },
     },
     {
       method: fetchPartnerReport,
       args: { adminToken: ADMIN_TOKEN },
       path: "/api/partner/admin/report",
       body: { adminToken: ADMIN_TOKEN },
+      response: REPORT,
     },
     {
       method: rotatePartnerInvite,
       args: { adminToken: ADMIN_TOKEN },
       path: "/api/partner/admin/rotate-invite",
       body: { adminToken: ADMIN_TOKEN },
+      response: {
+        partnerId: "community-partner",
+        inviteToken: INVITE_TOKEN,
+      },
     },
   ];
 
@@ -113,7 +158,7 @@ test("partner methods use POST, the shared endpoint resolver, JSON bodies, and c
     const calls = [];
     await entry.method({
       ...entry.args,
-      fetchImpl: successfulFetch(calls),
+      fetchImpl: successfulFetch(calls, entry.response),
       apiEndpointImpl: sameOriginEndpoint,
     });
 
@@ -160,6 +205,34 @@ test("maps stable API codes to safe PartnerAccessError messages without token di
   );
 });
 
+test("maps recent-auth rejection to a stable safe client error", async () => {
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 401,
+    headers: { get: () => null },
+    body: streamBody([
+      JSON.stringify({
+        code: "RECENT_AUTH_REQUIRED",
+        message: `private server detail ${ID_TOKEN}`,
+      }),
+    ]),
+  });
+
+  await assert.rejects(
+    beginPartnerRelease({
+      idToken: ID_TOKEN,
+      fetchImpl,
+      apiEndpointImpl: sameOriginEndpoint,
+    }),
+    (error) => {
+      assert.ok(error instanceof PartnerAccessError);
+      assert.equal(error.code, "RECENT_AUTH_REQUIRED");
+      assert.equal(error.message.includes(ID_TOKEN), false);
+      return true;
+    },
+  );
+});
+
 test("uses safe generic errors for malformed, oversized, and failed responses", async () => {
   for (const fetchImpl of [
     async () => ({
@@ -195,6 +268,123 @@ test("uses safe generic errors for malformed, oversized, and failed responses", 
   }
 });
 
+test("rejects malformed successful bodies for every partner endpoint", async () => {
+  const cases = [
+    [previewInvite, { inviteToken: INVITE_TOKEN }, PREVIEW],
+    [
+      claimPartnerSeat,
+      {
+        idToken: ID_TOKEN,
+        inviteToken: INVITE_TOKEN,
+        researchConsent: false,
+        researchSnapshot: null,
+      },
+      ACTIVE_ACCESS,
+    ],
+    [fetchPartnerAccess, { idToken: ID_TOKEN }, { status: "none" }],
+    [
+      beginPartnerRelease,
+      { idToken: ID_TOKEN },
+      { receipt: RECEIPT, expiresAt: "2026-08-04T00:00:00.000Z" },
+    ],
+    [
+      cancelPartnerRelease,
+      { idToken: ID_TOKEN, receipt: RECEIPT },
+      { cancelled: true },
+    ],
+    [
+      confirmPartnerRelease,
+      { receipt: RECEIPT },
+      { released: true, idempotent: false },
+    ],
+    [fetchPartnerReport, { adminToken: ADMIN_TOKEN }, REPORT],
+    [
+      rotatePartnerInvite,
+      { adminToken: ADMIN_TOKEN },
+      { partnerId: "community-partner", inviteToken: INVITE_TOKEN },
+    ],
+  ];
+
+  for (const [method, args, validBody] of cases) {
+    await assert.rejects(
+      method({
+        ...args,
+        fetchImpl: successfulFetch([], { ...validBody, unexpected: true }),
+        apiEndpointImpl: sameOriginEndpoint,
+      }),
+      (error) => {
+        assert.ok(error instanceof PartnerAccessError);
+        assert.equal(error.code, "PARTNER_UNAVAILABLE");
+        return true;
+      },
+    );
+  }
+});
+
+test("malformed access success cannot erase known sponsorship", async () => {
+  await assert.rejects(
+    fetchPartnerAccess({
+      idToken: ID_TOKEN,
+      fetchImpl: successfulFetch([], {
+        status: "none",
+        branding: BRANDING,
+      }),
+      apiEndpointImpl: sameOriginEndpoint,
+    }),
+    (error) => {
+      assert.ok(error instanceof PartnerAccessError);
+      assert.equal(error.code, "PARTNER_UNAVAILABLE");
+      return true;
+    },
+  );
+});
+
+test("aborts a partner request at its bounded timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  const request = previewInvite({
+    inviteToken: INVITE_TOKEN,
+    apiEndpointImpl: sameOriginEndpoint,
+    fetchImpl: async (_url, options) => {
+      signal = options.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.ok(signal instanceof AbortSignal);
+  t.mock.timers.tick(60_000);
+  await assert.rejects(request, (error) => {
+    assert.ok(error instanceof PartnerAccessError);
+    assert.equal(error.code, "PARTNER_UNAVAILABLE");
+    return true;
+  });
+  assert.equal(signal.aborted, true);
+});
+
+test("clears the partner timeout after a completed response", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  const result = await previewInvite({
+    inviteToken: INVITE_TOKEN,
+    apiEndpointImpl: sameOriginEndpoint,
+    fetchImpl: async (_url, options) => {
+      signal = options.signal;
+      return successfulFetch([], PREVIEW)(_url, options);
+    },
+  });
+
+  assert.deepEqual(result, PREVIEW);
+  assert.ok(signal instanceof AbortSignal);
+  t.mock.timers.tick(60_000);
+  assert.equal(signal.aborted, false);
+});
+
 test("parses bounded chunked responses and cancels a stream that exceeds the response limit", async () => {
   const success = await previewInvite({
     inviteToken: INVITE_TOKEN,
@@ -203,10 +393,13 @@ test("parses bounded chunked responses and cancels a stream that exceeds the res
       ok: true,
       status: 200,
       headers: { get: () => null },
-      body: streamBody(['{"seat', 'Available":true}']),
+      body: streamBody([
+        '{"partnerId":"community-partner","branding":{"name":"Community Partner",',
+        '"logoPath":null,"accent":"#2F6B61"},"seatAvailable":true}',
+      ]),
     }),
   });
-  assert.deepEqual(success, { seatAvailable: true });
+  assert.deepEqual(success, PREVIEW);
 
   let cancelled = false;
   await assert.rejects(

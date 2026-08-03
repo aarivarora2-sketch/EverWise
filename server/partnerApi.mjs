@@ -9,6 +9,7 @@ const INVALID_ADMIN_COOLDOWN_MS = 10 * 60 * 1000;
 const REPORT_WINDOW_MS = 60 * 1000;
 const REPORT_LIMIT = 30;
 const MAXIMUM_RATE_LIMIT_KEYS = 1_024;
+const RECENT_AUTHENTICATION_SECONDS = 5 * 60;
 
 const ROUTES = new Map([
   ["/api/partner/preview", "preview"],
@@ -245,6 +246,21 @@ function currentMilliseconds(now) {
   return milliseconds;
 }
 
+function requireRecentAuthentication(learner, now) {
+  const nowSeconds = Math.floor(currentMilliseconds(now) / 1000);
+  if (
+    !Number.isSafeInteger(learner.authTime) ||
+    learner.authTime > nowSeconds ||
+    nowSeconds - learner.authTime > RECENT_AUTHENTICATION_SECONDS
+  ) {
+    throw apiError(
+      401,
+      "RECENT_AUTH_REQUIRED",
+      "Recent authentication is required.",
+    );
+  }
+}
+
 function tokenRateKey(token, ip) {
   const tokenHash = createHash("sha256").update(String(token), "utf8").digest("hex");
   return `${ip}:${tokenHash}`;
@@ -469,6 +485,7 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
           }
           case "releaseIntent": {
             requireAllowedKeys(body, []);
+            requireRecentAuthentication(learner, now);
             result = await store.beginRelease({ uid: learner.uid });
             break;
           }

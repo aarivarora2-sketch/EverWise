@@ -73,7 +73,7 @@ async function createPilot(store, overrides = {}) {
 
 function approvedSnapshot(overrides = {}) {
   return {
-    assessmentVersion: "partner-assessment-v1",
+    assessmentVersion: "partner-assessment-v2",
     consentedAt: "2026-08-02T12:00:00.000Z",
     ageBand: "70-79",
     internetUse: "Every day",
@@ -81,7 +81,7 @@ function approvedSnapshot(overrides = {}) {
     confidence: "Sometimes I need help",
     scamFrequency: "few",
     concerns: ["Suspicious links"],
-    safeBankChoice: true,
+    bankSafetyCategory: "safe",
     aiExperience: "I’ve heard of it",
     accessibilityNeeds: ["Vision loss"],
     ...overrides,
@@ -581,6 +581,11 @@ test("reports suppress four records, aggregate five, and expose no learner-level
       researchSnapshot: approvedSnapshot({
         primaryDevice: index % 2 === 0 ? "Computer" : "Tablet",
         concerns: index === 1 ? ["Suspicious links", "Account hacking"] : ["Suspicious links"],
+        ...(index === 1
+          ? { bankSafetyCategory: "skipped" }
+          : index === 2
+            ? { bankSafetyCategory: "unsafe-or-other" }
+            : {}),
       }),
     });
   }
@@ -610,6 +615,11 @@ test("reports suppress four records, aggregate five, and expose no learner-level
   assert.deepEqual(report.research.distributions.concerns, {
     "Account hacking": 1,
     "Suspicious links": 5,
+  });
+  assert.deepEqual(report.research.distributions.bankSafetyCategory, {
+    safe: 3,
+    skipped: 1,
+    "unsafe-or-other": 1,
   });
 
   const reportText = JSON.stringify(report);

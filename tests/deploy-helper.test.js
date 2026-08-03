@@ -1,12 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const helperUrl = new URL("../ops/deploy-everwise", import.meta.url);
+const MAX_COMPRESSED_UPLOAD_BYTES = 16 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 4096;
+const MAX_INDIVIDUAL_ENTRY_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_EXPANDED_BYTES = 64 * 1024 * 1024;
 
 function writeTarString(header, offset, length, value) {
   header.write(value, offset, Math.min(length, Buffer.byteLength(value)), "utf8");
@@ -17,14 +28,27 @@ function writeTarOctal(header, offset, length, value) {
   writeTarString(header, offset, length, `${digits}\0`);
 }
 
-function tarEntry({ name, type = "0", body = "", link = "" }) {
+function tarEntry({
+  name,
+  type = "0",
+  body = "",
+  link = "",
+  sizeEncoding = "octal",
+}) {
   const payload = Buffer.from(body);
   const header = Buffer.alloc(512);
   writeTarString(header, 0, 100, name);
   writeTarOctal(header, 100, 8, type === "5" ? 0o755 : 0o644);
   writeTarOctal(header, 108, 8, 0);
   writeTarOctal(header, 116, 8, 0);
-  writeTarOctal(header, 124, 12, type === "0" ? payload.length : 0);
+  const entrySize = type === "0" ? payload.length : 0;
+  if (sizeEncoding === "base256") {
+    header.fill(0, 124, 136);
+    header[124] = 0x80;
+    header.writeUIntBE(entrySize, 130, 6);
+  } else {
+    writeTarOctal(header, 124, 12, entrySize);
+  }
   writeTarOctal(header, 136, 12, 0);
   header.fill(0x20, 148, 156);
   header.write(type, 156, 1, "ascii");
@@ -135,6 +159,87 @@ test("archive validation rejects traversal, secrets, arbitrary code, dependencie
       0,
       `unexpectedly accepted ${rejectedEntry.name}`,
     );
+  }
+});
+
+test("archive validation rejects a compressed upload above its byte bound", async (t) => {
+  const directory = await setup(t);
+  const archivePath = join(directory, "compressed-too-large.tgz");
+  await createArchive(archivePath, allowedEntries);
+  const { size } = await stat(archivePath);
+  await appendFile(
+    archivePath,
+    Buffer.alloc(MAX_COMPRESSED_UPLOAD_BYTES - size + 1),
+  );
+
+  const result = validateArchive(archivePath);
+  assert.notEqual(result.status, 0, "oversized compressed upload was accepted");
+});
+
+test("archive validation rejects more than the bounded entry count", async (t) => {
+  const directory = await setup(t);
+  const archivePath = join(directory, "too-many-entries.tgz");
+  const entries = Array.from({ length: MAX_ARCHIVE_ENTRIES + 1 }, (_, index) => ({
+    name: `dist/assets/empty-${index}.js`,
+  }));
+  await createArchive(archivePath, [...allowedEntries, ...entries]);
+
+  const result = validateArchive(archivePath);
+  assert.notEqual(result.status, 0, "archive entry-count bound was bypassed");
+});
+
+test("archive validation rejects an individual entry above its size bound", async (t) => {
+  const directory = await setup(t);
+  const archivePath = join(directory, "entry-too-large.tgz");
+  await createArchive(archivePath, [
+    ...allowedEntries,
+    {
+      name: "dist/assets/oversized.js",
+      body: Buffer.alloc(MAX_INDIVIDUAL_ENTRY_BYTES + 1),
+    },
+  ]);
+
+  const result = validateArchive(archivePath);
+  assert.notEqual(result.status, 0, "individual entry-size bound was bypassed");
+});
+
+test("archive validation rejects total expanded bytes above their bound", async (t) => {
+  const directory = await setup(t);
+  const archivePath = join(directory, "expanded-too-large.tgz");
+  const entries = Array.from(
+    { length: MAX_TOTAL_EXPANDED_BYTES / MAX_INDIVIDUAL_ENTRY_BYTES + 1 },
+    (_, index) => ({
+      name: `dist/assets/expanded-${index}.js`,
+      body: Buffer.alloc(MAX_INDIVIDUAL_ENTRY_BYTES),
+    }),
+  );
+  await createArchive(archivePath, [...allowedEntries, ...entries]);
+
+  const result = validateArchive(archivePath);
+  assert.notEqual(result.status, 0, "total expanded-size bound was bypassed");
+});
+
+test("archive validation rejects hidden metadata and non-octal size encodings", async (t) => {
+  const directory = await setup(t);
+  const cases = [
+    [
+      { name: "././@LongLink", type: "L", body: "dist/assets/metadata.js\0" },
+      { name: "placeholder", body: "export {};\n" },
+    ],
+    [
+      {
+        name: "dist/assets/base256.js",
+        body: "x",
+        sizeEncoding: "base256",
+      },
+    ],
+  ];
+
+  for (const [index, entries] of cases.entries()) {
+    const archivePath = join(directory, `metadata-${index}.tgz`);
+    await createArchive(archivePath, [...allowedEntries, ...entries]);
+    const result = validateArchive(archivePath);
+    assert.notEqual(result.status, 0, `archive metadata case ${index} was accepted`);
   }
 });
 

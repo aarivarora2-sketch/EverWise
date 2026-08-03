@@ -31,6 +31,9 @@ test("Privacy explains sponsored access, optional research, aggregate reports, a
 
   assert.match(copy, /sponsored access/i);
   assert.match(copy, /optional research/i);
+  assert.match(copy, /minimized/i);
+  assert.match(copy, /pseudonymized/i);
+  assert.match(copy, /internally linked.*(?:deletion|delete).*(?:aggregate|group totals)/i);
   assert.match(copy, /partners? (?:receive|see).*(?:aggregate|group totals)/i);
   assert.match(copy, /do not sell (?:your )?assessment answers/i);
   assert.match(copy, /delete your account.*Settings/i);

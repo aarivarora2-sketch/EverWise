@@ -74,7 +74,7 @@ const prompts = {
   5: "Your bank card is locked. Open this link immediately. What would you do?",
   7: "Have you used artificial intelligence, such as ChatGPT or a voice assistant?",
   11: "Tell us what could make the app more comfortable, and whether you may want help from a trusted person.",
-  consent: "Would you like to share a de-identified copy to help improve EverWise?",
+  consent: "Would you like to share a minimized copy to help improve EverWise?",
   12: "Create a secure account so your personal plan and lesson progress are saved.",
 };
 
@@ -627,15 +627,18 @@ export default function ProfileInterview({
                 Optional research choice
               </legend>
               <p className="mt-3 text-lg leading-relaxed text-ink-soft">
-                Your answers are not sold. {partner.name} receives group totals
-                only, never your individual answers. Saying no does not affect
-                your free access.
+                Your answers are not sold. If you say yes, EverWise keeps a
+                minimized, pseudonymized copy under an internal account link.
+                That link is used only to delete your research data and combine
+                it into group totals. {partner.name} receives group totals only,
+                never your individual answers. Saying no does not affect your
+                free access.
               </p>
               <Choices
                 values={[
                   {
                     value: true,
-                    label: "Yes, share a de-identified copy to improve EverWise",
+                    label: "Yes, share a minimized copy to improve EverWise",
                   },
                   {
                     value: false,

@@ -47,12 +47,42 @@ test("research snapshot excludes direct identifiers", () => {
     confidence: "Sometimes I need help",
     scamFrequency: "few",
     concerns: ["Suspicious links"],
-    safeBankChoice: true,
+    bankSafetyCategory: "safe",
     aiExperience: "I’ve heard of it",
     accessibilityNeeds: ["Vision loss"],
   });
   for (const forbidden of ["name", "email", "age", "trustedContact", "password"]) {
     assert.equal(forbidden in snapshot, false);
+  }
+});
+
+test("bank-answer minimization distinguishes safe, unsafe, and skipped choices", () => {
+  const consent = {
+    consent: true,
+    consentedAt: "2026-08-02T12:00:00.000Z",
+  };
+  const base = { age: 77 };
+
+  assert.equal(
+    buildResearchSnapshot(
+      { ...base, scamScenario: "Call the bank using its official number" },
+      consent,
+    ).bankSafetyCategory,
+    "safe",
+  );
+  assert.equal(
+    buildResearchSnapshot(
+      { ...base, scamScenario: "Tap the link in the message" },
+      consent,
+    ).bankSafetyCategory,
+    "unsafe-or-other",
+  );
+  for (const scamScenario of ["", "Prefer not to say"]) {
+    assert.equal(
+      buildResearchSnapshot({ ...base, scamScenario }, consent)
+        .bankSafetyCategory,
+      "skipped",
+    );
   }
 });
 
@@ -121,7 +151,7 @@ test("a consented skipped client assessment passes the real store contract and c
   assert.equal(claimed.status, "active");
   assert.equal((await store.getAccess("skipped-consented-learner")).status, "active");
   assert.deepEqual(snapshot, {
-    assessmentVersion: "partner-assessment-v1",
+    assessmentVersion: "partner-assessment-v2",
     consentedAt: "2026-08-02T12:00:00.000Z",
     ageBand: "70-79",
     internetUse: "Prefer not to say",
@@ -129,7 +159,7 @@ test("a consented skipped client assessment passes the real store contract and c
     confidence: "Prefer not to say",
     scamFrequency: "Prefer not to say",
     concerns: [],
-    safeBankChoice: false,
+    bankSafetyCategory: "skipped",
     aiExperience: "Prefer not to say",
     accessibilityNeeds: [],
   });

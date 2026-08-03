@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver a production-verified partner web flow that provisions exactly 500 sponsored learner accounts, collects optional de-identified assessment data, co-brands the experience, and never shows sponsored learners a paywall.
+**Goal:** Deliver a production-verified partner web flow that provisions exactly 500 sponsored learner accounts, collects optional minimized and pseudonymized assessment data, co-brands the experience, and never shows sponsored learners a paywall.
 
 **Architecture:** Firebase Authentication continues to own learner email/password accounts and Firestore continues to own private profile/progress data. The existing same-origin DigitalOcean Node API verifies Firebase ID tokens and owns partner invitations, memberships, seat limits, minimized research records, branding, release receipts, and aggregate reports in an atomic persistent JSON store under `/var/lib/everwise`. React consumes that API through a focused partner-access service and keeps the current subscription rule for non-sponsored users.
 
@@ -129,7 +129,7 @@ test("research snapshot excludes direct identifiers", () => {
     confidence: "Sometimes I need help",
     scamFrequency: "few",
     concerns: ["Suspicious links"],
-    safeBankChoice: true,
+    bankSafetyCategory: "safe",
     aiExperience: "I’ve heard of it",
     accessibilityNeeds: ["Vision loss"],
   });
@@ -215,7 +215,7 @@ export function shouldShowSubscriptionControls({ sponsoredStatus }) {
 }
 ```
 
-`partnerResearch.js` must export `ASSESSMENT_VERSION = "partner-assessment-v1"`, convert exact ages to the six approved bands, copy only allowlisted enum/array fields, normalize `safeBankChoice` to a boolean, return `null` on opt-out, and throw `TypeError` for an invalid age or missing consent timestamp on opt-in.
+`partnerResearch.js` must export `ASSESSMENT_VERSION = "partner-assessment-v2"`, convert exact ages to the six approved bands, copy only allowlisted enum/array fields, normalize the bank-safety answer to `safe`, `unsafe-or-other`, or `skipped`, return `null` on opt-out, and throw `TypeError` for an invalid age or missing consent timestamp on opt-in.
 
 - [ ] **Step 5: Add DOM test tooling**
 
@@ -740,7 +740,7 @@ Expected: FAIL because partner props, components, consent, and orchestration do 
 
 Change sponsored step IDs to include a consent step immediately before account creation. Add two large radio choices:
 
-- “Yes, share a de-identified copy to improve EverWise”
+- “Yes, share a minimized copy to improve EverWise”
 - “No, use my answers only for my personal plan”
 
 Build the research snapshot only on yes. Keep normal public onboarding behavior unchanged.
@@ -756,7 +756,7 @@ In `App.jsx`:
 5. claim the seat before writing the final Firestore profile;
 6. mirror `accessSource: "partner"` and `partnerId` in Firestore only as an unavailable-state hint;
 7. treat only the server entitlement as access authority;
-8. on claim failure delete the fresh Firebase user and sign out;
+8. on a definitive claim rejection delete the fresh Firebase user and sign out; on an indeterminate result keep the same UID, probe access, and retry idempotently;
 9. route active sponsored users from Personal Plan to Home.
 
 Restrict `VITE_BYPASS_SUBSCRIPTION` to `import.meta.env.DEV`.
@@ -948,7 +948,7 @@ EVERWISE_PARTNER_STORE_PATH="$partner_test_dir/partners.json" PORT=8788 node ser
 VITE_EVERWISE_API_URL=http://127.0.0.1:8788 npm run dev -- --host 127.0.0.1 --port 5174
 ```
 
-Provision a two-seat local partner with `scripts/manage-partners.mjs`. Do not reuse production tokens or data.
+Provision a 500-seat local partner with `scripts/manage-partners.mjs`. Use a separate file-isolated store with `testOnlyAllowCustomSeatLimits: true` only when exercising a small capacity fixture. Do not reuse production tokens or data.
 
 - [ ] **Step 3: Verify the learner journey in Browser/IAB**
 
@@ -968,7 +968,7 @@ Use disposable Firebase test accounts and delete them before ending QA.
 
 - [ ] **Step 4: Verify reporting and the capacity state**
 
-Create consenting disposable records through test fixtures, verify suppression at four and aggregates at five, CSV privacy, invalid admin link, invite rotation, two-seat full state, and seat reuse after deletion.
+Create consenting disposable records through file-isolated test fixtures, verify suppression at four and aggregates at five, CSV privacy, invalid admin link, invite rotation, a small test-only full state, the exact 500/501 invariant, and seat reuse after deletion.
 
 - [ ] **Step 5: Perform responsive and accessibility QA**
 
@@ -1056,7 +1056,7 @@ Push `agent/partner-sponsored-access`, open a draft PR to `main`, inspect the PR
 
 Watch DigitalOcean and GitHub Pages runs to completion. On failure, inspect logs through `gh`, follow systematic debugging, and request renewed push approval if the corrective diff changes the confirmed scope.
 
-- [ ] **Step 6: Provision a disposable two-seat production partner**
+- [ ] **Step 6: Provision a disposable 500-seat production partner**
 
 Run the versioned management utility over the owner SSH session with:
 
@@ -1064,29 +1064,28 @@ Run the versioned management utility over the owner SSH session with:
 /usr/local/bin/node /var/www/everwise-current/scripts/manage-partners.mjs create \
   --id codex-production-test \
   --name "EverWise Production Test" \
-  --seats 2
+  --seats 500
 ```
 
 Keep the printed links out of GitHub, logs, and the final response.
 
 - [ ] **Step 7: Prove the live flow**
 
-On `https://everwise.dexio-games.com/`, use disposable Firebase accounts to verify:
+On `https://everwise.dexio-games.com/`, use only a few disposable Firebase accounts to verify:
 
 1. opt-out sponsored signup;
 2. no Paywall and access to incomplete Lesson 2;
 3. logout/login entitlement restoration;
 4. opt-in sponsored signup;
-5. aggregate report privacy;
-6. third-account capacity rejection;
-7. account deletion and seat reuse;
-8. live read-aloud and scam-checker regressions.
+5. aggregate report privacy and suppression below five responses;
+6. account deletion and seat reuse;
+7. live read-aloud and scam-checker regressions.
 
 Delete disposable accounts, confirm release receipts, and remove the empty disposable partner with `--disposable-empty`.
 
-- [ ] **Step 8: Verify 500-seat production capability without creating 500 accounts**
+- [ ] **Step 8: Verify 500-seat capacity without creating 500 Firebase accounts**
 
-Provision a temporary local/file-isolated partner with `seatLimit: 500`, run the automated 501-claim invariant, and verify the production management command accepts `--seats 500`. Do not create a real named partner until an organization is selected and an agreement exists.
+Provision a temporary file-isolated partner with `seatLimit: 500`, run claims 1 through 500 and verify claim 501 is rejected. The disposable production partner proves that the production management command accepts exactly `--seats 500`; do not repeat the capacity test with real Firebase accounts. Do not create a real named partner until an organization is selected and an agreement exists.
 
 - [ ] **Step 9: Final evidence**
 

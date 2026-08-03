@@ -31,6 +31,7 @@ const AUTHORIZATION = {
   "Content-Type": "application/json",
   Authorization: "Bearer learner-token",
 };
+const START_SECONDS = Date.parse("2026-08-02T12:00:00.000Z") / 1000;
 
 function researchSnapshot(overrides = {}) {
   return {
@@ -40,16 +41,19 @@ function researchSnapshot(overrides = {}) {
     confidence: "Sometimes I need help",
     scamFrequency: "few",
     concerns: ["Suspicious links"],
-    safeBankChoice: true,
+    bankSafetyCategory: "safe",
     aiExperience: "I’ve heard of it",
     accessibilityNeeds: ["Vision loss"],
     consentedAt: "2026-08-02T12:00:00.000Z",
-    assessmentVersion: "partner-assessment-v1",
+    assessmentVersion: "partner-assessment-v2",
     ...overrides,
   };
 }
 
-async function setupApi(t, { seatLimit = 5 } = {}) {
+async function setupApi(
+  t,
+  { seatLimit = 5, learnerIdentityOverrides = {} } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "everwise-partner-api-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   let currentTime = Date.parse("2026-08-02T12:00:00.000Z");
@@ -72,7 +76,12 @@ async function setupApi(t, { seatLimit = 5 } = {}) {
   const verifyIdToken = async (token) => {
     const uid = tokenUids.get(token);
     if (!uid) throw new Error("invalid Firebase token containing private detail");
-    return { uid, email: `${uid}@private.example`, authTime: 1_775_304_000 };
+    return {
+      uid,
+      email: `${uid}@private.example`,
+      authTime: START_SECONDS,
+      ...learnerIdentityOverrides,
+    };
   };
   const api = createPartnerApi({ store, verifyIdToken, now });
   const server = createServer(async (request, response) => {
@@ -421,6 +430,58 @@ test("supports claim, returning access, release cancellation, and receipt-only c
   });
   assert.equal(idempotent.response.status, 200);
   assert.deepEqual(idempotent.json, { released: true, idempotent: true });
+});
+
+test("release intent requires authentication no older than five minutes", async (t) => {
+  const cases = [
+    {
+      label: "fresh at the five-minute boundary",
+      learnerIdentityOverrides: { authTime: START_SECONDS - 300 },
+      expectedStatus: 200,
+    },
+    {
+      label: "stale",
+      learnerIdentityOverrides: { authTime: START_SECONDS - 301 },
+      expectedStatus: 401,
+    },
+    {
+      label: "future",
+      learnerIdentityOverrides: { authTime: START_SECONDS + 1 },
+      expectedStatus: 401,
+    },
+    {
+      label: "missing",
+      learnerIdentityOverrides: { authTime: undefined },
+      expectedStatus: 401,
+    },
+  ];
+
+  for (const entry of cases) {
+    await t.test(entry.label, async (t) => {
+      const { created, request } = await setupApi(t, {
+        learnerIdentityOverrides: entry.learnerIdentityOverrides,
+      });
+      const claim = await request("/api/partner/claim", {
+        headers: AUTHORIZATION,
+        body: {
+          inviteToken: created.inviteToken,
+          researchConsent: false,
+        },
+      });
+      assert.equal(claim.response.status, 200);
+
+      const intent = await request("/api/partner/release-intent", {
+        headers: AUTHORIZATION,
+      });
+      assert.equal(intent.response.status, entry.expectedStatus);
+      if (entry.expectedStatus === 401) {
+        assert.equal(intent.json.code, "RECENT_AUTH_REQUIRED");
+        assertGenericError(intent.json, "RECENT_AUTH_REQUIRED");
+      } else {
+        assert.equal(typeof intent.json.receipt, "string");
+      }
+    });
+  }
 });
 
 test("maps full, suspended, and invalid-receipt store failures to stable safe codes", async (t) => {
