@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  EmailAuthProvider,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   deleteUser,
+  reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -34,7 +36,10 @@ import {
 import { resolveFullAccess } from "./utils/access.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
+  beginPartnerRelease,
+  cancelPartnerRelease,
   claimPartnerSeat,
+  confirmPartnerRelease,
   fetchPartnerAccess,
   previewInvite,
 } from "./services/partnerAccess.js";
@@ -46,7 +51,7 @@ import PersonalPlan from "./screens/PersonalPlan";
 import LogIn from "./screens/LogIn";
 import Loading from "./screens/Loading";
 import Home from "./screens/Home";
-import Settings from "./screens/Settings";
+import Settings, { PartnerReleaseRecovery } from "./screens/Settings";
 import Paywall from "./screens/Paywall";
 import LessonPath from "./screens/LessonPath";
 import LessonPlayer from "./screens/LessonPlayer";
@@ -55,7 +60,10 @@ import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
 import PartnerAccessError from "./screens/PartnerAccessError";
-import { authErrorMessage } from "./utils/authErrors.js";
+import {
+  accountDeletionErrorMessage,
+  authErrorMessage,
+} from "./utils/authErrors.js";
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
 import {
   getCurrentEntitlement,
@@ -67,6 +75,9 @@ import {
 } from "./services/purchases";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
+const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
+  "everwise-partner-release-receipt";
+const PARTNER_RELEASE_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const requiredLearningIds = requiredCourseIds(
   lessonsByOrder,
   challengesByOrder,
@@ -90,6 +101,57 @@ function getSavedTextSize() {
     return LEGACY_TEXT_SIZES[saved] || "size-2";
   } catch {
     return "size-2";
+  }
+}
+
+function clearStoredPartnerRelease() {
+  try {
+    window.sessionStorage.removeItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY);
+  } catch {
+    // In-memory recovery still works when session storage is unavailable.
+  }
+}
+
+function validPartnerReleaseRecovery(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (
+    keys.some((key) => key !== "receipt" && key !== "expiresAt") ||
+    !PARTNER_RELEASE_RECEIPT_PATTERN.test(value.receipt)
+  ) {
+    return false;
+  }
+  return value.expiresAt === undefined || typeof value.expiresAt === "string";
+}
+
+function readStoredPartnerRelease() {
+  try {
+    const serialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+    );
+    if (!serialized) return null;
+    const recovery = JSON.parse(serialized);
+    if (validPartnerReleaseRecovery(recovery)) return recovery;
+    clearStoredPartnerRelease();
+  } catch {
+    // A blocked or corrupted store must not prevent the signed-out experience.
+  }
+  return null;
+}
+
+function storePartnerRelease(recovery) {
+  try {
+    window.sessionStorage.setItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+      JSON.stringify({
+        receipt: recovery.receipt,
+        ...(typeof recovery.expiresAt === "string"
+          ? { expiresAt: recovery.expiresAt }
+          : {}),
+      }),
+    );
+  } catch {
+    // The current in-memory Retry remains available for this visit.
   }
 }
 
@@ -159,6 +221,11 @@ async function normalizeSubscription(uid, data) {
 }
 
 export default function App() {
+  const [pendingPartnerRelease, setPendingPartnerRelease] = useState(
+    readStoredPartnerRelease,
+  );
+  const [releaseConfirmationBusy, setReleaseConfirmationBusy] =
+    useState(false);
   const [partnerFragment, setPartnerFragment] = useState(capturePartnerFragment);
   const [partnerStatus, setPartnerStatus] = useState(() => {
     if (partnerFragment?.kind === "learner") return "previewing";
@@ -1173,31 +1240,117 @@ export default function App() {
     await sendPasswordResetEmail(auth, user.email);
   };
 
-  // Permanently deletes the learner's progress and their sign-in account.
-  // Firebase requires a "recent" sign-in for account deletion; if the
-  // session is stale we surface a friendly error asking them to log back
-  // in and try again, rather than silently failing.
-  const deleteAccount = async () => {
-    if (!user) throw new Error("No account is signed in.");
+  const finishDeletedAccountLocally = () => {
+    authGenerationRef.current += 1;
+    currentAuthUidRef.current = null;
+    setUser(null);
+    setProfile(null);
+    setPartnerOwnerUid(null);
+    setPartner(null);
+    setPartnerStatus("idle");
+    updatePartnerFragment(null);
+    updatePartnerRecovery(null);
+    setPendingSponsoredInterview(null);
+    setSignupRetry(null);
+    setProfileCompletion(null);
+    setAuthChecked(true);
+    setScreen("landing");
+  };
+
+  const retryPartnerReleaseConfirmation = async () => {
+    if (!pendingPartnerRelease || releaseConfirmationBusy) return;
+    setReleaseConfirmationBusy(true);
     try {
-      console.log("[Everwise][firestore] deleteDoc users/", user.uid);
-      await deleteDoc(doc(db, "users", user.uid));
-      console.log("[Everwise][auth] deleteUser", user.uid);
-      await deleteUser(user);
-      console.log("[Everwise][auth] account deleted.");
-      setUser(null);
-      setProfile(null);
-      setScreen("landing");
-    } catch (err) {
-      console.error("[Everwise][auth] Delete account failed:", err.code, err.message);
-      if (err.code === "auth/requires-recent-login") {
+      await confirmPartnerRelease({ receipt: pendingPartnerRelease.receipt });
+      clearStoredPartnerRelease();
+      setPendingPartnerRelease(null);
+      finishDeletedAccountLocally();
+    } catch {
+      // The receipt remains available for another idempotent Retry.
+    } finally {
+      setReleaseConfirmationBusy(false);
+    }
+  };
+
+  // Permanently deletes the learner's progress and sign-in account. Sponsored
+  // accounts first reserve a release receipt so their seat is freed only after
+  // both Firebase deletions have completed.
+  const deleteAccount = async (currentPassword) => {
+    if (!user) throw new Error("No account is signed in.");
+    if (!sponsoredActive) {
+      try {
+        console.log("[Everwise][firestore] deleteDoc users/", user.uid);
+        await deleteDoc(doc(db, "users", user.uid));
+        console.log("[Everwise][auth] deleteUser", user.uid);
+        await deleteUser(user);
+        console.log("[Everwise][auth] account deleted.");
+        finishDeletedAccountLocally();
+      } catch (err) {
+        console.error(
+          "[Everwise][auth] Delete account failed:",
+          err.code,
+          err.message,
+        );
+        if (err.code === "auth/requires-recent-login") {
+          throw new Error(
+            "For your security, please log out and log back in, then try deleting your account again.",
+          );
+        }
         throw new Error(
-          "For your security, please log out and log back in, then try deleting your account again.",
+          "We could not delete your account right now. Please try again.",
         );
       }
-      throw new Error(
-        "We could not delete your account right now. Please try again.",
-      );
+      return;
+    }
+
+    if (!user.email || typeof currentPassword !== "string" || !currentPassword) {
+      throw new Error("Please enter your current password.");
+    }
+
+    let idToken = null;
+    let receipt = null;
+    let releaseRecovery = null;
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      idToken = await user.getIdToken(true);
+      const intent = await beginPartnerRelease({ idToken });
+      if (!validPartnerReleaseRecovery(intent)) {
+        throw new Error("Invalid partner release response.");
+      }
+      receipt = intent.receipt;
+      releaseRecovery = {
+        receipt,
+        ...(typeof intent.expiresAt === "string"
+          ? { expiresAt: intent.expiresAt }
+          : {}),
+      };
+      await deleteDoc(doc(db, "users", user.uid));
+      await deleteUser(user);
+    } catch (err) {
+      if (receipt && idToken) {
+        try {
+          await cancelPartnerRelease({ idToken, receipt });
+        } catch {
+          // The pending server release automatically normalizes if cancellation
+          // is temporarily unavailable; the authenticated account stays active.
+        }
+      }
+      throw new Error(accountDeletionErrorMessage(err));
+    }
+
+    // Firebase authentication is gone at this point. Persist only the receipt
+    // and its expiry so confirmation can recover without a bearer token.
+    setPendingPartnerRelease(releaseRecovery);
+    storePartnerRelease(releaseRecovery);
+    finishDeletedAccountLocally();
+    try {
+      await confirmPartnerRelease({ receipt });
+      clearStoredPartnerRelease();
+      setPendingPartnerRelease(null);
+    } catch {
+      // Do not report success: the receipt stays private and Retry remains
+      // available even though Firebase authentication no longer exists.
     }
   };
 
@@ -1308,6 +1461,17 @@ export default function App() {
     return (
       <AppShell screen="loading">
         <Loading />
+      </AppShell>
+    );
+  }
+
+  if (pendingPartnerRelease) {
+    return (
+      <AppShell screen="partner-error">
+        <PartnerReleaseRecovery
+          busy={releaseConfirmationBusy}
+          onRetry={retryPartnerReleaseConfirmation}
+        />
       </AppShell>
     );
   }

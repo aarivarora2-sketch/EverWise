@@ -37,6 +37,28 @@ function Row({ label, value, onClick, hint }) {
   );
 }
 
+export function PartnerReleaseRecovery({ busy = false, onRetry }) {
+  return (
+    <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center text-center">
+        <h1 className="page-title">Finishing account deletion</h1>
+        <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
+          Your account has been deleted, but we still need to finish releasing
+          its sponsored place. Please retry so another learner can use it.
+        </p>
+        <button
+          type="button"
+          className="btn-primary mt-8"
+          onClick={onRetry}
+          disabled={busy}
+        >
+          {busy ? "Retrying…" : "Retry"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings({
   sponsored = false,
   partner = null,
@@ -54,6 +76,7 @@ export default function Settings({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
 
   const daysLeft = trialDaysLeft(trialStartedAt);
   const statusText = statusLabel(subscriptionStatus);
@@ -84,8 +107,14 @@ export default function Settings({
     setBusy(true);
     setError("");
     setNotice("");
+    const password = currentPassword;
+    setCurrentPassword("");
     try {
-      await onDeleteAccount?.();
+      if (sponsored) {
+        await onDeleteAccount?.(password);
+      } else {
+        await onDeleteAccount?.();
+      }
     } catch (err) {
       setError(
         err.message ||
@@ -184,11 +213,37 @@ export default function Settings({
               This permanently deletes your account, progress, and badges.
               This cannot be undone.
             </p>
+            {sponsored ? (
+              <div className="mt-4">
+                <label
+                  htmlFor="delete-current-password"
+                  className="block text-xl font-semibold text-ink"
+                >
+                  Current password
+                </label>
+                <input
+                  id="delete-current-password"
+                  name="delete-current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
+                  className="mt-2 w-full rounded-2xl border-2 border-ink/20 bg-cream-card px-5 text-xl text-ink transition-colors focus:border-clay"
+                  style={{ minHeight: "62px" }}
+                />
+                <p className="mt-2 text-base text-ink-soft">
+                  Enter your current password to confirm it is you.
+                </p>
+              </div>
+            ) : null}
             <div className="mt-4 flex gap-3">
               <button
                 type="button"
                 className="btn-secondary flex-1"
-                onClick={() => setConfirmingDelete(false)}
+                onClick={() => {
+                  setCurrentPassword("");
+                  setConfirmingDelete(false);
+                }}
                 disabled={busy}
               >
                 Cancel
@@ -197,7 +252,7 @@ export default function Settings({
                 type="button"
                 className="flex-1 rounded-2xl bg-alert px-6 py-5 text-center text-lg font-bold text-cream-card shadow-btn transition-all active:translate-y-1 active:shadow-none disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={handleDeleteAccount}
-                disabled={busy}
+                disabled={busy || (sponsored && !currentPassword)}
               >
                 {busy ? "Deleting…" : "Yes, delete"}
               </button>

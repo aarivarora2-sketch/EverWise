@@ -22,3 +22,18 @@ export function authErrorMessage(error) {
       return "Something went wrong. Please try again.";
   }
 }
+
+export function accountDeletionErrorMessage(error) {
+  const code = error?.code || "";
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+      return "That password isn't right. Please try again.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a moment and try again.";
+    case "auth/network-request-failed":
+      return "No internet connection. Please check and try again.";
+    default:
+      return "We could not delete your account right now. Please try again.";
+  }
+}
