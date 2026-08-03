@@ -4,15 +4,21 @@ Date: 2026-08-03
 
 Branch: `agent/partner-sponsored-access`
 
-Reviewed feature base: `7f7fe6f`
+Sealed upstream base: `41ffc34ea68a568d1cde58651a21bb80288369df`
 
-Focused QA repair: `745466c Enable isolated partner browser QA`
+Post-fix implementation head before this metadata-only update: `dde08dc487de14ae70ae5a4ea5057b6ffa507dbf`
+
+Post-fix review range: `41ffc34ea68a568d1cde58651a21bb80288369df..dde08dc487de14ae70ae5a4ea5057b6ffa507dbf`
+
+Historical pre-rebase QA identifiers: reviewed feature base `7f7fe6f`; focused QA repair `745466c`; final local-QA hardening `f2dc72c`. These hashes identify the original evidence session only and are not current branch heads after rebase.
 
 ## Readiness decision
 
 The partner feature passes the complete automated gate and the safe local Browser, fixture, privacy, capacity, and responsive checks described below. It is **not production-verified or production-ready yet** because this task intentionally did not create real Firebase accounts, touch the live domain, use production partner data, or deploy. A genuine 200% Browser zoom run and an actual VoiceOver session also remain pending.
 
 No production token, production partner record, production Firebase account, GitHub secret, live domain, DigitalOcean service, or deployment setting was read or changed. All partner data used by this ledger was generated locally under `/tmp`.
+
+Any future production proof must use a clearly labeled disposable partner configured with exactly 500 seats and only a few disposable Firebase accounts for signup, login, and deletion. The 501st-account rejection remains automated and file-isolated; production QA must never create 500 real Firebase accounts.
 
 ## Success criteria
 
@@ -117,9 +123,9 @@ Sanitized fixture result:
 }
 ```
 
-## Automated gate and exact commands
+## Historical pre-rebase automated gate and exact commands
 
-Post-repair final gate:
+The following results belong to the original local QA evidence session. Current post-fix verification is recorded in the final-review fix report rather than attributed to these historical hashes.
 
 | Command | Result |
 |---|---|
@@ -150,7 +156,7 @@ curl -sS http://127.0.0.1:8788/healthz
 
 Health returned HTTP 200 with `partnerAccessConfigured: true` and `partnerStoreHealthy: true`. Direct preview returned HTTP 200 before Browser use. Generated local tokens are deliberately omitted.
 
-## Build warning comparison
+## Historical pre-rebase build warning comparison
 
 The large JavaScript chunk warning existed before the partner feature. A detached build of the pre-feature commit `1ee4ad4` produced 1,786.12 kB / 479.53 kB gzip. The final build produced 1,833.20 kB / 493.05 kB gzip: an increase of 47.08 kB raw (2.64%) and 13.52 kB gzip (2.82%). This is a small relative increase and does not materially change the pre-existing warning, so no dashboard `React.lazy` split was introduced in this QA task.
 
