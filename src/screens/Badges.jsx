@@ -82,27 +82,29 @@ export default function Badges({ badges = [], onBack }) {
   const pct = total > 0 ? Math.round((earnedCount / total) * 100) : 0;
 
   return (
-    <div className="badges-screen flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="shrink-0 rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px]">
-        <div className="flex items-center gap-3">
+    <div className="badges-screen flex min-h-0 flex-1 flex-col overflow-hidden lg:bg-cream">
+      <header className="shrink-0 rounded-t-none bg-[#B5502E] px-5 py-4 text-cream-card sm:rounded-t-[40px] lg:px-12 lg:py-8">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back to home"
-            className="rounded-full p-1.5 text-cream-card/90 transition-colors hover:bg-white/15"
+            className="rounded-full p-1.5 text-cream-card/90 transition-colors hover:bg-white/15 lg:hidden"
           >
             <ArrowLeftIcon className="h-7 w-7" />
           </button>
           <div>
-            <h1 className="font-sans text-2xl font-semibold">Your badges</h1>
-            <p className="text-sm font-semibold text-cream-card/75">
+            <h1 className="font-sans text-2xl font-semibold lg:text-4xl">
+              Your badges
+            </h1>
+            <p className="text-sm font-semibold text-cream-card/75 lg:mt-1 lg:text-base">
               {earnedCount} of {total} earned
             </p>
           </div>
         </div>
 
         <div
-          className="mt-4 h-3 w-full overflow-hidden rounded-full bg-white/25"
+          className="mx-auto mt-4 h-3 w-full max-w-5xl overflow-hidden rounded-full bg-white/25"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={total}
@@ -116,7 +118,7 @@ export default function Badges({ badges = [], onBack }) {
         </div>
       </header>
 
-      <div className="badges-content min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-7">
+      <div className="badges-content mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-y-auto px-6 pb-10 pt-7 lg:px-12 lg:pt-10">
         {earnedCount === 0 && (
           <p className="mb-8 rounded-3xl bg-cream-card px-6 py-6 text-center text-xl leading-snug text-ink-soft shadow-card">
             Finish your first lesson to earn your first badge.
@@ -150,7 +152,7 @@ export default function Badges({ badges = [], onBack }) {
                 </span>
               </div>
 
-              <div className="badges-grid mt-6 grid grid-cols-2 gap-x-4 gap-y-8">
+              <div className="badges-grid mt-6 grid grid-cols-2 gap-x-4 gap-y-8 lg:gap-x-6">
                 {list.map((badge) => (
                   <BadgeTile
                     key={badge.name}

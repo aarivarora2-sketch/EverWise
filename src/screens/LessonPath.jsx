@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   lessonsByOrder as lessons,
   examsByOrder,
@@ -30,10 +30,33 @@ const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
 // Continuous wave rather than a fixed repeating cycle, so the path never
 // lands on exactly the same bend twice. The first lesson of each phase stays
 // centered under its title.
-function snakeOffset(indexInPhase, phaseNumber) {
+function snakeOffset(indexInPhase, phaseNumber, scale = 1) {
   if (indexInPhase === 0) return 0;
   const seed = (phaseNumber ?? 1) * 0.83;
-  return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60);
+  return Math.round(Math.sin(indexInPhase * 1.35 + seed) * 60 * scale);
+}
+
+// The path's whole layout is computed in raw pixels (calibrated for a phone
+// screen). Rather than leave it tiny on a desktop monitor, every metric is
+// scaled up by this factor once the viewport crosses the lg breakpoint —
+// same trick the app already uses to grow the path for larger text-size
+// settings, just driven by screen width instead.
+const DESKTOP_PATH_SCALE = 1.4;
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isDesktop;
 }
 
 const curriculum = {
@@ -54,13 +77,16 @@ export default function LessonPath({
   const pathScrollRef = useRef(null);
   const activePhaseRef = useRef(null);
   const currentNodeRef = useRef(null);
-  const {
-    nodeBoxHeight,
-    nodeSlot,
-    phaseBandHeight,
-    phaseBottom,
-    pathBottomClearance,
-  } = getPathLayoutMetrics(textSize);
+  const isDesktop = useIsDesktop();
+  const scale = isDesktop ? DESKTOP_PATH_SCALE : 1;
+  const rawMetrics = getPathLayoutMetrics(textSize);
+  const nodeBoxHeight = Math.round(rawMetrics.nodeBoxHeight * scale);
+  const nodeSlot = Math.round(rawMetrics.nodeSlot * scale);
+  const phaseBandHeight = Math.round(rawMetrics.phaseBandHeight * scale);
+  const phaseBottom = Math.round(rawMetrics.phaseBottom * scale);
+  const pathBottomClearance = Math.round(
+    rawMetrics.pathBottomClearance * scale,
+  );
 
   // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
@@ -145,7 +171,9 @@ export default function LessonPath({
       return pos;
     }
     const offsetX =
-      item.kind === "reward" ? 0 : snakeOffset(indexInPhase, item.phase);
+      item.kind === "reward"
+        ? 0
+        : snakeOffset(indexInPhase, item.phase, scale);
     if (item.kind !== "reward") indexInPhase += 1;
     const pos = { ...item, top: y, offsetX };
     // Only gaps that actually get dots need the tall slot; the last node
@@ -272,22 +300,26 @@ export default function LessonPath({
       className="course-path-screen flex min-h-0 flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: activePhaseBackground }}
     >
-      {/* Neutral chrome — biome color only appears on phase bands/nodes */}
-      <header className="path-header flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-4 py-1 text-cream-card sm:rounded-t-[40px]">
+      {/* Neutral chrome — biome color only appears on phase bands/nodes.
+          On desktop every layout metric (node size, spacing, offsets) is
+          scaled up via DESKTOP_PATH_SCALE so nothing looks shrunk down —
+          this isn't the same phone-sized layout stretched into a bigger
+          box, it's genuinely bigger. */}
+      <header className="path-header flex shrink-0 items-center rounded-t-none bg-[#B5502E] px-4 py-1 text-cream-card sm:rounded-t-[40px] lg:px-8 lg:py-4">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back to home"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-cream-card/90 transition-colors hover:bg-white/15"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-cream-card/90 transition-colors hover:bg-white/15 lg:hidden"
           >
             <ArrowLeftIcon className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h1 className="shrink-0 font-sans text-xl font-semibold leading-tight">
+            <h1 className="shrink-0 font-sans text-xl font-semibold leading-tight lg:text-2xl">
               Your path
             </h1>
-            <p className="min-w-0 truncate text-sm font-semibold leading-snug text-cream-card/85">
+            <p className="min-w-0 truncate text-sm font-semibold leading-snug text-cream-card/85 lg:text-lg">
               Phase {phaseLabel(activePhase)} · {activePhase.biome}
             </p>
           </div>
@@ -330,7 +362,7 @@ export default function LessonPath({
               <span
                 key={d.key}
                 aria-hidden="true"
-                className="absolute block h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                className="absolute block h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full lg:h-7 lg:w-7"
                 style={{ left: `calc(50% + ${d.x}px)`, top: d.y }}
               >
                 <span
@@ -350,7 +382,7 @@ export default function LessonPath({
                         ? activePhaseRef
                         : null
                     }
-                    className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2"
+                    className="absolute left-1/2 z-10 w-[92%] max-w-[380px] -translate-x-1/2 lg:max-w-[520px]"
                     style={{ top: node.bandTop }}
                   >
                     <div
@@ -359,12 +391,12 @@ export default function LessonPath({
                       aria-hidden="true"
                     />
                     <p
-                      className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em]"
+                      className="mt-3 text-[14px] font-bold uppercase tracking-[0.12em] lg:text-[18px]"
                       style={{ color: node.phase.color }}
                     >
                       Phase {phaseLabel(node.phase)} · {node.phase.biome}
                     </p>
-                    <p className="mt-1 font-sans text-[30px] font-bold leading-tight text-ink">
+                    <p className="mt-1 font-sans text-[30px] font-bold leading-tight text-ink lg:text-[42px]">
                       {node.phase.title}
                     </p>
                   </div>
@@ -410,7 +442,7 @@ export default function LessonPath({
                   style={{
                     left: `calc(50% + ${node.offsetX ?? 0}px)`,
                     top: node.top,
-                    width: "10.5rem",
+                    width: `${10.5 * scale}rem`,
                     height: nodeBoxHeight,
                     transform: "translateX(-50%)",
                   }}
@@ -444,8 +476,12 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
   const isChallenge = kind === "challenge";
   const fill = phaseColor || CLAY;
   // Challenge sits visually between lesson (START/check) and exam (trophy).
-  const nodeSizeCurrent = isChallenge ? "h-[6.5rem] w-[6.5rem]" : "h-28 w-28";
-  const nodeSizeDone = isChallenge ? "h-[5.5rem] w-[5.5rem]" : "h-24 w-24";
+  const nodeSizeCurrent = isChallenge
+    ? "h-[6.5rem] w-[6.5rem] lg:h-[9rem] lg:w-[9rem]"
+    : "h-28 w-28 lg:h-40 lg:w-40";
+  const nodeSizeDone = isChallenge
+    ? "h-[5.5rem] w-[5.5rem] lg:h-[7.5rem] lg:w-[7.5rem]"
+    : "h-24 w-24 lg:h-32 lg:w-32";
 
   const ariaStart = isExam
     ? `Start exam: ${title}`
@@ -472,7 +508,7 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
           type="button"
           onClick={onClick}
           aria-label={ariaStart}
-          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-sans text-xl font-bold text-cream-card transition-transform active:translate-y-1 ${
+          className={`relative flex ${nodeSizeCurrent} items-center justify-center rounded-full font-sans text-xl font-bold text-cream-card transition-transform active:translate-y-1 lg:text-3xl ${
             isChallenge ? "ring-[3px] ring-inset ring-cream-card/40" : ""
           }`}
           style={{
@@ -481,9 +517,9 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
           }}
         >
           {isExam ? (
-            <TrophyIcon className="h-12 w-12" />
+            <TrophyIcon className="h-12 w-12 lg:h-16 lg:w-16" />
           ) : isChallenge ? (
-            <BookIcon className="h-11 w-11" />
+            <BookIcon className="h-11 w-11 lg:h-14 lg:w-14" />
           ) : (
             "START"
           )}
@@ -508,11 +544,11 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
         }}
       >
         {isExam ? (
-          <TrophyIcon className="h-11 w-11" />
+          <TrophyIcon className="h-11 w-11 lg:h-14 lg:w-14" />
         ) : isChallenge ? (
-          <BookIcon className="h-10 w-10" />
+          <BookIcon className="h-10 w-10 lg:h-12 lg:w-12" />
         ) : (
-          <CheckIcon className="h-11 w-11" />
+          <CheckIcon className="h-11 w-11 lg:h-14 lg:w-14" />
         )}
       </button>
     );
@@ -521,14 +557,14 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
   if (state === "reward-done") {
     return (
       <div
-        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-white"
+        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-white lg:h-32 lg:w-32"
         style={{
           backgroundColor: fill,
           boxShadow: `0 5px 0 ${shade(fill, -25)}`,
         }}
         aria-label="Reward unlocked"
       >
-        <TrophyIcon className="h-12 w-12" />
+        <TrophyIcon className="h-12 w-12 lg:h-16 lg:w-16" />
       </div>
     );
   }
@@ -551,11 +587,11 @@ function PathNode({ state, kind, onClick, title, phaseColor }) {
       aria-label={`Locked: ${title}`}
     >
       {isExam ? (
-        <TrophyIcon className="h-10 w-10" />
+        <TrophyIcon className="h-10 w-10 lg:h-14 lg:w-14" />
       ) : isChallenge ? (
-        <BookIcon className="h-9 w-9" />
+        <BookIcon className="h-9 w-9 lg:h-12 lg:w-12" />
       ) : (
-        <LockIcon className="h-10 w-10" />
+        <LockIcon className="h-10 w-10 lg:h-14 lg:w-14" />
       )}
     </div>
   );
@@ -568,7 +604,7 @@ function Label({ state, title, phaseColor }) {
   return (
     <div className="mt-3 w-full px-1 text-center">
       <p
-        className="mx-auto line-clamp-2 max-w-[10rem] text-center text-[20px] font-semibold leading-snug"
+        className="mx-auto line-clamp-2 max-w-[10rem] text-center text-[20px] font-semibold leading-snug lg:max-w-[14rem] lg:text-[26px]"
         style={
           state === "current"
             ? { color: fill }
@@ -584,7 +620,7 @@ function Label({ state, title, phaseColor }) {
       </p>
       {state === "current" && (
         <span
-          className="mt-1 block text-[13px] font-bold uppercase tracking-wide"
+          className="mt-1 block text-[13px] font-bold uppercase tracking-wide lg:text-[16px]"
           style={{ color: fill, opacity: 0.8 }}
         >
           Today

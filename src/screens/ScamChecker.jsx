@@ -113,8 +113,10 @@ export default function ScamChecker({ onBack }) {
   };
 
   return (
-    <div className="scam-checker-screen flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-6 pt-4">
-      <BackButton onClick={onBack} label="Back to home" />
+    <div className="scam-checker-screen mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-y-auto px-6 pb-6 pt-4 lg:px-0 lg:pb-12 lg:pt-12">
+      <div className="lg:hidden">
+        <BackButton onClick={onBack} label="Back to home" />
+      </div>
 
       <div className="mt-3 flex items-center gap-3">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-clay/10 text-clay">

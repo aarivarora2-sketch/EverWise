@@ -120,6 +120,25 @@ export function MessageSearchIcon({ className = "w-6 h-6" }) {
   );
 }
 
+export function GearIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 3.5v2.4M12 18.1v2.4M20.5 12h-2.4M5.9 12H3.5M17.7 6.3l-1.7 1.7M8 16l-1.7 1.7M17.7 17.7 16 16M8 8 6.3 6.3" />
+    </svg>
+  );
+}
+
+export function LogoutIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
+      <path d="M14 8l4 4-4 4" />
+      <path d="M18 12H9" />
+    </svg>
+  );
+}
+
 export function TrophyIcon({ className = "w-8 h-8" }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>

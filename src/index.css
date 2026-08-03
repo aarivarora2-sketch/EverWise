@@ -898,6 +898,15 @@ html[data-text-size] .text-size-control {
   line-height: 1;
 }
 
+/* On a computer there's no reason the +/- controls should stay
+   phone-sized — bigger targets and bigger symbols, still one stable size
+   regardless of the chosen text-size setting. */
+@media (min-width: 1024px) {
+  html[data-text-size] .text-size-control {
+    font-size: 2.5rem;
+  }
+}
+
 /* Give very large text a full-width column instead of squeezing it. */
 html:is(
     [data-text-size="size-7"],

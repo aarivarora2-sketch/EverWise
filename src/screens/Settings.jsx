@@ -94,17 +94,17 @@ export default function Settings({
   };
 
   return (
-    <div className="settings-screen flex flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8">
+    <div className="settings-screen mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-y-auto px-7 pb-10 pt-8 lg:px-0 lg:pt-12">
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back to home"
-          className="rounded-full p-1.5 text-ink-soft transition-colors hover:bg-cream-deep"
+          className="rounded-full p-1.5 text-ink-soft transition-colors hover:bg-cream-deep lg:hidden"
         >
           <ArrowLeftIcon className="h-7 w-7" />
         </button>
-        <h1 className="page-title">Settings</h1>
+        <h1 className="page-title lg:text-4xl">Settings</h1>
       </div>
 
       <div className="settings-grid">
