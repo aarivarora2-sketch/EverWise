@@ -109,6 +109,7 @@ Sanitized fixture result:
   "reportPrivacy": {
     "forbiddenReportKeys": [],
     "containsFixtureUid": false,
+    "containsFixtureUidPrefix": false,
     "containsLearnerToken": false,
     "containsAdminToken": false
   },
@@ -122,13 +123,13 @@ Post-repair final gate:
 
 | Command | Result |
 |---|---|
-| `npm test` | Exit 0; 117 Node tests passed and 90 Vitest UI tests passed. |
+| `npm test` | Exit 0; 126 Node tests/subtests passed and 90 Vitest UI tests passed. |
 | `npm run lint` | Exit 0; oxlint reported no findings. |
 | `npm run build` | Exit 0; 1,663 modules transformed; CSS 48.95 kB / 10.26 kB gzip; JS 1,833.20 kB / 493.05 kB gzip. Known large-chunk warning remains. |
 | `node --check server.mjs` | Exit 0. |
 | `bash -n ops/deploy-everwise` | Exit 0. |
 | `git diff --check` | Exit 0. |
-| `node --test tests/partner-api.test.js` | Exit 0; 18 tests passed after focused repair. |
+| `node --test tests/partner-api.test.js` | Exit 0; 27 tests/subtests passed after Fix Round 1. |
 | `npm run test:ui -- tests/partner-client.test.jsx -t "shows five-response group totals and exports only aggregate allowlisted CSV\|suppresses group breakdowns below five research responses"` | Exit 0; 2 selected tests passed. |
 | `node /tmp/everwise-partner-qa-20260803/qa-fixtures.mjs` | Exit 0; sanitized two-seat/privacy/rotation evidence above. |
 
@@ -166,9 +167,20 @@ TDD repair:
 
 - RED: `node --test --test-name-pattern="configured local QA origin" tests/partner-api.test.js` failed `405 !== 204`.
 - GREEN: the same command passed after the repair.
-- Repair: `server.mjs` now accepts a narrowly configured HTTP loopback origin through `EVERWISE_LOCAL_QA_ORIGIN`, answers local preflight, and adds exact CORS headers to matching responses. Invalid, external, credentialed, path-bearing, query-bearing, or fragment-bearing origins are not enabled by the parser.
-- Focused verification: 18/18 partner API tests, lint, syntax, and diff checks passed; Browser Retry immediately rendered the co-branded landing.
+- Initial repair: `server.mjs` accepted a configured HTTP loopback origin through `EVERWISE_LOCAL_QA_ORIGIN`, answered local preflight, and added exact CORS headers to matching responses. Browser Retry immediately rendered the co-branded landing.
+- Initial focused verification: 18/18 partner API tests, lint, syntax, and diff checks passed.
 - Commit: `745466c Enable isolated partner browser QA`.
+
+### Fix Round 1 security hardening
+
+A reviewer found that the initial parser validated only the normalized `URL` fields. JavaScript URL normalization erased forbidden raw syntax from `/.`, `/%2e`, `/?`, `/#`, and `http://:@...`, so those configurations incorrectly enabled the normalized loopback origin.
+
+- RED: `node --test --test-name-pattern="server rejects non-exact local QA origin" tests/partner-api.test.js` reported six failures. Each of the five disguised configurations returned 204 instead of 405; the enclosing test also failed. External, mismatched-request, and absent configuration cases already failed closed.
+- Repair: the configured value must now be byte-for-byte equal to `url.origin`, use HTTP, use the existing `127.0.0.1` or `localhost` host allowlist, and include a nonzero explicit port. Production behavior remains unchanged when the environment variable is absent.
+- GREEN: the valid preflight and actual POST retained the exact allow-origin header with no wildcard or credentials header. All five disguised forms, external origin, mismatched request origin, and absent configuration returned no CORS enablement. The focused run passed 10/10 tests/subtests; the full partner API file passed 27/27.
+- Full gate: 126 Node tests/subtests and 90 UI tests passed; lint, build, server syntax, deploy-script syntax, and diff checks passed.
+- Fixture correction: the sanitized report check now tests all five generated research UIDs and the shared `local-research-` prefix. Both `containsFixtureUid` and `containsFixtureUidPrefix` are false; no raw token or UID was added to this ledger.
+- Commit: `f2dc72c Reject normalized local QA origins`.
 
 ## Residual production risks
 
