@@ -38,14 +38,27 @@ function Row({ label, value, onClick, hint, disabled = false }) {
   );
 }
 
-export function PartnerReleaseRecovery({ busy = false, terminal = false, onRetry }) {
+function terminalReleaseMessage(terminal) {
+  if (terminal === "cancellation") {
+    return "We could not safely cancel the sponsored-place release. Please contact support so it can be reconciled without affecting your current account.";
+  }
+  if (terminal === "compensation") {
+    return "We could not safely restore your saved profile after account deletion stopped. Please contact support before trying again.";
+  }
+  if (terminal === "storage-cleanup") {
+    return "We could not safely clear the private deletion recovery record. Please contact support so it can be reconciled without exposing your information.";
+  }
+  return "We cannot safely retry the sponsored-place release. Please contact support so we can reconcile it without risking your information.";
+}
+
+export function PartnerReleaseRecovery({ busy = false, terminal = null, onRetry }) {
   return (
     <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
       <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center text-center">
         <h1 className="page-title">Finishing account deletion</h1>
         <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
           {terminal
-            ? "We cannot safely retry the sponsored-place release. Please contact support so we can reconcile it without risking your information."
+            ? terminalReleaseMessage(terminal)
             : "Your account has been deleted, but we still need to finish releasing its sponsored place. Please retry so another learner can use it."}
         </p>
         {terminal ? (

@@ -19,6 +19,7 @@ export default function AppShell({
   children,
   screen = "loading",
   isAuthenticated = false,
+  navigationDisabled = false,
   onHome,
   onCourse,
   onScamChecker,
@@ -61,6 +62,7 @@ export default function AppShell({
                     key={item.id}
                     type="button"
                     onClick={handlers[item.id]}
+                    disabled={navigationDisabled}
                     aria-current={item.active ? "page" : undefined}
                     className={`app-navigation-item ${
                       item.active ? "is-active" : ""

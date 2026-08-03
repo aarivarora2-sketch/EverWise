@@ -1017,6 +1017,7 @@ describe("sponsored signup orchestration", () => {
   });
 
   test.each([
+    ["missing", undefined],
     ["expired", "2000-01-01T00:00:00.000Z"],
     ["malformed", "tomorrow"],
   ])("cancels an intent with %s receipt expiry before deleting data", async (_label, expiresAt) => {
@@ -1125,7 +1126,13 @@ describe("sponsored signup orchestration", () => {
       { collection: "users", uid: "returning-sponsored-delete" },
       returningProfile,
     );
-    expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
+    expect(
+      JSON.parse(window.sessionStorage.getItem("everwise-partner-release-receipt")),
+    ).toEqual({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+      reconciliation: "compensation",
+    });
   });
 
   test("invalidates a delayed deletion when the learner logs out during reauthentication", async () => {
@@ -1149,6 +1156,30 @@ describe("sponsored signup orchestration", () => {
     expect(mocks.beginPartnerRelease).not.toHaveBeenCalled();
     expect(mocks.deleteDoc).not.toHaveBeenCalled();
     expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test("disables every AppShell destination while sponsored deletion is active", async () => {
+    const reauthentication = deferred();
+    mocks.reauthenticateWithCredential.mockReturnValue(reauthentication.promise);
+    const { user } = await openReturningSponsoredSettings();
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() =>
+      expect(mocks.reauthenticateWithCredential).toHaveBeenCalledTimes(1),
+    );
+    const navigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
+    for (const label of ["Home", "Course", "Scam Checker", "Badges", "Settings"]) {
+      expect(within(navigation).getByRole("button", { name: label })).toBeDisabled();
+    }
+    await user.click(within(navigation).getByRole("button", { name: "Home" }));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+    await act(async () => {
+      reauthentication.reject({ code: "auth/wrong-password" });
+      await reauthentication.promise.catch(() => {});
+    });
   });
 
   test("cancels and compensates a delayed Firestore deletion after an account switch", async () => {
@@ -1185,6 +1216,161 @@ describe("sponsored signup orchestration", () => {
     await user.click(screen.getByRole("button", { name: "Open Settings" }));
     expect(screen.getByText("Start free trial")).toBeVisible();
     expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
+  });
+
+  test.each([
+    [
+      "cancellation",
+      /could not safely cancel the sponsored-place release/i,
+    ],
+    [
+      "compensation",
+      /could not safely restore your saved profile/i,
+    ],
+    [
+      "storage-cleanup",
+      /could not safely clear the private deletion recovery record/i,
+    ],
+  ])("preserves private %s reconciliation after a stale account switch", async (failureKind, supportCopy) => {
+    const receipt = "v".repeat(43);
+    const firestoreDeletion = deferred();
+    mocks.beginPartnerRelease.mockResolvedValue({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+    });
+    mocks.deleteDoc.mockReturnValue(firestoreDeletion.promise);
+    const { user } = await openReturningSponsoredSettings();
+    const publicUser = {
+      uid: `public-after-${failureKind}`,
+      email: "public@example.com",
+      getIdToken: vi.fn(async () => "public-token"),
+    };
+    if (failureKind === "cancellation") {
+      mocks.cancelPartnerRelease.mockRejectedValue(new Error("cancel failed"));
+    }
+    if (failureKind === "compensation") {
+      mocks.setDoc.mockRejectedValue(new Error("restore failed"));
+    }
+    if (failureKind === "storage-cleanup") {
+      const realRemoveItem = Storage.prototype.removeItem;
+      vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function removeItem(key) {
+        if (key === "everwise-partner-release-receipt") {
+          throw new Error("remove failed");
+        }
+        return realRemoveItem.call(this, key);
+      });
+    }
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.deleteDoc).toHaveBeenCalledTimes(1));
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(learnerProfile({ email: "public@example.com" })),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    await act(async () => {
+      await mocks.authCallback(publicUser);
+    });
+    await act(async () => {
+      firestoreDeletion.resolve();
+      await firestoreDeletion.promise;
+    });
+
+    expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(document.body).not.toHaveTextContent(receipt);
+    const stored = JSON.parse(
+      window.sessionStorage.getItem("everwise-partner-release-receipt"),
+    );
+    expect(stored).toEqual({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+      reconciliation: failureKind,
+    });
+
+    cleanup();
+    render(<App />);
+    expect(await screen.findByText(supportCopy)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Contact support" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(receipt);
+  });
+
+  test("confirms the old receipt without clearing a newer account switched during Firebase deletion", async () => {
+    const receipt = "w".repeat(43);
+    const firebaseDeletion = deferred();
+    mocks.beginPartnerRelease.mockResolvedValue({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+    });
+    mocks.deleteUser.mockReturnValue(firebaseDeletion.promise);
+    const { user } = await openReturningSponsoredSettings();
+    const publicUser = {
+      uid: "public-during-firebase-delete",
+      email: "public@example.com",
+      getIdToken: vi.fn(async () => "public-token"),
+    };
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledTimes(1));
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(learnerProfile({ email: "public@example.com" })),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    await act(async () => {
+      await mocks.authCallback(publicUser);
+    });
+    expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open Course" }));
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    await act(async () => {
+      firebaseDeletion.resolve();
+      await firebaseDeletion.promise;
+    });
+
+    expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
+    await waitFor(() => expect(mocks.confirmPartnerRelease).toHaveBeenCalledWith({ receipt }));
+    expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+  });
+
+  test("preserves the old receipt without blocking a newer account switched during confirmation", async () => {
+    const receipt = "y".repeat(43);
+    const confirmation = deferred();
+    mocks.beginPartnerRelease.mockResolvedValue({
+      receipt,
+      expiresAt: "2099-08-03T00:00:00.000Z",
+    });
+    mocks.confirmPartnerRelease.mockReturnValue(confirmation.promise);
+    const { user } = await openReturningSponsoredSettings();
+    const publicUser = {
+      uid: "public-during-confirmation",
+      email: "public@example.com",
+      getIdToken: vi.fn(async () => "public-token"),
+    };
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.confirmPartnerRelease).toHaveBeenCalledTimes(1));
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(learnerProfile({ email: "public@example.com" })),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    await act(async () => {
+      await mocks.authCallback(publicUser);
+    });
+    expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
+
+    await act(async () => {
+      confirmation.reject(new Error("confirmation unavailable"));
+      await confirmation.promise.catch(() => {});
+    });
+
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(
+      JSON.parse(window.sessionStorage.getItem("everwise-partner-release-receipt")),
+    ).toEqual({ receipt, expiresAt: "2099-08-03T00:00:00.000Z" });
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(receipt);
   });
 
   test("preserves a post-deletion receipt and retries receipt-only confirmation idempotently", async () => {
@@ -1278,6 +1464,24 @@ describe("sponsored signup orchestration", () => {
     window.sessionStorage.setItem(
       "everwise-partner-release-receipt",
       JSON.stringify({ receipt, expiresAt: "2000-01-01T00:00:00.000Z" }),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByText(/cannot safely retry the sponsored-place release/i),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Contact support" })).toBeVisible();
+    expect(mocks.confirmPartnerRelease).not.toHaveBeenCalled();
+    expect(document.body).not.toHaveTextContent(receipt);
+  });
+
+  test("treats stored recovery without expiry as terminal support-only evidence", async () => {
+    const receipt = "z".repeat(43);
+    window.history.replaceState(null, "", "/");
+    window.sessionStorage.setItem(
+      "everwise-partner-release-receipt",
+      JSON.stringify({ receipt }),
     );
     render(<App />);
 

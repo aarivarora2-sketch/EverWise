@@ -81,6 +81,12 @@ const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
 const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
   "everwise-partner-release-receipt";
 const PARTNER_RELEASE_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const PARTNER_RECONCILIATION_REASONS = new Set([
+  "cancellation",
+  "compensation",
+  "storage-cleanup",
+  "invalid-receipt",
+]);
 const requiredLearningIds = requiredCourseIds(
   lessonsByOrder,
   challengesByOrder,
@@ -121,29 +127,51 @@ function clearStoredPartnerRelease() {
 
 function partnerReleaseRecoveryStatus(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { valid: false, expired: false };
+    return { recoverable: false, valid: false, expired: false };
   }
   const keys = Object.keys(value);
   if (
-    keys.some((key) => key !== "receipt" && key !== "expiresAt") ||
+    keys.some(
+      (key) =>
+        key !== "receipt" && key !== "expiresAt" && key !== "reconciliation",
+    ) ||
     !PARTNER_RELEASE_RECEIPT_PATTERN.test(value.receipt)
   ) {
-    return { valid: false, expired: false };
+    return { recoverable: false, valid: false, expired: false };
   }
-  if (value.expiresAt === undefined) {
-    return { valid: true, expired: false };
+  const reconciliation = value.reconciliation;
+  if (
+    reconciliation !== undefined &&
+    !PARTNER_RECONCILIATION_REASONS.has(reconciliation)
+  ) {
+    return { recoverable: false, valid: false, expired: false };
   }
   if (typeof value.expiresAt !== "string") {
-    return { valid: false, expired: false };
+    return {
+      recoverable: true,
+      valid: false,
+      expired: false,
+      reconciliation,
+    };
   }
   const expiresAtMs = Date.parse(value.expiresAt);
   if (
     !Number.isFinite(expiresAtMs) ||
     new Date(expiresAtMs).toISOString() !== value.expiresAt
   ) {
-    return { valid: false, expired: false };
+    return {
+      recoverable: true,
+      valid: false,
+      expired: false,
+      reconciliation,
+    };
   }
-  return { valid: true, expired: expiresAtMs <= Date.now() };
+  return {
+    recoverable: true,
+    valid: true,
+    expired: expiresAtMs <= Date.now(),
+    reconciliation,
+  };
 }
 
 function readStoredPartnerRelease() {
@@ -154,14 +182,37 @@ function readStoredPartnerRelease() {
     if (!serialized) return null;
     const recovery = JSON.parse(serialized);
     const status = partnerReleaseRecoveryStatus(recovery);
-    if (status.valid) {
-      return status.expired ? { ...recovery, terminal: "expired" } : recovery;
+    if (status.recoverable) {
+      const terminal =
+        status.reconciliation ||
+        (!status.valid || status.expired ? "expiry" : null);
+      return terminal ? { ...recovery, terminal } : recovery;
     }
     clearStoredPartnerRelease();
   } catch {
     // A blocked or corrupted store must not prevent the signed-out experience.
   }
   return null;
+}
+
+function storeTerminalPartnerReconciliation(recovery, reconciliation) {
+  try {
+    const serialized = JSON.stringify({
+      receipt: recovery.receipt,
+      expiresAt: recovery.expiresAt,
+      reconciliation,
+    });
+    window.sessionStorage.setItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+      serialized,
+    );
+    return (
+      window.sessionStorage.getItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY) ===
+      serialized
+    );
+  } catch {
+    return false;
+  }
 }
 
 function storePartnerRelease(recovery) {
@@ -277,6 +328,7 @@ export default function App() {
   );
   const [releaseConfirmationBusy, setReleaseConfirmationBusy] =
     useState(false);
+  const [accountDeletionBusy, setAccountDeletionBusy] = useState(false);
   const [partnerFragment, setPartnerFragment] = useState(capturePartnerFragment);
   const [partnerStatus, setPartnerStatus] = useState(() => {
     if (partnerFragment?.kind === "learner") return "previewing";
@@ -388,6 +440,7 @@ export default function App() {
     operationIdRef.current = operation.id;
     activeOperationRef.current = operation;
     accountDeletionBusyRef.current = true;
+    setAccountDeletionBusy(true);
     return operation;
   };
 
@@ -412,6 +465,7 @@ export default function App() {
       activeOperationRef.current = null;
     }
     accountDeletionBusyRef.current = false;
+    setAccountDeletionBusy(false);
   };
 
   useEffect(() => {
@@ -765,13 +819,20 @@ export default function App() {
   ).length;
   const badgesEarnedCount = (profile?.badges ?? []).length;
 
-  const goHome = () => setScreen("home");
+  const accountDeletionAllowsNavigation = () =>
+    !accountDeletionBusyRef.current;
+  const goHome = () => {
+    if (!accountDeletionAllowsNavigation()) return;
+    setScreen("home");
+  };
   const goPath = () => {
+    if (!accountDeletionAllowsNavigation()) return;
     setActiveExam(null);
     setActiveChallenge(null);
     setScreen("path");
   };
   const goPaywall = () => {
+    if (!accountDeletionAllowsNavigation()) return;
     if (sponsoredActive) {
       goHome();
       return;
@@ -779,9 +840,18 @@ export default function App() {
     setPaywallVariant("subscribe");
     setScreen("paywall");
   };
-  const goSettings = () => setScreen("settings");
-  const goBadges = () => setScreen("badges");
-  const goScamChecker = () => setScreen("scam-checker");
+  const goSettings = () => {
+    if (!accountDeletionAllowsNavigation()) return;
+    setScreen("settings");
+  };
+  const goBadges = () => {
+    if (!accountDeletionAllowsNavigation()) return;
+    setScreen("badges");
+  };
+  const goScamChecker = () => {
+    if (!accountDeletionAllowsNavigation()) return;
+    setScreen("scam-checker");
+  };
 
   const updateSubscription = async (updates) => {
     if (!user) return;
@@ -1377,14 +1447,22 @@ export default function App() {
       const result = await confirmPartnerRelease({ receipt: recovery.receipt });
       if (!partnerReleaseWasConfirmed(result)) return;
       if (!clearStoredPartnerRelease()) {
-        setPendingPartnerRelease({ ...recovery, terminal: "storage" });
+        storeTerminalPartnerReconciliation(recovery, "storage-cleanup");
+        setPendingPartnerRelease({
+          ...recovery,
+          terminal: "storage-cleanup",
+        });
         return;
       }
       setPendingPartnerRelease(null);
       finishDeletedAccountLocally();
     } catch (error) {
       if (error?.code === "INVALID_RECEIPT") {
-        setPendingPartnerRelease({ ...recovery, terminal: "invalid" });
+        storeTerminalPartnerReconciliation(recovery, "invalid-receipt");
+        setPendingPartnerRelease({
+          ...recovery,
+          terminal: "invalid-receipt",
+        });
       }
     } finally {
       setReleaseConfirmationBusy(false);
@@ -1452,17 +1530,21 @@ export default function App() {
       const intent = await beginPartnerRelease({ idToken });
       if (PARTNER_RELEASE_RECEIPT_PATTERN.test(intent?.receipt)) {
         receipt = intent.receipt;
+        releaseRecovery = {
+          receipt,
+          ...(typeof intent.expiresAt === "string"
+            ? { expiresAt: intent.expiresAt }
+            : {}),
+        };
       }
       const intentStatus = partnerReleaseRecoveryStatus(intent);
-      if (!intentStatus.valid || intentStatus.expired) {
+      if (
+        !intentStatus.valid ||
+        intentStatus.expired ||
+        intentStatus.reconciliation
+      ) {
         throw new PartnerReleasePreparationError();
       }
-      releaseRecovery = {
-        receipt,
-        ...(typeof intent.expiresAt === "string"
-          ? { expiresAt: intent.expiresAt }
-          : {}),
-      };
       requireCurrentAccountDeletion(operation);
       if (!storePartnerRelease(releaseRecovery)) {
         throw new PartnerReleasePreparationError();
@@ -1492,15 +1574,26 @@ export default function App() {
           }
         }
       }
-      const recoveryCleared = receipt ? clearStoredPartnerRelease() : true;
+      let reconciliation = null;
+      if (!releaseCancelled) {
+        reconciliation = "cancellation";
+      }
+      if (!profileRestored) {
+        reconciliation = "compensation";
+      }
+      if (!reconciliation && receipt && !clearStoredPartnerRelease()) {
+        reconciliation = "storage-cleanup";
+      }
+      if (reconciliation && releaseRecovery) {
+        storeTerminalPartnerReconciliation(releaseRecovery, reconciliation);
+      }
       const operationIsCurrent = accountDeletionOperationIsCurrent(operation);
       finishAccountDeletionOperation(operation);
-      if (
-        operationIsCurrent &&
-        (!releaseCancelled || !profileRestored || !recoveryCleared)
-      ) {
-        updatePartnerRecovery({ kind: "deletion-reconciliation" });
-        setScreen("partner-error");
+      if (operationIsCurrent && reconciliation && releaseRecovery) {
+        setPendingPartnerRelease({
+          ...releaseRecovery,
+          terminal: reconciliation,
+        });
         throw new Error(
           "Account deletion stopped and needs support reconciliation.",
         );
@@ -1509,22 +1602,49 @@ export default function App() {
       throw new Error(accountDeletionErrorMessage(err));
     }
 
+    const deletionStillCurrent = accountDeletionOperationIsCurrent(operation);
     finishAccountDeletionOperation(operation);
-    // Firebase authentication is gone at this point. The already-verified
-    // receipt remains durable until semantic confirmation succeeds.
-    setPendingPartnerRelease(releaseRecovery);
-    finishDeletedAccountLocally();
+    // Firebase authentication is gone for the captured account. Only clear
+    // its local UI when that exact auth generation is still current; a newer
+    // account must remain untouched while receipt-only safety work continues.
+    if (deletionStillCurrent) {
+      finishDeletedAccountLocally();
+    }
     try {
       const result = await confirmPartnerRelease({ receipt });
-      if (!partnerReleaseWasConfirmed(result)) return;
-      if (!clearStoredPartnerRelease()) {
-        setPendingPartnerRelease({ ...releaseRecovery, terminal: "storage" });
+      if (!partnerReleaseWasConfirmed(result)) {
+        if (currentAuthUidRef.current === null) {
+          setPendingPartnerRelease(releaseRecovery);
+        }
         return;
       }
-      setPendingPartnerRelease(null);
+      if (!clearStoredPartnerRelease()) {
+        storeTerminalPartnerReconciliation(
+          releaseRecovery,
+          "storage-cleanup",
+        );
+        if (currentAuthUidRef.current === null) {
+          setPendingPartnerRelease({
+            ...releaseRecovery,
+            terminal: "storage-cleanup",
+          });
+        }
+        return;
+      }
     } catch (error) {
       if (error?.code === "INVALID_RECEIPT") {
-        setPendingPartnerRelease({ ...releaseRecovery, terminal: "invalid" });
+        storeTerminalPartnerReconciliation(
+          releaseRecovery,
+          "invalid-receipt",
+        );
+        if (currentAuthUidRef.current === null) {
+          setPendingPartnerRelease({
+            ...releaseRecovery,
+            terminal: "invalid-receipt",
+          });
+        }
+      } else if (currentAuthUidRef.current === null) {
+        setPendingPartnerRelease(releaseRecovery);
       }
     }
   };
@@ -1645,7 +1765,7 @@ export default function App() {
       <AppShell screen="partner-error">
         <PartnerReleaseRecovery
           busy={releaseConfirmationBusy}
-          terminal={Boolean(pendingPartnerRelease.terminal)}
+          terminal={pendingPartnerRelease.terminal || null}
           onRetry={retryPartnerReleaseConfirmation}
         />
       </AppShell>
@@ -1842,7 +1962,7 @@ export default function App() {
           subscriptionStatus={subscriptionStatus}
           trialStartedAt={profile?.trialStartedAt}
           plan={profile?.plan ?? null}
-          onBack={goHome}
+          onBack={accountDeletionBusy ? undefined : goHome}
           onLogOut={logOut}
           onOpenPaywall={goPaywall}
           onManageSubscription={() =>
@@ -1943,11 +2063,12 @@ export default function App() {
     <AppShell
       screen={screen}
       isAuthenticated={Boolean(user)}
-      onHome={goHome}
-      onCourse={goPath}
-      onScamChecker={goScamChecker}
-      onBadges={goBadges}
-      onSettings={goSettings}
+      navigationDisabled={accountDeletionBusy}
+      onHome={accountDeletionBusy ? undefined : goHome}
+      onCourse={accountDeletionBusy ? undefined : goPath}
+      onScamChecker={accountDeletionBusy ? undefined : goScamChecker}
+      onBadges={accountDeletionBusy ? undefined : goBadges}
+      onSettings={accountDeletionBusy ? undefined : goSettings}
     >
       <div
         key={screen}
