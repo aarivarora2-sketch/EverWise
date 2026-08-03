@@ -25,6 +25,10 @@ const PARTNER = {
   logoPath: null,
   accent: "#2F6B61",
 };
+const BRANDED_PARTNER = {
+  ...PARTNER,
+  logoPath: "/partners/community-partner.svg",
+};
 const PARTNER_RELEASE_RECOVERY_KEY = "everwise-partner-release-receipt";
 const PARTNER_RELEASE_CONFIRMABLE_KEY = "everwise-partner-release-confirmable";
 
@@ -212,12 +216,16 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function partnerReport({ consentedCount = 5, suppressed = false } = {}) {
+function partnerReport({
+  branding = PARTNER,
+  consentedCount = 5,
+  suppressed = false,
+} = {}) {
   return {
     partnerId: "community-partner",
     name: "Community Partner",
     status: "active",
-    branding: PARTNER,
+    branding,
     seats: { claimed: 6, available: 494, limit: 500 },
     invitation: { status: "active" },
     research: {
@@ -255,6 +263,7 @@ describe("aggregate partner dashboard", () => {
     expect(await screen.findByText(/Reporting for Community Partner/)).toBeVisible();
     expect(screen.getByText("6 of 500 seats in use")).toBeVisible();
     expect(screen.getByText("494 seats available")).toBeVisible();
+    expect(screen.getByText("Learner invitation status: Active")).toBeVisible();
     expect(screen.getByText("83.3%")).toBeVisible();
     expect(
       screen.getByRole("row", { name: "Tablet 2 40%" }),
@@ -324,6 +333,30 @@ describe("aggregate partner dashboard", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
+  test("fails closed when a four-response report incorrectly includes unsuppressed distributions", async () => {
+    const inconsistentReport = partnerReport({
+      consentedCount: 4,
+      suppressed: false,
+    });
+    mocks.fetchPartnerReport.mockResolvedValue(inconsistentReport);
+
+    render(<PartnerDashboard adminToken={TOKEN} />);
+
+    expect(
+      await screen.findByText(
+        "More responses are needed before group breakdowns can be shown.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tablet")).not.toBeInTheDocument();
+
+    const csv = buildPartnerReportCsv(inconsistentReport);
+    expect(csv.split("\n")[0]).toBe("metric,category,count,percentage");
+    expect(csv).not.toContain("primaryDevice");
+    expect(csv).not.toContain("Tablet");
+    expect(csv).not.toContain("Suspicious links");
+  });
+
   test("invalid admin access reveals no partner metadata", async () => {
     mocks.fetchPartnerReport.mockRejectedValue(
       new PartnerAccessError("INVALID_ADMIN", 401),
@@ -349,6 +382,8 @@ describe("aggregate partner dashboard", () => {
 
     render(<PartnerDashboard adminToken={TOKEN} />);
     await screen.findByText(/Reporting for Community Partner/);
+    const originalUpdatedAt = screen.getByRole("time").getAttribute("datetime");
+    const rotationStartedAt = Date.now();
     await user.click(
       screen.getByRole("button", { name: "Replace learner link" }),
     );
@@ -370,6 +405,13 @@ describe("aggregate partner dashboard", () => {
     expect(screen.getByRole("button", { name: "Copy replacement link" })).toBeVisible();
     expect(screen.getAllByDisplayValue(new RegExp(replacementToken))).toHaveLength(1);
     expect(mocks.rotatePartnerInvite).toHaveBeenCalledWith({ adminToken: TOKEN });
+    expect(screen.getByRole("time")).not.toHaveAttribute(
+      "datetime",
+      originalUpdatedAt,
+    );
+    expect(
+      Date.parse(screen.getByRole("time").getAttribute("datetime")),
+    ).toBeGreaterThanOrEqual(rotationStartedAt);
   });
 
   test("routes a scrubbed admin fragment before Firebase learner authentication", async () => {
@@ -387,20 +429,33 @@ describe("aggregate partner dashboard", () => {
     mocks.deferInitialAuth = false;
   });
 
-  test("keeps Everwise primary while showing quiet sponsored branding in shell and Home", async () => {
+  test("shows a safe same-origin partner logo while keeping Everwise primary across dashboard, shell, and Home", async () => {
     const RealHome = (await vi.importActual("../src/screens/Home.jsx")).default;
-    const { rerender } = render(
-      <AppShell screen="home" isAuthenticated partner={PARTNER}>
+    mocks.fetchPartnerReport.mockResolvedValue(
+      partnerReport({ branding: BRANDED_PARTNER }),
+    );
+    const { rerender } = render(<PartnerDashboard adminToken={TOKEN} />);
+
+    expect(
+      await screen.findByRole("img", { name: "Community Partner logo" }),
+    ).toHaveAttribute("src", "/partners/community-partner.svg");
+    expect(screen.getByText("Everwise")).toBeVisible();
+
+    rerender(
+      <AppShell screen="settings" isAuthenticated partner={BRANDED_PARTNER}>
         <p>Learning</p>
-      </AppShell>,
+      </AppShell>
     );
 
     expect(screen.getByText("Everwise")).toBeVisible();
     expect(screen.getByText("Access provided by Community Partner")).toBeVisible();
+    expect(
+      screen.getByRole("img", { name: "Community Partner logo" }),
+    ).toHaveAttribute("src", "/partners/community-partner.svg");
 
     rerender(
       <RealHome
-        partner={PARTNER}
+        partner={BRANDED_PARTNER}
         textSize="size-2"
         onTextSizeChange={() => {}}
         onStart={() => {}}
@@ -411,6 +466,54 @@ describe("aggregate partner dashboard", () => {
     );
     expect(screen.getByText("Everwise")).toBeVisible();
     expect(screen.getByText("Access provided by Community Partner")).toBeVisible();
+    expect(
+      screen.getByRole("img", { name: "Community Partner logo" }),
+    ).toHaveAttribute("src", "/partners/community-partner.svg");
+  });
+
+  test("never renders or leaks an external partner logo URL", async () => {
+    const RealHome = (await vi.importActual("../src/screens/Home.jsx")).default;
+    const unsafePartner = {
+      ...PARTNER,
+      logoPath: "https://tracker.example/private-logo.svg",
+    };
+    mocks.fetchPartnerReport.mockResolvedValue(
+      partnerReport({ branding: unsafePartner }),
+    );
+    const { container, rerender } = render(
+      <PartnerDashboard adminToken={TOKEN} />,
+    );
+    await screen.findByText(/Reporting for Community Partner/);
+    expect(
+      screen.queryByRole("img", { name: "Community Partner logo" }),
+    ).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("tracker.example");
+
+    rerender(
+      <AppShell screen="settings" isAuthenticated partner={unsafePartner}>
+        <p>Learning</p>
+      </AppShell>,
+    );
+    expect(
+      screen.queryByRole("img", { name: "Community Partner logo" }),
+    ).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("tracker.example");
+
+    rerender(
+      <RealHome
+        partner={unsafePartner}
+        textSize="size-2"
+        onTextSizeChange={() => {}}
+        onStart={() => {}}
+        onOpenBadges={() => {}}
+        onOpenSettings={() => {}}
+        onOpenScamChecker={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByRole("img", { name: "Community Partner logo" }),
+    ).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("tracker.example");
   });
 });
 

@@ -6,6 +6,7 @@ import {
   ShieldIcon,
 } from "./Icons";
 import { primaryNavigationState } from "../utils/responsiveNavigation.js";
+import { PartnerLogo } from "./PartnerBrand.jsx";
 
 const iconByDestination = {
   home: HomeIcon,
@@ -56,9 +57,15 @@ export default function AppShell({
               />
               <span>Everwise</span>
               {partnerName ? (
-                <small className="app-navigation-partner">
-                  Access provided by {partnerName}
-                </small>
+                <div className="app-navigation-partner-lockup">
+                  <PartnerLogo
+                    partner={partner}
+                    className="app-navigation-partner-logo"
+                  />
+                  <small className="app-navigation-partner">
+                    Access provided by {partnerName}
+                  </small>
+                </div>
               ) : null}
             </div>
             <div className="app-navigation-items">

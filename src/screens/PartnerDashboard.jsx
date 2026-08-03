@@ -3,6 +3,9 @@ import {
   fetchPartnerReport,
   rotatePartnerInvite,
 } from "../services/partnerAccess.js";
+import { PartnerLogo } from "../components/PartnerBrand.jsx";
+
+const MINIMUM_GROUP_RESPONSES = 5;
 
 const DISTRIBUTION_LABELS = {
   ageBand: "Age range",
@@ -33,6 +36,15 @@ function csvField(value) {
     : safeText;
 }
 
+function groupBreakdownsAvailable(research) {
+  return Boolean(
+    count(research?.consentedCount) >= MINIMUM_GROUP_RESPONSES &&
+      research?.suppressed === false &&
+      research.distributions &&
+      typeof research.distributions === "object",
+  );
+}
+
 function aggregateRows(report) {
   const seats = report?.seats || {};
   const research = report?.research || {};
@@ -49,7 +61,7 @@ function aggregateRows(report) {
     ],
   ];
 
-  if (!research.suppressed && research.distributions) {
+  if (groupBreakdownsAvailable(research)) {
     for (const metric of Object.keys(DISTRIBUTION_LABELS)) {
       const distribution = research.distributions[metric];
       if (!distribution || typeof distribution !== "object") continue;
@@ -105,9 +117,16 @@ function learnerLink(inviteToken) {
   return url.toString();
 }
 
+function invitationStatusLabel(status) {
+  if (status === "active") return "Active";
+  if (status === "suspended") return "Paused";
+  return "Unavailable";
+}
+
 export default function PartnerDashboard({ adminToken }) {
   const [status, setStatus] = useState(adminToken ? "loading" : "invalid");
   const [report, setReport] = useState(null);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState(null);
   const [rotationStep, setRotationStep] = useState("idle");
   const [replacementLink, setReplacementLink] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
@@ -119,6 +138,7 @@ export default function PartnerDashboard({ adminToken }) {
       .then((nextReport) => {
         if (cancelled) return;
         setReport(nextReport);
+        setDashboardUpdatedAt(nextReport.updatedAt);
         setStatus("ready");
       })
       .catch(() => {
@@ -139,6 +159,7 @@ export default function PartnerDashboard({ adminToken }) {
       const result = await rotatePartnerInvite({ adminToken });
       if (typeof result?.inviteToken !== "string") throw new Error("invalid response");
       setReplacementLink(learnerLink(result.inviteToken));
+      setDashboardUpdatedAt(new Date().toISOString());
       setRotationStep("revealed");
     } catch {
       setReplacementLink("");
@@ -188,7 +209,9 @@ export default function PartnerDashboard({ adminToken }) {
   const available = count(report.seats?.available);
   const limit = count(report.seats?.limit);
   const consentedCount = count(report.research?.consentedCount);
-  const updatedAt = formattedUpdatedAt(report.updatedAt);
+  const updatedAt = formattedUpdatedAt(dashboardUpdatedAt);
+  const showGroupBreakdowns = groupBreakdownsAvailable(report.research);
+  const invitationStatus = invitationStatusLabel(report.invitation?.status);
 
   return (
     <main className="partner-dashboard">
@@ -202,7 +225,15 @@ export default function PartnerDashboard({ adminToken }) {
           />
           <div>
             <p className="partner-dashboard-wordmark">Everwise</p>
-            <p className="partner-dashboard-partner">Reporting for {partnerName}</p>
+            <div className="partner-dashboard-partner-lockup">
+              <PartnerLogo
+                partner={report.branding}
+                className="partner-dashboard-partner-logo"
+              />
+              <p className="partner-dashboard-partner">
+                Reporting for {partnerName}
+              </p>
+            </div>
           </div>
         </div>
         <div>
@@ -230,7 +261,7 @@ export default function PartnerDashboard({ adminToken }) {
           </p>
         </div>
 
-        {report.research?.suppressed || !report.research?.distributions ? (
+        {!showGroupBreakdowns ? (
           <p className="partner-dashboard-threshold">
             More responses are needed before group breakdowns can be shown.
           </p>
@@ -277,7 +308,7 @@ export default function PartnerDashboard({ adminToken }) {
           <h2 id="report-actions">Report actions</h2>
           {updatedAt ? (
             <p>
-              Last updated <time dateTime={report.updatedAt}>{updatedAt}</time>
+              Last updated <time dateTime={dashboardUpdatedAt}>{updatedAt}</time>
             </p>
           ) : null}
         </div>
@@ -292,6 +323,9 @@ export default function PartnerDashboard({ adminToken }) {
 
       <section className="partner-dashboard-section" aria-labelledby="learner-link-title">
         <h2 id="learner-link-title">Learner invitation</h2>
+        <p className="partner-dashboard-invitation-status">
+          Learner invitation status: {invitationStatus}
+        </p>
         <p>Replace the learner link only if the current link should no longer work.</p>
 
         {rotationStep === "idle" ? (

@@ -4,6 +4,7 @@ import {
   StarIcon,
 } from "../components/Icons";
 import AddToHomeScreenBanner from "../components/AddToHomeScreenBanner";
+import { PartnerLogo } from "../components/PartnerBrand.jsx";
 
 export default function Home({
   partner = null,
@@ -82,9 +83,15 @@ export default function Home({
                 Everwise
               </p>
               {partnerName ? (
-                <p className="home-partner-branding">
-                  Access provided by {partnerName}
-                </p>
+                <div className="home-partner-lockup">
+                  <PartnerLogo
+                    partner={partner}
+                    className="home-partner-logo"
+                  />
+                  <p className="home-partner-branding">
+                    Access provided by {partnerName}
+                  </p>
+                </div>
               ) : null}
             </div>
           </div>

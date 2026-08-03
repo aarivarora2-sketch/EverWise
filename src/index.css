@@ -222,27 +222,44 @@
     backdrop-filter: blur(14px);
   }
 
-.app-navigation-brand {
-  display: flex;
+  .app-navigation-brand {
+    display: flex;
+    min-width: 0;
     flex: 0 0 auto;
     align-items: center;
     gap: 0.6rem;
     color: #22201c;
     font-size: calc(1.05rem * var(--text-scale));
     font-weight: 800;
-  letter-spacing: -0.02em;
-  flex-wrap: wrap;
-}
+    letter-spacing: -0.02em;
+    flex-wrap: wrap;
+  }
 
-.app-navigation-partner {
-  flex-basis: 100%;
-  padding-left: 2.6rem;
-  color: #625d54;
-  font-size: calc(0.72rem * var(--text-scale));
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.25;
-}
+  .app-navigation-partner-lockup {
+    display: flex;
+    min-width: 0;
+    flex-basis: 100%;
+    align-items: center;
+    gap: 0.4rem;
+    padding-left: 2.6rem;
+  }
+
+  .app-navigation-partner-logo {
+    width: 1.4rem;
+    height: 1.4rem;
+    flex: 0 0 auto;
+    object-fit: contain;
+  }
+
+  .app-navigation-partner {
+    min-width: 0;
+    color: #625d54;
+    font-size: calc(0.72rem * var(--text-scale));
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
 
   .app-navigation-logo {
     width: 2rem;
@@ -493,6 +510,10 @@
   }
 
   .app-navigation-partner {
+    font-size: calc(0.72rem * var(--text-scale));
+  }
+
+  .app-navigation-partner-lockup {
     padding-left: 3.1rem;
   }
 
@@ -603,8 +624,11 @@
     display: none;
   }
 
-  .app-navigation-partner {
-    display: none;
+  .app-navigation-partner-lockup {
+    max-width: 9rem;
+    flex: 0 1 9rem;
+    flex-basis: auto;
+    padding-left: 0;
   }
 
   .app-navigation-items {
@@ -670,6 +694,20 @@
   line-height: 1.3;
 }
 
+.home-partner-lockup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.home-partner-logo {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .partner-dashboard {
   box-sizing: border-box;
   width: 100%;
@@ -729,6 +767,25 @@
   color: #625d54;
   font-size: calc(0.92rem * var(--text-scale));
   line-height: 1.45;
+}
+
+.partner-dashboard-partner-lockup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.partner-dashboard-partner-logo {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.partner-dashboard-invitation-status {
+  margin-top: 0.75rem;
+  font-weight: 700;
 }
 
 .partner-dashboard h1 {
