@@ -11,9 +11,10 @@ const password = "Example-Password-29!";
 const idToken = "id-token-1";
 const firebaseRawMessage = "EMAIL_EXISTS: private firebase detail";
 
-function streamBody(chunks, { keepOpen = false, onCancel } = {}) {
+function streamBody(chunks, { keepOpen = false, onCancel, byob = true } = {}) {
   const encoder = new TextEncoder();
   return new ReadableStream({
+    ...(byob ? { type: "bytes" } : {}),
     start(controller) {
       for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
       if (!keepOpen) controller.close();
@@ -26,10 +27,10 @@ function response(body, { ok = true, status = 200 } = {}) {
   return { ok, status, body: streamBody([JSON.stringify(body)]) };
 }
 
-function expectSafeError(error, code) {
+function expectSafeError(error, code, rawMessage = firebaseRawMessage) {
   assert.ok(error instanceof FirebaseIdentityError);
   assert.equal(error.code, code);
-  for (const secret of [apiKey, email, password, idToken, firebaseRawMessage]) {
+  for (const secret of [apiKey, email, password, idToken, rawMessage]) {
     assert.equal(`${error.name}:${error.code}:${error.message}`.includes(secret), false);
   }
   return true;
@@ -95,18 +96,69 @@ test("rejects malformed account or project success responses", async () => {
   }
 });
 
+test("rejects null, malformed, and overlong public account arguments safely", async () => {
+  const client = createFirebaseIdentityClient({ apiKey, fetchImpl: async () => response({}) });
+  const cases = [
+    () => client.createAccount(null),
+    () => client.signIn(null),
+    () => client.deleteAccount(null),
+    () => client.createAccount({ email: "e".repeat(321), password }),
+    () => client.signIn({ email, password: "p".repeat(1_025) }),
+    () => client.deleteAccount({ idToken: "t".repeat(16_385) }),
+  ];
+  for (const call of cases) {
+    await assert.rejects(call(), (error) => expectSafeError(error, "INVALID_RESPONSE"));
+  }
+});
+
+test("rejects a non-boolean fetch ok value before returning credentials", async () => {
+  const client = createFirebaseIdentityClient({
+    apiKey,
+    fetchImpl: async () => ({
+      ok: "true",
+      status: 200,
+      body: streamBody([JSON.stringify({ localId: "firebase-uid-1", idToken })]),
+    }),
+  });
+  await assert.rejects(client.createAccount({ email, password }), (error) => expectSafeError(error, "INVALID_RESPONSE"));
+});
+
 test("rejects response streams larger than 25,000 bytes", async () => {
   let cancelled = false;
+  let largestReadBuffer = 0;
   const client = createFirebaseIdentityClient({
     apiKey,
     fetchImpl: async () => ({
       ok: true,
       status: 200,
-      body: streamBody(["x".repeat(25_001)], { keepOpen: true, onCancel: () => { cancelled = true; } }),
+      body: new ReadableStream({
+        type: "bytes",
+        pull(controller) {
+          const view = controller.byobRequest?.view;
+          assert.ok(view instanceof Uint8Array);
+          largestReadBuffer = Math.max(largestReadBuffer, view.byteLength);
+          view.fill(120);
+          controller.byobRequest.respond(view.byteLength);
+        },
+        cancel() { cancelled = true; },
+      }),
     }),
   });
   await assert.rejects(client.getProject(), (error) => expectSafeError(error, "INVALID_RESPONSE"));
   assert.equal(cancelled, true);
+  assert.equal(largestReadBuffer, 25_001);
+});
+
+test("rejects response bodies that cannot be bounded with a BYOB reader", async () => {
+  const client = createFirebaseIdentityClient({
+    apiKey,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: streamBody([JSON.stringify({ projectId: "games-caf0e" })], { byob: false }),
+    }),
+  });
+  await assert.rejects(client.getProject(), (error) => expectSafeError(error, "INVALID_RESPONSE"));
 });
 
 test("maps Firebase failures to safe stable error codes", async () => {
@@ -119,12 +171,37 @@ test("maps Firebase failures to safe stable error codes", async () => {
     ["TOO_MANY_ATTEMPTS_TRY_LATER", "RATE_LIMITED"],
   ];
   for (const [firebaseMessage, code] of cases) {
+    const rawMessage = `${firebaseMessage}: private firebase detail`;
     const client = createFirebaseIdentityClient({
       apiKey,
-      fetchImpl: async () => response({ error: { message: `${firebaseMessage}: private firebase detail` } }, { ok: false, status: 400 }),
+      fetchImpl: async () => response({ error: { message: rawMessage } }, { ok: false, status: 400 }),
     });
-    await assert.rejects(client.createAccount({ email, password }), (error) => expectSafeError(error, code));
+    await assert.rejects(client.createAccount({ email, password }), (error) => expectSafeError(error, code, rawMessage));
   }
+});
+
+test("maps HTTP 429 with malformed failure content to a safe rate-limit error", async () => {
+  const client = createFirebaseIdentityClient({
+    apiKey,
+    fetchImpl: async () => ({ ok: false, status: 429, body: streamBody(["not json"]) }),
+  });
+  await assert.rejects(client.createAccount({ email, password }), (error) => expectSafeError(error, "RATE_LIMITED", "not json"));
+});
+
+test("clears the timeout after a normal response", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  const client = createFirebaseIdentityClient({
+    apiKey,
+    timeoutMs: 200,
+    fetchImpl: async (_url, options) => {
+      signal = options.signal;
+      return response({ projectId: "games-caf0e" });
+    },
+  });
+  await client.getProject();
+  t.mock.timers.tick(200);
+  assert.equal(signal.aborted, false);
 });
 
 test("maps aborted and network failures to unavailable without secret disclosure", async (t) => {

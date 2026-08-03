@@ -37,22 +37,30 @@ function validIdToken(idToken) {
 }
 
 async function readResponseJson(response) {
-  const reader = response?.body?.getReader?.();
-  if (!reader) throw identityError("INVALID_RESPONSE");
+  let reader;
+  try {
+    reader = response.body.getReader({ mode: "byob" });
+  } catch {
+    throw identityError("INVALID_RESPONSE");
+  }
 
   const chunks = [];
   let size = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read(
+        new Uint8Array(MAX_RESPONSE_BYTES - size + 1),
+      );
       if (done) break;
-      if (!(value instanceof Uint8Array)) throw identityError("INVALID_RESPONSE");
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
+      if (!(value instanceof Uint8Array) || value.byteLength === 0) {
+        throw identityError("INVALID_RESPONSE");
+      }
+      if (value.byteLength > MAX_RESPONSE_BYTES - size) {
         await reader.cancel();
         throw identityError("INVALID_RESPONSE");
       }
-      chunks.push(value);
+      chunks.push(value.slice());
+      size += value.byteLength;
     }
   } catch (error) {
     if (error instanceof FirebaseIdentityError) throw error;
@@ -75,6 +83,44 @@ async function readResponseJson(response) {
     return parsed;
   } catch {
     throw identityError("INVALID_RESPONSE");
+  }
+}
+
+function responseState(response) {
+  try {
+    if (
+      !response ||
+      typeof response !== "object" ||
+      typeof response.ok !== "boolean" ||
+      !Number.isSafeInteger(response.status) ||
+      response.status < 100 ||
+      response.status > 599 ||
+      !response.body ||
+      typeof response.body.getReader !== "function"
+    ) {
+      return null;
+    }
+    return response.ok;
+  } catch {
+    return null;
+  }
+}
+
+function credentialsFrom(input) {
+  if (!input || typeof input !== "object") return null;
+  try {
+    return { email: input.email, password: input.password };
+  } catch {
+    return null;
+  }
+}
+
+function idTokenFrom(input) {
+  if (!input || typeof input !== "object") return null;
+  try {
+    return input.idToken;
+  } catch {
+    return null;
   }
 }
 
@@ -127,15 +173,18 @@ export function createFirebaseIdentityClient({
           signal: controller.signal,
         },
       );
+      const ok = responseState(response);
+      if (ok === null) throw identityError("INVALID_RESPONSE");
 
       let parsed;
       try {
         parsed = await readResponseJson(response);
       } catch (error) {
-        if (response?.ok) throw error;
+        if (ok) throw error;
+        if (response.status === 429) throw identityError("RATE_LIMITED");
         throw identityError("UNAVAILABLE");
       }
-      if (!response?.ok) throw identityError(firebaseFailureCode(parsed, response.status));
+      if (!ok) throw identityError(firebaseFailureCode(parsed, response.status));
       return parsed;
     } catch (error) {
       if (error instanceof FirebaseIdentityError) throw error;
@@ -151,23 +200,28 @@ export function createFirebaseIdentityClient({
       if (body.projectId !== EXPECTED_PROJECT_ID) throw identityError("INVALID_RESPONSE");
       return { projectId: EXPECTED_PROJECT_ID };
     },
-    async createAccount({ email, password } = {}) {
-      if (!validCredentials({ email, password })) throw identityError("INVALID_RESPONSE");
+    async createAccount(input = {}) {
+      const credentials = credentialsFrom(input);
+      if (!credentials || !validCredentials(credentials)) throw identityError("INVALID_RESPONSE");
+      const { email, password } = credentials;
       return accountResult(await identityRequest("accounts:signUp", {
         email,
         password,
         returnSecureToken: true,
       }));
     },
-    async signIn({ email, password } = {}) {
-      if (!validCredentials({ email, password })) throw identityError("INVALID_RESPONSE");
+    async signIn(input = {}) {
+      const credentials = credentialsFrom(input);
+      if (!credentials || !validCredentials(credentials)) throw identityError("INVALID_RESPONSE");
+      const { email, password } = credentials;
       return accountResult(await identityRequest("accounts:signInWithPassword", {
         email,
         password,
         returnSecureToken: true,
       }));
     },
-    async deleteAccount({ idToken } = {}) {
+    async deleteAccount(input = {}) {
+      const idToken = idTokenFrom(input);
       if (!validIdToken(idToken)) throw identityError("INVALID_RESPONSE");
       await identityRequest("accounts:delete", { idToken });
     },
