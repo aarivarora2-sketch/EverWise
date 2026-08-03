@@ -11,7 +11,12 @@ const START_SECONDS = START / 1000;
 
 const primaryKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const otherKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const nonRsaKeys = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const publicKeyPem = primaryKeys.publicKey.export({
+  type: "spki",
+  format: "pem",
+});
+const nonRsaPublicKeyPem = nonRsaKeys.publicKey.export({
   type: "spki",
   format: "pem",
 });
@@ -300,6 +305,38 @@ test("does not retain a failed in-flight certificate request", async () => {
     authTime: START_SECONDS - 10,
   });
   assert.equal(fetchCount, 2);
+});
+
+test("rejects and does not cache unparsable or non-RSA signing material", async () => {
+  for (const invalidCertificate of [
+    "not-a-certificate",
+    nonRsaPublicKeyPem,
+  ]) {
+    let fetchCount = 0;
+    const { verifier } = setupVerifier({
+      fetchImpl: async () => {
+        fetchCount += 1;
+        return certificateResponse(
+          fetchCount === 1
+            ? { "test-key": invalidCertificate }
+            : { "test-key": publicKeyPem },
+        );
+      },
+    });
+    const token = createToken();
+
+    await assert.rejects(() => verifier.verifyIdToken(token), (error) => {
+      assert.equal(error.code, "FIREBASE_CERTIFICATES_UNAVAILABLE");
+      assert.notEqual(error.code, "INVALID_FIREBASE_TOKEN");
+      return true;
+    });
+    assert.deepEqual(await verifier.verifyIdToken(token), {
+      uid: "firebase-uid-1",
+      email: "learner@example.com",
+      authTime: START_SECONDS - 10,
+    });
+    assert.equal(fetchCount, 2);
+  }
 });
 
 test("aborts Google certificate retrieval at its bounded timeout", async (t) => {

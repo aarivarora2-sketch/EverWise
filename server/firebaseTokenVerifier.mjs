@@ -187,6 +187,7 @@ function parseCertificateBody(body) {
   if (entries.length < 1 || entries.length > MAX_CERTIFICATES) {
     throw certificateError();
   }
+  const publicKeys = new Map();
   for (const [kid, certificate] of entries) {
     if (
       kid.length < 1 ||
@@ -197,8 +198,15 @@ function parseCertificateBody(body) {
     ) {
       throw certificateError();
     }
+    try {
+      const publicKey = createPublicKey(certificate);
+      if (publicKey.asymmetricKeyType !== "rsa") throw certificateError();
+      publicKeys.set(kid, publicKey);
+    } catch {
+      throw certificateError();
+    }
   }
-  return certificates;
+  return publicKeys;
 }
 
 function responseHeader(response, name) {
@@ -354,19 +362,16 @@ export function createFirebaseTokenVerifier({
       Math.floor(currentTimeMilliseconds(now) / 1000),
     );
     const certificates = await getCertificates();
-    if (!Object.hasOwn(certificates, parsed.header.kid)) throw invalidToken();
-    let publicKey;
+    const publicKey = certificates.get(parsed.header.kid);
+    if (!publicKey) throw invalidToken();
     let signatureIsValid;
     try {
-      publicKey = createPublicKey(certificates[parsed.header.kid]);
-      signatureIsValid =
-        publicKey.asymmetricKeyType === "rsa" &&
-        verify(
-          "RSA-SHA256",
-          Buffer.from(parsed.signingInput, "ascii"),
-          publicKey,
-          parsed.signature,
-        );
+      signatureIsValid = verify(
+        "RSA-SHA256",
+        Buffer.from(parsed.signingInput, "ascii"),
+        publicKey,
+        parsed.signature,
+      );
     } catch {
       throw invalidToken();
     }

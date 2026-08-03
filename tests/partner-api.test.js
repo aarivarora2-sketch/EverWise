@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { createFirebaseTokenVerifier } from "../server/firebaseTokenVerifier.mjs";
 import { createPartnerApi } from "../server/partnerApi.mjs";
 import { PartnerStoreError } from "../server/partnerErrors.mjs";
 import { createPartnerStore } from "../server/partnerStore.mjs";
@@ -32,6 +34,62 @@ const AUTHORIZATION = {
   Authorization: "Bearer learner-token",
 };
 const START_SECONDS = Date.parse("2026-08-02T12:00:00.000Z") / 1000;
+const FIREBASE_PROJECT_ID = "everwise-46cf0";
+const firebaseKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const otherFirebaseKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const firebasePublicKeyPem = firebaseKeys.publicKey.export({
+  type: "spki",
+  format: "pem",
+});
+
+function encodeFirebaseSegment(value) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function firebaseBearerToken(privateKey = firebaseKeys.privateKey) {
+  const header = encodeFirebaseSegment({
+    alg: "RS256",
+    kid: "test-key",
+    typ: "JWT",
+  });
+  const payload = encodeFirebaseSegment({
+    aud: FIREBASE_PROJECT_ID,
+    iss: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+    sub: "firebase-learner-uid",
+    exp: START_SECONDS + 3600,
+    iat: START_SECONDS - 10,
+    auth_time: START_SECONDS - 10,
+    email: "learner@private.example",
+  });
+  const signingInput = `${header}.${payload}`;
+  const signature = sign(
+    "RSA-SHA256",
+    Buffer.from(signingInput),
+    privateKey,
+  );
+  return `${signingInput}.${signature.toString("base64url")}`;
+}
+
+function realFirebaseVerifier(certificate) {
+  return createFirebaseTokenVerifier({
+    projectId: FIREBASE_PROJECT_ID,
+    now: () => new Date(START_SECONDS * 1000),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get(name) {
+          return name.toLowerCase() === "cache-control"
+            ? "public, max-age=3600"
+            : null;
+        },
+      },
+      async text() {
+        return JSON.stringify({ "test-key": certificate });
+      },
+    }),
+  });
+}
 
 function researchSnapshot(overrides = {}) {
   return {
@@ -385,18 +443,19 @@ test("requires a valid Authorization bearer for every authenticated learner rout
   }
 });
 
-test("maps certificate infrastructure unavailability to a safe retryable response", async (t) => {
-  const privateMessage = "Google certificate fetch exposed private detail";
+test("maps real malformed Firebase signing material to a safe retryable response", async (t) => {
+  const privateCertificateDetail = "not-a-certificate-private-detail";
+  const verifier = realFirebaseVerifier(privateCertificateDetail);
+  const bearer = firebaseBearerToken();
   const { created, request } = await setupApi(t, {
-    verifyIdToken: async () => {
-      const error = new Error(privateMessage);
-      error.code = "FIREBASE_CERTIFICATES_UNAVAILABLE";
-      throw error;
-    },
+    verifyIdToken: verifier.verifyIdToken,
   });
 
   const result = await request("/api/partner/claim", {
-    headers: AUTHORIZATION,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearer}`,
+    },
     body: { inviteToken: created.inviteToken, researchConsent: false },
   });
 
@@ -405,27 +464,29 @@ test("maps certificate infrastructure unavailability to a safe retryable respons
     code: "PARTNER_UNAVAILABLE",
     message: "Sponsored access is temporarily unavailable.",
   });
-  assert.equal(result.text.includes(privateMessage), false);
+  assert.equal(result.text.includes(privateCertificateDetail), false);
+  assert.equal(result.text.includes("Firebase signing certificates"), false);
   assertSecurityHeaders(result.response);
 });
 
-test("keeps a truly invalid Firebase bearer unauthenticated", async (t) => {
+test("keeps a real wrong-signature Firebase bearer unauthenticated", async (t) => {
+  const verifier = realFirebaseVerifier(firebasePublicKeyPem);
+  const bearer = firebaseBearerToken(otherFirebaseKeys.privateKey);
   const { created, request } = await setupApi(t, {
-    verifyIdToken: async () => {
-      const error = new Error("invalid token private detail");
-      error.code = "INVALID_FIREBASE_TOKEN";
-      throw error;
-    },
+    verifyIdToken: verifier.verifyIdToken,
   });
 
   const result = await request("/api/partner/claim", {
-    headers: AUTHORIZATION,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearer}`,
+    },
     body: { inviteToken: created.inviteToken, researchConsent: false },
   });
 
   assert.equal(result.response.status, 401);
   assertGenericError(result.json, "UNAUTHENTICATED");
-  assert.equal(result.text.includes("private detail"), false);
+  assert.equal(result.text.includes("Firebase"), false);
 });
 
 test("supports claim, returning access, release cancellation, and receipt-only confirmation", async (t) => {
