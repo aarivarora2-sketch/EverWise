@@ -446,14 +446,19 @@
 }
 
 @media (min-width: 1024px) {
+  /* Fill the whole browser window on desktop — no padded margin, no
+     max-width cap, no rounded "framed card" look. That treatment reads as
+     a tablet-sized app floating in the middle of the screen; a real
+     desktop web app uses the full window. */
   .app-viewport {
-    padding: 2rem;
+    padding: 0;
   }
 
   .app-shell {
-    max-width: 1180px;
-    min-height: calc(100dvh - 4rem);
-    border-radius: 36px;
+    max-width: none;
+    width: 100%;
+    min-height: 100dvh;
+    border-radius: 0;
   }
 
   .app-shell.has-app-navigation {
@@ -463,8 +468,8 @@
   }
 
   .app-navigation {
-    top: 2rem;
-    height: calc(100dvh - 4rem);
+    top: 0;
+    height: 100dvh;
     min-height: 620px;
     flex-direction: column;
     align-items: stretch;
@@ -472,7 +477,7 @@
     padding: 1.5rem 1rem;
     border-right: 1px solid rgb(34 32 28 / 10%);
     border-bottom: 0;
-    border-radius: 36px 0 0 36px;
+    border-radius: 0;
     box-shadow: 8px 0 24px rgb(34 32 28 / 4%);
   }
 
@@ -506,7 +511,7 @@
 
   .app-canvas,
   .has-app-navigation .app-canvas {
-    min-height: calc(100dvh - 4rem);
+    min-height: 100dvh;
   }
 
   .home-dashboard {
@@ -571,11 +576,11 @@
   }
 
   .app-canvas-badges .badges-screen > header {
-    border-radius: 0 36px 0 0;
+    border-radius: 0;
   }
 
   .app-canvas-path .path-header {
-    border-radius: 0 36px 0 0;
+    border-radius: 0;
   }
 }
 
