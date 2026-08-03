@@ -1,4 +1,5 @@
 import { createHash, randomBytes as cryptoRandomBytes, timingSafeEqual } from "node:crypto";
+import { spawn } from "node:child_process";
 import {
   chmod,
   copyFile,
@@ -39,8 +40,82 @@ const PARTNER_KEYS = [
 
 let temporaryFileCounter = 0;
 
+const LOCK_HELPER_SOURCE = String.raw`
+use strict;
+use warnings;
+use Fcntl qw(:DEFAULT :flock);
+
+sysopen(my $lock_file, $ARGV[0], O_CREAT | O_RDWR, 0600)
+  or die "lock open failed\n";
+flock($lock_file, LOCK_EX)
+  or die "lock acquisition failed\n";
+$| = 1;
+print "LOCKED\n";
+while (sysread(STDIN, my $buffer, 4096)) {}
+`;
+
 function storeError(code, message) {
   return new PartnerStoreError(code, message);
+}
+
+function acquireInterprocessMutationLock(filePath) {
+  return new Promise((resolve, reject) => {
+    const helper = spawn(
+      "/usr/bin/perl",
+      ["-e", LOCK_HELPER_SOURCE, `${filePath}.lock`],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    let ready = false;
+    let stdout = "";
+    let stderr = "";
+
+    helper.stdout.setEncoding("utf8");
+    helper.stderr.setEncoding("utf8");
+    helper.stderr.on("data", (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-1000);
+    });
+
+    const exitResult = new Promise((exitResolve) => {
+      helper.once("exit", (code, signal) => exitResolve({ code, signal }));
+    });
+
+    helper.once("error", () => {
+      reject(storeError("STORE_LOCK_FAILED", "The partner store lock could not start."));
+    });
+    helper.stdout.on("data", (chunk) => {
+      if (ready) return;
+      stdout += chunk;
+      if (!stdout.includes("\n")) return;
+      if (stdout !== "LOCKED\n") {
+        helper.stdin.end();
+        reject(storeError("STORE_LOCK_FAILED", "The partner store lock failed."));
+        return;
+      }
+      ready = true;
+      resolve(async () => {
+        if (helper.exitCode === null && helper.signalCode === null) {
+          helper.stdin.end();
+        }
+        const { code, signal } = await exitResult;
+        if (code !== 0 || signal !== null) {
+          throw storeError(
+            "STORE_LOCK_FAILED",
+            stderr ? "The partner store lock ended unexpectedly." : "The partner store lock failed.",
+          );
+        }
+      });
+    });
+    exitResult.then(({ code, signal }) => {
+      if (!ready) {
+        reject(storeError(
+          "STORE_LOCK_FAILED",
+          code !== 0 || signal !== null
+            ? "The partner store lock failed."
+            : "The partner store lock ended before acquisition.",
+        ));
+      }
+    });
+  });
 }
 
 function emptyData() {
@@ -367,26 +442,31 @@ export function createPartnerStore({
 
   function enqueueMutation(mutator, { allowMissing = false } = {}) {
     const run = async () => {
-      const current = await readData({ allowMissing });
-      const hadPriorFile = current !== null;
-      const working = clone(current || emptyData());
-      const currentDate = nowDate(now);
-      const normalized = normalizeExpired(working, currentDate);
-      const outcome = await mutator(working, currentDate);
-      if (outcome.changed || normalized) {
-        validateData(working, { testOnlyAllowCustomSeatLimits });
-        try {
-          await persistAtomically(
-            filePath,
-            working,
-            hadPriorFile,
-            testOnlyFileOperations,
-          );
-        } catch (error) {
-          if (!(await committedDataMatches(working))) throw error;
+      const releaseLock = await acquireInterprocessMutationLock(filePath);
+      try {
+        const current = await readData({ allowMissing });
+        const hadPriorFile = current !== null;
+        const working = clone(current || emptyData());
+        const currentDate = nowDate(now);
+        const normalized = normalizeExpired(working, currentDate);
+        const outcome = await mutator(working, currentDate);
+        if (outcome.changed || normalized) {
+          validateData(working, { testOnlyAllowCustomSeatLimits });
+          try {
+            await persistAtomically(
+              filePath,
+              working,
+              hadPriorFile,
+              testOnlyFileOperations,
+            );
+          } catch (error) {
+            if (!(await committedDataMatches(working))) throw error;
+          }
         }
+        return outcome.result;
+      } finally {
+        await releaseLock();
       }
-      return outcome.result;
     };
     const result = mutationQueue.then(run, run);
     mutationQueue = result.then(

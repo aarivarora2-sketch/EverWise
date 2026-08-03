@@ -81,7 +81,7 @@ configure_runtime() {
 
 unsafe_archive_entry() {
   local archive_entry="$1"
-  local trimmed component basename
+  local trimmed component normalized_component basename normalized_basename
 
   [[ -z "$archive_entry" ]] && return 0
   [[ "$archive_entry" == /* ]] && return 0
@@ -93,12 +93,14 @@ unsafe_archive_entry() {
   for component in "${components[@]}"; do
     [[ -z "$component" || "$component" == "." || "$component" == ".." ]] && return 0
     [[ "$component" == .* ]] && return 0
-    [[ "$component" == "node_modules" ]] && return 0
+    normalized_component="$(printf '%s' "$component" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+    [[ "$normalized_component" == "node_modules" ]] && return 0
   done
 
   basename="${trimmed##*/}"
-  case "$basename" in
-    .env|.env.*|*.pem|*.key|partners.json|partners.json.*|*credential*|*secret*|id_rsa|id_ed25519)
+  normalized_basename="$(printf '%s' "$basename" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  case "$normalized_basename" in
+    .env|.env.*|*.pem|*.key|partners.json|partners.json.*|*credential*|*secret*|*private*key*|*api*key*|*access*key*|id_rsa|id_ed25519)
       return 0
       ;;
   esac
@@ -165,6 +167,20 @@ restore_release() {
   fi
 }
 
+validate_release_tree() {
+  local tree_path="$1"
+
+  test -f "$tree_path/dist/index.html"
+  test -f "$tree_path/server.mjs"
+  test -d "$tree_path/server"
+  test -f "$tree_path/scripts/manage-partners.mjs"
+  /usr/local/bin/node --check "$tree_path/server.mjs"
+  while IFS= read -r -d '' module_path; do
+    /usr/local/bin/node --check "$module_path"
+  done < <(find "$tree_path/server" -maxdepth 1 -type f -name '*.mjs' -print0)
+  /usr/local/bin/node --check "$tree_path/scripts/manage-partners.mjs"
+}
+
 ensure_partner_store() {
   local bootstrap_path
 
@@ -195,6 +211,7 @@ ensure_partner_store() {
 deploy_release() {
   local release_sha="$1"
   local archive_path staging_path release_root release_path previous_release
+  local reuse_existing_release=false
 
   archive_path="$(mktemp /var/tmp/everwise-release.XXXXXX.tgz)"
   staging_path="$(mktemp -d /var/tmp/everwise-release.XXXXXX)"
@@ -215,15 +232,7 @@ deploy_release() {
     --no-same-permissions \
     -C "$staging_path"
 
-  test -f "$staging_path/dist/index.html"
-  test -f "$staging_path/server.mjs"
-  test -d "$staging_path/server"
-  test -f "$staging_path/scripts/manage-partners.mjs"
-  /usr/local/bin/node --check "$staging_path/server.mjs"
-  while IFS= read -r -d '' module_path; do
-    /usr/local/bin/node --check "$module_path"
-  done < <(find "$staging_path/server" -maxdepth 1 -type f -name '*.mjs' -print0)
-  /usr/local/bin/node --check "$staging_path/scripts/manage-partners.mjs"
+  validate_release_tree "$staging_path"
 
   test ! -e /var/lib/everwise/partners.json || test -f /var/lib/everwise/partners.json
   ensure_partner_store
@@ -231,20 +240,29 @@ deploy_release() {
   release_root="/var/www/everwise-releases"
   release_path="$release_root/$release_sha"
   install -d -m 755 "$release_root"
+  previous_release="$(readlink -f /var/www/everwise-current || true)"
 
   if [[ -e "$release_path" ]]; then
-    rm -rf "$release_path"
+    test -d "$release_path"
+    test ! -L "$release_path"
+    validate_release_tree "$release_path"
+    reuse_existing_release=true
+  else
+    chown -R root:root "$staging_path"
+    find "$staging_path" -type d -exec chmod 755 {} +
+    find "$staging_path" -type f -exec chmod 644 {} +
+    chmod 755 "$staging_path/scripts/manage-partners.mjs"
+    mv -Tn "$staging_path" "$release_path"
+    test ! -e "$staging_path"
   fi
 
-  chown -R root:root "$staging_path"
-  find "$staging_path" -type d -exec chmod 755 {} +
-  find "$staging_path" -type f -exec chmod 644 {} +
-  chmod 755 "$staging_path/scripts/manage-partners.mjs"
-  mv "$staging_path" "$release_path"
-
-  previous_release="$(readlink -f /var/www/everwise-current || true)"
-  ln -sfn "$release_path" /var/www/everwise-current.next
-  mv -Tf /var/www/everwise-current.next /var/www/everwise-current
+  if [[ "$previous_release" == "$release_path" ]] &&
+     [[ "$reuse_existing_release" == "true" ]]; then
+    test "$(readlink -f /var/www/everwise-current)" = "$release_path"
+  else
+    ln -sfn "$release_path" /var/www/everwise-current.next
+    mv -Tf /var/www/everwise-current.next /var/www/everwise-current
+  fi
 
   if ! systemctl restart everwise-api.service || ! release_is_healthy; then
     restore_release "$previous_release"

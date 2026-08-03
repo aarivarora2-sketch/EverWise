@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
+  access,
   chmod as fsChmod,
   mkdtemp,
   readFile,
@@ -12,6 +14,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPartnerStore } from "../server/partnerStore.mjs";
+
+const partnerStoreUrl = new URL("../server/partnerStore.mjs", import.meta.url).href;
+const managePartnersPath = new URL("../scripts/manage-partners.mjs", import.meta.url).pathname;
 
 const START = Date.parse("2026-08-02T12:00:00.000Z");
 
@@ -89,6 +94,41 @@ async function expectStoreError(operation, code) {
     assert.equal(error.code, code);
     return true;
   });
+}
+
+function spawnModule(source, args = [], env = process.env) {
+  return spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", source, ...args],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env },
+  );
+}
+
+function childResult(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
+}
+
+async function waitForPath(path, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await access(path);
+      return;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`Timed out waiting for ${path}`);
 }
 
 test("createPartner persists schema v1 and returns one-time 32-byte tokens", async (t) => {
@@ -199,6 +239,112 @@ test("serialized concurrent claims cannot exceed the 500-seat limit", async (t) 
   assert.equal(existing.status, "active");
   assert.equal((await store.getAccess("uid-1")).status, "active");
   assert.equal((await store.listPartners())[0].claimedCount, 500);
+});
+
+test("API and CLI processes serialize claim and rotation without losing either mutation", async (t) => {
+  const { directory, filePath, store } = await setupStore(t, {
+    testOnlyAllowCustomSeatLimits: false,
+  });
+  const created = await createPilot(store);
+  const markerPath = join(directory, "claim-read.marker");
+  const claimSource = `
+    const { rename, writeFile } = await import("node:fs/promises");
+    const { createPartnerStore } = await import(${JSON.stringify(partnerStoreUrl)});
+    let delayed = false;
+    const store = createPartnerStore({
+      filePath: ${JSON.stringify(filePath)},
+      testOnlyFileOperations: {
+        rename: async (...args) => {
+          if (!delayed) {
+            delayed = true;
+            await writeFile(${JSON.stringify(markerPath)}, "ready");
+            await new Promise((resolve) => setTimeout(resolve, 600));
+          }
+          return rename(...args);
+        },
+      },
+    });
+    await store.claimSeat({
+      uid: "uid-from-api-process",
+      inviteToken: ${JSON.stringify(created.inviteToken)},
+      researchConsent: false,
+    });
+  `;
+  const claimChild = spawnModule(claimSource);
+  const claimFinished = childResult(claimChild);
+  t.after(() => {
+    if (claimChild.exitCode === null) claimChild.kill("SIGKILL");
+  });
+
+  await waitForPath(markerPath);
+  const cliChild = spawn(
+    process.execPath,
+    [managePartnersPath, "rotate-invite", "--id", "pilot"],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, EVERWISE_PARTNER_STORE_PATH: filePath },
+    },
+  );
+  const [claimResult, cliResult] = await Promise.all([
+    claimFinished,
+    childResult(cliChild),
+  ]);
+  assert.equal(claimResult.code, 0, claimResult.stderr);
+  assert.equal(cliResult.code, 0, cliResult.stderr);
+  const rotatedToken = cliResult.stdout.match(/#partner=([A-Za-z0-9_-]{43})/)?.[1];
+  assert.ok(rotatedToken, cliResult.stdout);
+
+  assert.equal((await store.listPartners())[0].claimedCount, 1);
+  assert.equal(
+    (await store.previewInvite({ inviteToken: rotatedToken })).partnerId,
+    "pilot",
+  );
+});
+
+test("interprocess mutation lock is released by the kernel after a writer crash", async (t) => {
+  const { directory, filePath, store } = await setupStore(t, {
+    testOnlyAllowCustomSeatLimits: false,
+  });
+  const created = await createPilot(store);
+  const markerPath = join(directory, "crashing-writer.marker");
+  const crashSource = `
+    const { rename, writeFile } = await import("node:fs/promises");
+    const { createPartnerStore } = await import(${JSON.stringify(partnerStoreUrl)});
+    const store = createPartnerStore({
+      filePath: ${JSON.stringify(filePath)},
+      testOnlyFileOperations: {
+        rename: async (...args) => {
+          await writeFile(${JSON.stringify(markerPath)}, "ready");
+          await new Promise(() => {});
+          return rename(...args);
+        },
+      },
+    });
+    await store.claimSeat({
+      uid: "uid-crashing-writer",
+      inviteToken: ${JSON.stringify(created.inviteToken)},
+      researchConsent: false,
+    });
+  `;
+  const crashingChild = spawnModule(crashSource);
+  const crashed = childResult(crashingChild);
+  t.after(() => {
+    if (crashingChild.exitCode === null) crashingChild.kill("SIGKILL");
+  });
+
+  await waitForPath(markerPath);
+  await waitForPath(`${filePath}.lock`, 500);
+  crashingChild.kill("SIGKILL");
+  const crashResult = await crashed;
+  assert.equal(crashResult.signal, "SIGKILL");
+
+  const rotated = await Promise.race([
+    store.rotateInvite({ partnerId: "pilot" }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("lock was not recovered after crash")), 3000),
+    ),
+  ]);
+  assert.match(rotated.inviteToken, /^[A-Za-z0-9_-]{43}$/);
 });
 
 test("claim 501 fails after claims 1 through 500 succeed", async (t) => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createPartnerStore } from "../server/partnerStore.mjs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_STORE_PATH = "/var/lib/everwise/partners.json";
@@ -101,15 +102,20 @@ function normalizedName(options) {
 
 function normalizedLogoPath(value) {
   if (value === undefined || value === "null") return null;
-  let decoded;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
+  let decoded = value;
+  for (let pass = 0; pass < 10 && /%[A-Fa-f0-9]{2}/.test(decoded); pass += 1) {
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      fail("The logo must be a safe same-origin path below /partners/ or null.");
+    }
+  }
+  if (/%[A-Fa-f0-9]{2}/.test(decoded)) {
     fail("The logo must be a safe same-origin path below /partners/ or null.");
   }
   if (
-    !value.startsWith("/partners/") ||
-    value.length === "/partners/".length ||
+    !decoded.startsWith("/partners/") ||
+    decoded.length === "/partners/".length ||
     decoded.includes("..") ||
     decoded.includes("\\") ||
     decoded.includes("//") ||
@@ -118,7 +124,7 @@ function normalizedLogoPath(value) {
   ) {
     fail("The logo must be a safe same-origin path below /partners/ or null.");
   }
-  return value;
+  return decoded;
 }
 
 function relativeLuminance(hex) {
@@ -160,7 +166,7 @@ export function prepareProductionIdentity(
     setuid = process.setuid?.bind(process),
   } = {},
 ) {
-  if (filePath !== DEFAULT_STORE_PATH || getuid?.() !== 0) return false;
+  if (resolve(filePath) !== DEFAULT_STORE_PATH || getuid?.() !== 0) return false;
   if (!setgroups || !setgid || !setuid) {
     fail("The production partner store requires the www-data service account.");
   }
@@ -172,7 +178,9 @@ export function prepareProductionIdentity(
 
 async function run(argv) {
   const { command, options } = parseArguments(argv);
-  const filePath = process.env.EVERWISE_PARTNER_STORE_PATH || DEFAULT_STORE_PATH;
+  const filePath = resolve(
+    process.env.EVERWISE_PARTNER_STORE_PATH || DEFAULT_STORE_PATH,
+  );
   prepareProductionIdentity(filePath);
   const store = createPartnerStore({
     filePath,

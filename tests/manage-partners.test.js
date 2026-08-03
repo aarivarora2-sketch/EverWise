@@ -120,7 +120,7 @@ test("create validates partner metadata and accessible same-origin branding", as
     "--seats",
     "500",
     "--logo",
-    "/partners/community.svg",
+    "/partners/community%20logo.svg",
     "--accent",
     "#315A73",
   ]);
@@ -128,7 +128,7 @@ test("create validates partner metadata and accessible same-origin branding", as
   const disk = JSON.parse(await readFile(fixture.filePath, "utf8"));
   assert.equal(
     disk.partners["community-pilot"].branding.logoPath,
-    "/partners/community.svg",
+    "/partners/community logo.svg",
   );
   assert.equal(disk.partners["community-pilot"].branding.accent, "#315A73");
 
@@ -137,6 +137,9 @@ test("create validates partner metadata and accessible same-origin branding", as
     ["--id", "valid-id", "--name", "X"],
     ["--id", "valid-id", "--name", "Valid Name", "--logo", "/partners/../secret"],
     ["--id", "valid-id", "--name", "Valid Name", "--logo", "/partners/%2e%2e/secret"],
+    ["--id", "valid-id", "--name", "Valid Name", "--logo", "/partners/%252e%252e/secret"],
+    ["--id", "valid-id", "--name", "Valid Name", "--logo", "/partners/%252fsecret"],
+    ["--id", "valid-id", "--name", "Valid Name", "--logo", "/partners/%255csecret"],
     ["--id", "valid-id", "--name", "Valid Name", "--logo", "https://example.com/logo.svg"],
     ["--id", "valid-id", "--name", "Valid Name", "--accent", "#FFFFFF"],
     ["--id", "valid-id", "--name", "Valid Name", "--accent", "315A73"],
@@ -329,6 +332,18 @@ test("production CLI drops root privileges to the partner-store service account"
           setgid: (value) => calls.push(["gid", value]),
           setuid: (value) => calls.push(["uid", value]),
         });
+        module.prepareProductionIdentity("/var/lib/everwise/./partners.json", {
+          getuid: () => 0,
+          setgroups: (value) => calls.push(["groups", value]),
+          setgid: (value) => calls.push(["gid", value]),
+          setuid: (value) => calls.push(["uid", value]),
+        });
+        module.prepareProductionIdentity("/var/lib/everwise/archive/../partners.json", {
+          getuid: () => 0,
+          setgroups: (value) => calls.push(["groups", value]),
+          setgid: (value) => calls.push(["gid", value]),
+          setuid: (value) => calls.push(["uid", value]),
+        });
         module.prepareProductionIdentity("/tmp/partners.json", {
           getuid: () => 0,
           setgroups: () => calls.push(["unexpected"]),
@@ -343,6 +358,12 @@ test("production CLI drops root privileges to the partner-store service account"
 
   assert.equal(probe.status, 0, probe.stderr);
   assert.deepEqual(JSON.parse(probe.stdout), [
+    ["groups", []],
+    ["gid", "www-data"],
+    ["uid", "www-data"],
+    ["groups", []],
+    ["gid", "www-data"],
+    ["uid", "www-data"],
     ["groups", []],
     ["gid", "www-data"],
     ["uid", "www-data"],

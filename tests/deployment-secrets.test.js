@@ -34,7 +34,7 @@ test("DigitalOcean deployment verifies both API integrations through the restric
 test("DigitalOcean deployment archives only the built app and reviewed partner server tooling", () => {
   assert.match(
     workflow,
-    /tar -czf - dist server\.mjs server scripts\/manage-partners\.mjs \|/,
+    /tar -czf "\$release_archive" dist server\.mjs server scripts\/manage-partners\.mjs/,
   );
   assert.doesNotMatch(workflow, /tar -czf -[^\n]*\bscripts\b(?!\/manage-partners\.mjs)/);
   assert.doesNotMatch(workflow, /tar -czf -[^\n]*(?:\.env|node_modules|partners\.json)/);
@@ -44,4 +44,12 @@ test("DigitalOcean deployment checks partner configuration and store health afte
   assert.match(workflow, /"partnerAccessConfigured":true/);
   assert.match(workflow, /"partnerStoreHealthy":true/);
   assert.match(workflow, /https:\/\/everwise\.dexio-games\.com\/healthz/);
+});
+
+test("DigitalOcean deployment preflights the built archive with the versioned allowlist", () => {
+  assert.match(workflow, /release_archive="\$\(mktemp\)"/);
+  assert.match(workflow, /validate_release_archive/);
+  assert.match(workflow, /ops\/deploy-everwise/);
+  assert.match(workflow, /< "\$release_archive"/);
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*\|\s*\n\s*ssh/);
 });

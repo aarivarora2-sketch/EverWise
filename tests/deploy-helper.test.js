@@ -99,6 +99,13 @@ test("archive validation rejects traversal, secrets, arbitrary code, dependencie
     { name: "dist/.npmrc", body: "token=value" },
     { name: "dist/credentials.json", body: "{}" },
     { name: "dist/id_ed25519", body: "private" },
+    { name: "dist/OPENAI_SECRET", body: "private" },
+    { name: "dist/private_key", body: "private" },
+    { name: "dist/api-key", body: "private" },
+    { name: "dist/APIKEY.txt", body: "private" },
+    { name: "dist/Partners.json", body: "{}" },
+    { name: "server/OPENAI_SECRET.mjs", body: "export {};\n" },
+    { name: "server/private_key.mjs", body: "export {};\n" },
     { name: "scripts/other.mjs", body: "export {};\n" },
     { name: "server/nested/other.mjs", body: "export {};\n" },
     { name: "node_modules/package/index.js", body: "export {};\n" },
@@ -140,6 +147,21 @@ test("versioned helper preserves restricted commands, rollback, health, and Ngin
   assert.match(helper, /systemctl reload nginx/);
   assert.match(helper, /"partnerAccessConfigured":true/);
   assert.match(helper, /"partnerStoreHealthy":true/);
+});
+
+test("release directories are immutable and an active-SHA retry reuses the existing release", async () => {
+  const helper = await readFile(helperUrl, "utf8");
+  assert.doesNotMatch(helper, /rm -rf "\$release_path"/);
+  assert.match(helper, /previous_release=.*readlink[^\n]*everwise-current/);
+  assert.match(
+    helper,
+    /if \[\[ -e "\$release_path" \]\]; then[\s\S]*reuse_existing_release=true/,
+  );
+  assert.match(helper, /mv -Tn "\$staging_path" "\$release_path"/);
+  assert.match(
+    helper,
+    /\[\[ "\$previous_release" == "\$release_path" \]\]/,
+  );
 });
 
 test("partner storage is installed outside releases without replacing partner data", async () => {

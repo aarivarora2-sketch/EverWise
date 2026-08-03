@@ -77,13 +77,20 @@ jobs:
 
       - name: Deploy production release
         run: |
-          tar -czf - dist server.mjs server scripts/manage-partners.mjs |
-            ssh \
-              -i ~/.ssh/everwise_deploy \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              root@143.198.64.226 \
-              "deploy ${GITHUB_SHA}"
+          release_archive="$(mktemp)"
+          trap 'rm -f "$release_archive"' EXIT
+          tar -czf "$release_archive" dist server.mjs server scripts/manage-partners.mjs
+          bash -c 'source "$1"; validate_release_archive "$2"' \
+            validate-archive \
+            ops/deploy-everwise \
+            "$release_archive"
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "deploy ${GITHUB_SHA}" \
+            < "$release_archive"
 
       - name: Verify production API configuration
         run: |
