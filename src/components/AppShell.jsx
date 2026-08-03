@@ -6,6 +6,7 @@ import {
   ShieldIcon,
 } from "./Icons";
 import { primaryNavigationState } from "../utils/responsiveNavigation.js";
+import TextSizeControl from "./TextSizeControl";
 
 const iconByDestination = {
   home: HomeIcon,
@@ -24,6 +25,8 @@ export default function AppShell({
   onScamChecker,
   onBadges,
   onSettings,
+  textSize,
+  onTextSizeChange,
 }) {
   const navigation = primaryNavigationState(screen, isAuthenticated);
   const handlers = {
@@ -71,6 +74,22 @@ export default function AppShell({
                   </button>
                 );
               })}
+
+              {/* Text size sits directly under the nav links — in the reading
+                  path, not tucked into a corner — so it is reachable from
+                  every screen, not just Home. */}
+              {onTextSizeChange ? (
+                <div className="app-navigation-textsize">
+                  <span className="app-navigation-textsize-label">
+                    Text size
+                  </span>
+                  <TextSizeControl
+                    textSize={textSize}
+                    onTextSizeChange={onTextSizeChange}
+                    buttonClassName="app-navigation-textsize-button"
+                  />
+                </div>
+              ) : null}
             </div>
           </nav>
         ) : null}

@@ -4,21 +4,21 @@ import BackButton from "../components/BackButton";
 import { authErrorMessage } from "../utils/authErrors";
 
 export default function LogIn({ onLogIn, onGoToSignUp, onBack }) {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError("Please enter your email and password.");
+    if (!username.trim() || !password.trim()) {
+      setError("Please enter your username and password.");
       return;
     }
     setError("");
     setBusy(true);
     try {
-      await onLogIn(email.trim(), password);
+      await onLogIn(username.trim(), password);
     } catch (err) {
       setError(authErrorMessage(err));
       setBusy(false);
@@ -38,13 +38,12 @@ export default function LogIn({ onLogIn, onGoToSignUp, onBack }) {
 
         <div className="mt-10 space-y-6">
           <Field
-            id="login-email"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            autoComplete="email"
-            placeholder="jane@example.com"
+            id="login-username"
+            label="Username"
+            value={username}
+            onChange={setUsername}
+            autoComplete="username"
+            placeholder="janemiller"
           />
           <Field
             id="login-password"

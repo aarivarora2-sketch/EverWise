@@ -3,7 +3,11 @@ import { Check, ChevronLeft, HelpCircle } from "lucide-react";
 import Field from "../components/Field";
 import ReadAloud from "../components/ReadAloud";
 import { authErrorMessage } from "../utils/authErrors";
-import { isValidEmail, normalizeEmail } from "../utils/validation";
+import {
+  isValidUsername,
+  normalizeUsername,
+  USERNAME_MIN_LENGTH,
+} from "../utils/validation";
 
 const STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
 const TOTAL_STEPS = STEP_IDS.length;
@@ -155,8 +159,8 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const [aiExperience, setAiExperience] = useState("");
   const [accessibilityNeeds, setAccessibilityNeeds] = useState([]);
   const [trustedContact, setTrustedContact] = useState("");
-  const [email, setEmail] = useState("");
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [username, setUsername] = useState("");
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -210,10 +214,10 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
       return "Please choose whether you may want trusted-person help.";
     }
     if (step === 12) {
-      setEmailTouched(true);
-      if (!email.trim()) return "Please enter your email.";
-      if (!isValidEmail(email)) {
-        return "Please enter a complete email like name@example.com.";
+      setUsernameTouched(true);
+      if (!username.trim()) return "Please choose a username.";
+      if (!isValidUsername(username)) {
+        return `Usernames need at least ${USERNAME_MIN_LENGTH} characters and can use letters, numbers, dots, underscores and hyphens.`;
       }
       if (password.length < 6) {
         return "Please choose a password with at least 6 characters.";
@@ -241,7 +245,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
       await onComplete({
         name: name.trim(),
         age: Number(age),
-        email: normalizeEmail(email),
+        username: normalizeUsername(username),
         password,
         internetUse,
         primaryDevice,
@@ -503,30 +507,32 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
         {step === 12 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
               <Field
-                id="profile-email"
-                label="Email"
-                type="email"
-                value={email}
-                onChange={setEmail}
-                onBlur={() => setEmailTouched(true)}
-                autoComplete="email"
-                placeholder="jane@example.com"
-                inputMode="email"
-                ariaInvalid={emailTouched && !isValidEmail(email)}
-                describedBy="profile-email-help"
+                id="profile-username"
+                label="Username"
+                value={username}
+                onChange={setUsername}
+                onBlur={() => setUsernameTouched(true)}
+                autoComplete="username"
+                placeholder="janemiller"
+                ariaInvalid={usernameTouched && !isValidUsername(username)}
+                describedBy="profile-username-help"
               />
               <p
-                id="profile-email-help"
+                id="profile-username-help"
                 className={`-mt-3 text-base font-semibold ${
-                  emailTouched && !isValidEmail(email)
+                  usernameTouched && !isValidUsername(username)
                     ? "text-alert"
                     : "text-ink-soft"
                 }`}
-                role={emailTouched && !isValidEmail(email) ? "alert" : undefined}
+                role={
+                  usernameTouched && !isValidUsername(username)
+                    ? "alert"
+                    : undefined
+                }
               >
-                {emailTouched && !isValidEmail(email)
-                  ? "Enter a complete address like name@example.com."
-                  : "We’ll use this address to save your account."}
+                {usernameTouched && !isValidUsername(username)
+                  ? `Use at least ${USERNAME_MIN_LENGTH} characters: letters, numbers, dots, underscores or hyphens.`
+                  : "Pick something you will remember. No email needed."}
               </p>
             <Field
               id="profile-password"

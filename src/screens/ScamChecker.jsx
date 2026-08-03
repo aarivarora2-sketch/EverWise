@@ -87,19 +87,31 @@ export default function ScamChecker({ onBack }) {
       });
 
       if (!response.ok) {
-        throw new Error("The checker is unavailable right now.");
+        // 503 means the server has no AI key configured. That is a setup
+        // problem, not a network blip, so say so instead of implying the
+        // message itself could not be assessed.
+        console.error(
+          "[Everwise][scam-checker] Request failed:",
+          response.status,
+        );
+        throw new Error(
+          response.status === 503 ? "not_configured" : "unavailable",
+        );
       }
 
       const nextResult = await response.json();
       if (!verdictDetails[nextResult.verdict]) {
-        throw new Error("The checker returned an unexpected result.");
+        throw new Error("unavailable");
       }
 
       setResult(nextResult);
       setStatus("success");
-    } catch {
+    } catch (err) {
+      console.error("[Everwise][scam-checker]", err);
       setError(
-        "We could not check this message right now. Do not click links, send money, or share a code until you verify it another way.",
+        err.message === "not_configured"
+          ? "The scam checker is not set up on this server yet. Do not click links, send money, or share a code until you verify this message another way."
+          : "We could not check this message right now. Do not click links, send money, or share a code until you verify it another way.",
       );
       setStatus("error");
     }

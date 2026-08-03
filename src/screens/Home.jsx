@@ -4,6 +4,7 @@ import {
   StarIcon,
 } from "../components/Icons";
 import AddToHomeScreenBanner from "../components/AddToHomeScreenBanner";
+import TextSizeControl from "../components/TextSizeControl";
 
 export default function Home({
   name,
@@ -18,44 +19,12 @@ export default function Home({
   onOpenScamChecker,
 }) {
   const firstName = name ? name.trim().split(" ")[0] : "";
-  const textSizes = Array.from(
-    { length: 10 },
-    (_, index) => `size-${index + 1}`,
-  );
-  const textSizeIndex = Math.max(0, textSizes.indexOf(textSize));
-  const decreaseTextSize = () =>
-    onTextSizeChange(textSizes[Math.max(0, textSizeIndex - 1)]);
-  const increaseTextSize = () =>
-    onTextSizeChange(
-      textSizes[Math.min(textSizes.length - 1, textSizeIndex + 1)],
-    );
 
   const textSizeControl = (
-    <div
-      className="flex shrink-0 items-center overflow-hidden rounded-xl border-2 border-ink/15 bg-cream-card"
-      role="group"
-      aria-label="Text size"
-    >
-      <button
-        type="button"
-        onClick={decreaseTextSize}
-        disabled={textSizeIndex === 0}
-        aria-label="Make text smaller"
-        className="text-size-control flex h-11 w-11 items-center justify-center font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint lg:h-20 lg:w-20"
-      >
-        −
-      </button>
-      <span className="h-7 w-px bg-ink/15 lg:h-12" aria-hidden="true" />
-      <button
-        type="button"
-        onClick={increaseTextSize}
-        disabled={textSizeIndex === textSizes.length - 1}
-        aria-label="Make text larger"
-        className="text-size-control flex h-11 w-11 items-center justify-center font-bold text-ink transition-colors hover:bg-cream-deep disabled:cursor-not-allowed disabled:text-ink-faint lg:h-20 lg:w-20"
-      >
-        +
-      </button>
-    </div>
+    <TextSizeControl
+      textSize={textSize}
+      onTextSizeChange={onTextSizeChange}
+    />
   );
 
   return (
@@ -111,7 +80,8 @@ export default function Home({
         </div>
 
         {/* Desktop page header — a real dashboard greeting, not a phone
-            title bar, with the text-size control set beside it. */}
+            title bar. The text-size control lives in the sidebar here, so it
+            is not repeated inline. */}
         <div className="hidden items-start justify-between gap-6 lg:flex">
           <div>
             <p className="font-sans text-6xl font-bold tracking-tight text-ink">

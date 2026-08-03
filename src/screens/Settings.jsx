@@ -2,6 +2,7 @@ import { useState } from "react";
 import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 import { openLegalPage } from "../config/legalLinks";
+import TextSizeControl from "../components/TextSizeControl";
 
 const SUPPORT_EMAIL = "everwisedigitalliteracy@gmail.com";
 
@@ -45,8 +46,9 @@ export default function Settings({
   onLogOut,
   onOpenPaywall,
   onManageSubscription,
-  onResetPassword,
   onDeleteAccount,
+  textSize,
+  onTextSizeChange,
 }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -63,20 +65,6 @@ export default function Settings({
         ? "Monthly plan"
         : plan
       : null;
-
-  const resetPassword = async () => {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await onResetPassword();
-      setNotice("Password reset email sent.");
-    } catch {
-      setError("We could not send the reset email. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const handleDeleteAccount = async () => {
     setBusy(true);
@@ -108,6 +96,27 @@ export default function Settings({
       </div>
 
       <div className="settings-grid">
+      <section className="settings-section settings-display mt-8 space-y-3">
+        <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+          Display
+        </p>
+        <div className="responsive-split flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 shadow-card">
+          <div className="min-w-0">
+            <p className="text-xl font-semibold text-ink">Text size</p>
+            <p className="mt-1 text-lg text-ink-soft">
+              Applies everywhere in the app
+            </p>
+          </div>
+          {onTextSizeChange ? (
+            <TextSizeControl
+              textSize={textSize}
+              onTextSizeChange={onTextSizeChange}
+              buttonClassName="h-12 w-12"
+            />
+          ) : null}
+        </div>
+      </section>
+
       <section className="settings-section settings-subscription mt-8 space-y-3">
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Subscription
@@ -138,11 +147,6 @@ export default function Settings({
         </p>
         <Row label="Log out" onClick={onLogOut} />
         <Row
-          label="Reset password"
-          hint="Send a secure reset link to your email"
-          onClick={busy ? undefined : resetPassword}
-        />
-        <Row
           label="Contact support"
           hint={SUPPORT_EMAIL}
           onClick={() => {
@@ -170,6 +174,14 @@ export default function Settings({
               This permanently deletes your account, progress, and badges.
               This cannot be undone.
             </p>
+            {error ? (
+              <p
+                className="mt-4 rounded-2xl bg-alert/15 px-4 py-3 text-lg font-semibold leading-snug text-alert"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
             <div className="mt-4 flex gap-3">
               <button
                 type="button"
@@ -212,7 +224,7 @@ export default function Settings({
           {notice}
         </p>
       ) : null}
-      {error ? (
+      {error && !confirmingDelete ? (
         <p className="mt-6 rounded-2xl bg-alert/10 px-5 py-4 text-lg font-semibold text-alert" role="alert">
           {error}
         </p>

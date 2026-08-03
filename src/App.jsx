@@ -3,7 +3,6 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   deleteUser,
-  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
@@ -18,6 +17,10 @@ import {
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { auth, db } from "./firebase";
+import {
+  normalizeUsername,
+  usernameToAuthEmail,
+} from "./utils/validation";
 import {
   lessonsByOrder,
   challengesByOrder,
@@ -304,17 +307,24 @@ export default function App() {
   };
 
   const signUp = async (interview) => {
-    const { name, email, password, ...profileInterview } = interview;
+    const { name, username, password, ...profileInterview } = interview;
+    // Firebase Auth needs an email-shaped credential; we synthesise one from
+    // the username so nobody has to hand over an inbox. See utils/validation.
+    const authEmail = usernameToAuthEmail(username);
     try {
       // Prevent onAuthStateChanged from jumping to Home before the plan reveal.
       skipAuthHomeRef.current = true;
-      console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      console.log("[Everwise][auth] createUserWithEmailAndPassword:", authEmail);
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        authEmail,
+        password,
+      );
       console.log("[Everwise][auth] account created, uid:", cred.user.uid);
 
       const initial = {
         name,
-        email,
+        username: normalizeUsername(username),
         profileInterview,
         onboardingCompleted: true,
         scamsCaught: 0,
@@ -339,10 +349,11 @@ export default function App() {
     }
   };
 
-  const logIn = async (email, password) => {
+  const logIn = async (username, password) => {
+    const authEmail = usernameToAuthEmail(username);
     try {
-      console.log("[Everwise][auth] signInWithEmailAndPassword:", email);
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      console.log("[Everwise][auth] signInWithEmailAndPassword:", authEmail);
+      const cred = await signInWithEmailAndPassword(auth, authEmail, password);
       console.log("[Everwise][auth] signed in, uid:", cred.user.uid);
 
       console.log("[Everwise][firestore] getDoc users/", cred.user.uid);
@@ -445,37 +456,50 @@ export default function App() {
     goHome();
   };
 
-  const resetPassword = async () => {
-    if (!user?.email) throw new Error("No email address is available.");
-    await sendPasswordResetEmail(auth, user.email);
-  };
-
   // Permanently deletes the learner's progress and their sign-in account.
   // Firebase requires a "recent" sign-in for account deletion; if the
   // session is stale we surface a friendly error asking them to log back
   // in and try again, rather than silently failing.
   const deleteAccount = async () => {
-    if (!user) throw new Error("No account is signed in.");
+    const current = auth.currentUser ?? user;
+    if (!current) throw new Error("No account is signed in.");
+
+    // Remove the learner's saved progress first. If security rules or the
+    // network block this we still continue to the account deletion below —
+    // leaving the sign-in account alive is worse than an orphaned doc.
     try {
-      console.log("[Everwise][firestore] deleteDoc users/", user.uid);
-      await deleteDoc(doc(db, "users", user.uid));
-      console.log("[Everwise][auth] deleteUser", user.uid);
-      await deleteUser(user);
+      console.log("[Everwise][firestore] deleteDoc users/", current.uid);
+      await deleteDoc(doc(db, "users", current.uid));
+    } catch (err) {
+      console.error(
+        "[Everwise][firestore] Could not delete profile doc:",
+        err.code,
+        err.message,
+      );
+    }
+
+    try {
+      console.log("[Everwise][auth] deleteUser", current.uid);
+      await deleteUser(current);
       console.log("[Everwise][auth] account deleted.");
-      setUser(null);
-      setProfile(null);
-      setScreen("landing");
     } catch (err) {
       console.error("[Everwise][auth] Delete account failed:", err.code, err.message);
       if (err.code === "auth/requires-recent-login") {
+        // Firebase only allows deletion shortly after a sign-in. Send them
+        // back to the login screen so the retry actually succeeds.
+        await signOut(auth);
         throw new Error(
-          "For your security, please log out and log back in, then try deleting your account again.",
+          "For your security, please log back in and then delete your account again.",
         );
       }
       throw new Error(
         "We could not delete your account right now. Please try again.",
       );
     }
+
+    setUser(null);
+    setProfile(null);
+    setScreen("landing");
   };
 
   const finishChallenge = async () => {
@@ -649,8 +673,9 @@ export default function App() {
           onManageSubscription={() =>
             window.open("https://apps.apple.com/account/subscriptions", "_blank")
           }
-          onResetPassword={resetPassword}
           onDeleteAccount={deleteAccount}
+          textSize={textSize}
+          onTextSizeChange={setTextSize}
         />
       );
       break;
@@ -745,6 +770,8 @@ export default function App() {
       onScamChecker={goScamChecker}
       onBadges={goBadges}
       onSettings={goSettings}
+      textSize={textSize}
+      onTextSizeChange={setTextSize}
     >
       <div
         key={screen}

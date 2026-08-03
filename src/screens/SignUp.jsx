@@ -5,21 +5,21 @@ import { authErrorMessage } from "../utils/authErrors";
 
 export default function SignUp({ onSignUp, onGoToLogIn, onBack }) {
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !username.trim() || !password.trim()) {
       setError("Please fill in all three fields to continue.");
       return;
     }
     setError("");
     setBusy(true);
     try {
-      await onSignUp(name.trim(), email.trim(), password);
+      await onSignUp(name.trim(), username.trim(), password);
     } catch (err) {
       setError(authErrorMessage(err));
       setBusy(false);
@@ -47,13 +47,12 @@ export default function SignUp({ onSignUp, onGoToLogIn, onBack }) {
             placeholder="Jane Miller"
           />
           <Field
-            id="email"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            autoComplete="email"
-            placeholder="jane@example.com"
+            id="username"
+            label="Username"
+            value={username}
+            onChange={setUsername}
+            autoComplete="username"
+            placeholder="janemiller"
           />
           <Field
             id="password"
