@@ -8,6 +8,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { PartnerStoreError } from "./partnerErrors.mjs";
 import {
   aggregateResearch,
@@ -15,6 +16,7 @@ import {
 } from "./partnerResearch.mjs";
 
 const SCHEMA_VERSION = 1;
+const PARTNER_SEAT_LIMIT = 500;
 const RELEASE_PENDING_MS = 15 * 60 * 1000;
 const RECEIPT_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
@@ -30,7 +32,6 @@ const PARTNER_KEYS = [
   "memberships",
   "name",
   "partnerId",
-  "research",
   "seatLimit",
   "status",
   "updatedAt",
@@ -54,6 +55,16 @@ function isPlainObject(value) {
 
 function validIso(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function validSeatLimit(value, testOnlyAllowCustomSeatLimits) {
+  return (
+    value === PARTNER_SEAT_LIMIT ||
+    (testOnlyAllowCustomSeatLimits === true &&
+      Number.isInteger(value) &&
+      value >= 1 &&
+      value <= PARTNER_SEAT_LIMIT)
+  );
 }
 
 function hasExactKeys(value, expected) {
@@ -91,7 +102,7 @@ function validRelease(release) {
   );
 }
 
-function validateData(data) {
+function validateData(data, { testOnlyAllowCustomSeatLimits = false } = {}) {
   if (
     !isPlainObject(data) ||
     !hasExactKeys(data, ROOT_KEYS) ||
@@ -110,14 +121,11 @@ function validateData(data) {
         partner.partnerId !== partnerId ||
         typeof partner.name !== "string" ||
         !["active", "suspended"].includes(partner.status) ||
-        !Number.isInteger(partner.seatLimit) ||
-        partner.seatLimit < 1 ||
-        partner.seatLimit > 5000 ||
+        !validSeatLimit(partner.seatLimit, testOnlyAllowCustomSeatLimits) ||
         !validBranding(partner.branding) ||
         !HASH_PATTERN.test(partner.inviteTokenHash) ||
         !HASH_PATTERN.test(partner.adminTokenHash) ||
         !isPlainObject(partner.memberships) ||
-        !isPlainObject(partner.research) ||
         !validIso(partner.createdAt) ||
         !validIso(partner.inviteRotatedAt) ||
         !validIso(partner.adminRotatedAt) ||
@@ -129,27 +137,26 @@ function validateData(data) {
         throw new Error("partner over capacity");
       }
       for (const [uid, membership] of Object.entries(partner.memberships)) {
+        const membershipKeys = ["claimedAt"];
+        if (Object.hasOwn(membership, "release")) membershipKeys.push("release");
+        if (Object.hasOwn(membership, "research")) membershipKeys.push("research");
+        membershipKeys.sort();
         if (
           !uid ||
           uid.length > 128 ||
           !isPlainObject(membership) ||
-          !hasExactKeys(
-            membership,
-            membership.release === undefined
-              ? ["claimedAt"]
-              : ["claimedAt", "release"],
-          ) ||
+          !hasExactKeys(membership, membershipKeys) ||
           !validIso(membership.claimedAt) ||
-          (membership.release !== undefined && !validRelease(membership.release))
+          (Object.hasOwn(membership, "release") &&
+            !validRelease(membership.release))
         ) {
           throw new Error("invalid membership");
         }
+        if (Object.hasOwn(membership, "research")) {
+          minimizeResearchSnapshot(membership.research);
+        }
         if (seenUids.has(uid)) throw new Error("duplicate membership");
         seenUids.add(uid);
-      }
-      for (const [uid, snapshot] of Object.entries(partner.research)) {
-        if (!Object.hasOwn(partner.memberships, uid)) throw new Error("orphan research");
-        minimizeResearchSnapshot(snapshot);
       }
     }
     for (const [receiptHash, tombstone] of Object.entries(data.confirmedReceipts)) {
@@ -284,7 +291,14 @@ async function syncFile(path) {
   }
 }
 
-async function persistAtomically(filePath, data, hadPriorFile) {
+async function persistAtomically(
+  filePath,
+  data,
+  hadPriorFile,
+  testOnlyFileOperations = {},
+) {
+  const chmodFile = testOnlyFileOperations.chmod || chmod;
+  const renameFile = testOnlyFileOperations.rename || rename;
   temporaryFileCounter += 1;
   const suffix = `${process.pid}-${temporaryFileCounter}`;
   const temporaryPath = `${filePath}.tmp-${suffix}`;
@@ -297,18 +311,18 @@ async function persistAtomically(filePath, data, hadPriorFile) {
     await handle.sync();
     await handle.close();
     handle = null;
-    await chmod(temporaryPath, 0o600);
+    await chmodFile(temporaryPath, 0o600);
 
     if (hadPriorFile) {
       await copyFile(filePath, backupTemporaryPath);
-      await chmod(backupTemporaryPath, 0o600);
+      await chmodFile(backupTemporaryPath, 0o600);
       await syncFile(backupTemporaryPath);
-      await rename(backupTemporaryPath, backupPath);
+      await renameFile(backupTemporaryPath, backupPath);
       await syncDirectory(filePath);
     }
 
-    await rename(temporaryPath, filePath);
-    await chmod(filePath, 0o600);
+    await renameFile(temporaryPath, filePath);
+    await chmodFile(filePath, 0o600);
     await syncDirectory(filePath);
   } finally {
     if (handle) await handle.close().catch(() => {});
@@ -325,6 +339,8 @@ export function createPartnerStore({
   filePath,
   now = () => new Date(),
   randomBytes = cryptoRandomBytes,
+  testOnlyAllowCustomSeatLimits = false,
+  testOnlyFileOperations,
 }) {
   if (typeof filePath !== "string" || !filePath) {
     throw new TypeError("filePath is required");
@@ -343,7 +359,7 @@ export function createPartnerStore({
       throw storeError("STORE_CORRUPT", "The partner store could not be read.");
     }
     try {
-      return validateData(JSON.parse(text));
+      return validateData(JSON.parse(text), { testOnlyAllowCustomSeatLimits });
     } catch {
       throw storeError("STORE_CORRUPT", "The partner store is corrupt.");
     }
@@ -358,8 +374,17 @@ export function createPartnerStore({
       const normalized = normalizeExpired(working, currentDate);
       const outcome = await mutator(working, currentDate);
       if (outcome.changed || normalized) {
-        validateData(working);
-        await persistAtomically(filePath, working, hadPriorFile);
+        validateData(working, { testOnlyAllowCustomSeatLimits });
+        try {
+          await persistAtomically(
+            filePath,
+            working,
+            hadPriorFile,
+            testOnlyFileOperations,
+          );
+        } catch (error) {
+          if (!(await committedDataMatches(working))) throw error;
+        }
       }
       return outcome.result;
     };
@@ -373,6 +398,14 @@ export function createPartnerStore({
 
   async function dataForQuery() {
     return (await readData({ allowMissing: true })) || emptyData();
+  }
+
+  async function committedDataMatches(expected) {
+    try {
+      return isDeepStrictEqual(await readData(), expected);
+    } catch {
+      return false;
+    }
   }
 
   function resolveManagedPartner(data, { partnerId, adminToken } = {}) {
@@ -394,7 +427,7 @@ export function createPartnerStore({
         if (normalizedName.length < 2 || normalizedName.length > 100) {
           throw storeError("INVALID_INPUT", "The partner name is invalid.");
         }
-        if (!Number.isInteger(seatLimit) || seatLimit < 1 || seatLimit > 5000) {
+        if (!validSeatLimit(seatLimit, testOnlyAllowCustomSeatLimits)) {
           throw storeError("INVALID_INPUT", "The seat limit is invalid.");
         }
         if (!validBranding(branding)) {
@@ -415,7 +448,6 @@ export function createPartnerStore({
           inviteTokenHash: hashToken(inviteToken),
           adminTokenHash: hashToken(adminToken),
           memberships: {},
-          research: {},
           createdAt: timestamp,
           inviteRotatedAt: timestamp,
           adminRotatedAt: timestamp,
@@ -458,9 +490,6 @@ export function createPartnerStore({
   function claimSeat({ uid, inviteToken, researchConsent, researchSnapshot } = {}) {
     return enqueueMutation((data, currentDate) => {
       requireUid(uid);
-      if (typeof researchConsent !== "boolean") {
-        throw storeError("INVALID_RESEARCH", "A research consent choice is required.");
-      }
       const partner = partnerByToken(data, inviteToken, "inviteTokenHash");
       if (!partner) throw storeError("INVALID_INVITE", "The invitation is invalid.");
       if (partner.status !== "active") {
@@ -476,12 +505,14 @@ export function createPartnerStore({
       if (Object.keys(partner.memberships).length >= partner.seatLimit) {
         throw storeError("PARTNER_FULL", "All sponsored places are in use.");
       }
-      const minimized = researchConsent
+      const minimized = researchConsent === true
         ? minimizeResearchSnapshot(researchSnapshot)
         : null;
       const timestamp = currentDate.toISOString();
-      partner.memberships[uid] = { claimedAt: timestamp };
-      if (minimized) partner.research[uid] = minimized;
+      partner.memberships[uid] = {
+        claimedAt: timestamp,
+        ...(minimized ? { research: minimized } : {}),
+      };
       partner.updatedAt = timestamp;
       return mutation(publicAccess(partner));
     });
@@ -540,7 +571,6 @@ export function createPartnerStore({
         for (const [uid, membership] of Object.entries(partner.memberships)) {
           if (membership.release && tokenMatches(receipt, membership.release.receiptHash)) {
             delete partner.memberships[uid];
-            delete partner.research[uid];
             partner.updatedAt = currentDate.toISOString();
             data.confirmedReceipts[receiptHash] = {
               expiresAt: new Date(
@@ -560,8 +590,11 @@ export function createPartnerStore({
     const partner = partnerByToken(data, adminToken, "adminTokenHash");
     if (!partner) throw storeError("INVALID_ADMIN", "The admin link is invalid.");
     const claimed = Object.keys(partner.memberships).length;
-    const consentedCount = Object.keys(partner.research).length;
-    const distributions = aggregateResearch(partner.research);
+    const research = Object.values(partner.memberships).flatMap((membership) =>
+      membership.research ? [membership.research] : [],
+    );
+    const consentedCount = research.length;
+    const distributions = aggregateResearch(research);
     return {
       partnerId: partner.partnerId,
       name: partner.name,
@@ -637,7 +670,6 @@ export function createPartnerStore({
         return mutation({ removed: false }, false);
       }
       delete partner.memberships[uid];
-      delete partner.research[uid];
       partner.updatedAt = currentDate.toISOString();
       return mutation({ removed: true });
     });

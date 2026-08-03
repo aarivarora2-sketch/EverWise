@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod as fsChmod,
+  mkdtemp,
+  readFile,
+  rename as fsRename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPartnerStore } from "../server/partnerStore.mjs";
@@ -15,7 +23,14 @@ function deterministicBytes() {
   };
 }
 
-async function setupStore(t, { start = START } = {}) {
+async function setupStore(
+  t,
+  {
+    start = START,
+    testOnlyAllowCustomSeatLimits = true,
+    testOnlyFileOperations,
+  } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "everwise-partners-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   let timestamp = start;
@@ -24,6 +39,8 @@ async function setupStore(t, { start = START } = {}) {
     filePath,
     now: () => new Date(timestamp),
     randomBytes: deterministicBytes(),
+    testOnlyAllowCustomSeatLimits,
+    testOnlyFileOperations,
   });
   return {
     directory,
@@ -103,6 +120,26 @@ test("createPartner persists schema v1 and returns one-time 32-byte tokens", asy
     },
   ]);
   assert.doesNotMatch(JSON.stringify(listed), /token|hash/i);
+});
+
+test("production stores accept exactly 500 seats", async (t) => {
+  for (const seatLimit of [499, 501]) {
+    const { store } = await setupStore(t, {
+      testOnlyAllowCustomSeatLimits: false,
+    });
+    await expectStoreError(
+      () => createPilot(store, { seatLimit }),
+      "INVALID_INPUT",
+    );
+  }
+  const { filePath, store } = await setupStore(t, {
+    testOnlyAllowCustomSeatLimits: false,
+  });
+  assert.match((await createPilot(store)).inviteToken, /^[A-Za-z0-9_-]{43}$/);
+  const disk = JSON.parse(await readFile(filePath, "utf8"));
+  disk.partners.pilot.seatLimit = 499;
+  await writeFile(filePath, JSON.stringify(disk), { mode: 0o600 });
+  assert.deepEqual(await store.health(), { configured: true, healthy: false });
 });
 
 test("previewInvite validates and rotates invite tokens without exposing stored secrets", async (t) => {
@@ -263,8 +300,12 @@ test("research opt-out stores nothing and opt-in accepts only the approved minim
   snapshot.concerns.push("Account hacking");
 
   const disk = JSON.parse(await readFile(filePath, "utf8"));
-  assert.equal("opt-out-uid" in disk.partners.pilot.research, false);
-  assert.deepEqual(disk.partners.pilot.research["opt-in-uid"], approvedSnapshot());
+  assert.equal("research" in disk.partners.pilot, false);
+  assert.equal("research" in disk.partners.pilot.memberships["opt-out-uid"], false);
+  assert.deepEqual(
+    disk.partners.pilot.memberships["opt-in-uid"].research,
+    approvedSnapshot(),
+  );
   assert.equal(JSON.stringify(disk).includes("private@example.com"), false);
 
   await expectStoreError(
@@ -288,6 +329,20 @@ test("research opt-out stores nothing and opt-in accepts only the approved minim
     "INVALID_RESEARCH",
   );
   assert.equal((await store.getAccess("extra-field-uid")).status, "none");
+});
+
+test("omitted optional research consent claims a seat without research", async (t) => {
+  const { filePath, store } = await setupStore(t);
+  const { inviteToken } = await createPilot(store);
+
+  const access = await store.claimSeat({ uid: "default-opt-out", inviteToken });
+
+  assert.equal(access.status, "active");
+  const disk = JSON.parse(await readFile(filePath, "utf8"));
+  assert.equal(
+    "research" in disk.partners.pilot.memberships["default-opt-out"],
+    false,
+  );
 });
 
 test("reports suppress four records, aggregate five, and expose no learner-level data", async (t) => {
@@ -477,6 +532,48 @@ test("atomic mutations retain a valid backup and refuse to overwrite corrupt sta
   );
   assert.equal(await readFile(filePath, "utf8"), "{not valid json");
   assert.deepEqual(JSON.parse(await readFile(backupPath, "utf8")), JSON.parse(firstDisk));
+});
+
+test("committed create recovers one-time tokens from ambiguous rename and post-rename errors", async (t) => {
+  for (const failurePoint of ["rename", "chmod"]) {
+    let filePath;
+    let injected = false;
+    const testOnlyFileOperations =
+      failurePoint === "rename"
+        ? {
+            async rename(source, destination) {
+              await fsRename(source, destination);
+              if (destination === filePath) {
+                injected = true;
+                throw new Error("injected error after primary rename");
+              }
+            },
+          }
+        : {
+            async chmod(path, mode) {
+              if (path === filePath) {
+                injected = true;
+                throw new Error("injected post-rename chmod error");
+              }
+              await fsChmod(path, mode);
+            },
+          };
+    const setup = await setupStore(t, { testOnlyFileOperations });
+    filePath = setup.filePath;
+
+    const created = await createPilot(setup.store);
+
+    assert.equal(injected, true);
+    assert.match(created.inviteToken, /^[A-Za-z0-9_-]{43}$/);
+    assert.match(created.adminToken, /^[A-Za-z0-9_-]{43}$/);
+    const diskText = await readFile(filePath, "utf8");
+    assert.equal(diskText.includes(created.inviteToken), false);
+    assert.equal(diskText.includes(created.adminToken), false);
+    await expectStoreError(
+      () => createPilot(setup.store),
+      "PARTNER_EXISTS",
+    );
+  }
 });
 
 test("schema-version corruption is unhealthy and blocks mutation", async (t) => {
