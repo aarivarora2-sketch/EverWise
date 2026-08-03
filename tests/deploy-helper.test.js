@@ -247,6 +247,9 @@ test("versioned helper preserves restricted commands, rollback, health, and Ngin
   const helper = await readFile(helperUrl, "utf8");
   assert.match(helper, /configure-runtime/);
   assert.match(helper, /verify-runtime/);
+  assert.match(helper, /verify-helper/);
+  assert.match(helper, /sha256sum "\$0"/);
+  assert.match(helper, /\^verify-helper\\ \(\[0-9a-f\]\{64\}\)\$/);
   assert.match(helper, /\^deploy\\ \(\[0-9a-f\]\{40\}\)\$/);
   assert.match(helper, /previous_release=/);
   assert.match(helper, /prior release was restored/);

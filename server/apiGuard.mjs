@@ -73,13 +73,29 @@ function isLoopback(value) {
   return value === "127.0.0.1" || value === "::1";
 }
 
-function clientIp(request) {
+function rightmostForwardedIp(value) {
+  const values = Array.isArray(value) ? value : [value];
+  for (let valueIndex = values.length - 1; valueIndex >= 0; valueIndex -= 1) {
+    const candidates =
+      typeof values[valueIndex] === "string"
+        ? values[valueIndex].split(",")
+        : [];
+    for (
+      let candidateIndex = candidates.length - 1;
+      candidateIndex >= 0;
+      candidateIndex -= 1
+    ) {
+      const normalized = normalizeIp(candidates[candidateIndex].trim());
+      if (normalized) return normalized;
+    }
+  }
+  return null;
+}
+
+export function requestClientIp(request) {
   const direct = normalizeIp(request.socket?.remoteAddress) || "unknown";
   if (!isLoopback(direct)) return direct;
-  const forwarded = request.headers?.["x-forwarded-for"];
-  const header = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const first = typeof header === "string" ? header.split(",", 1)[0].trim() : "";
-  return normalizeIp(first) || direct;
+  return rightmostForwardedIp(request.headers?.["x-forwarded-for"]) || direct;
 }
 
 export function createRouteRateLimiter({
@@ -104,7 +120,7 @@ export function createRouteRateLimiter({
     allow(request) {
       const timestamp = now();
       prune(timestamp);
-      const key = clientIp(request);
+      const key = requestClientIp(request);
       const state = attempts.get(key);
       if (!state) {
         attempts.set(key, { count: 1, startedAt: timestamp });

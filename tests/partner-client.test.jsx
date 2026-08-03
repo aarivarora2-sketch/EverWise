@@ -759,6 +759,21 @@ describe("partner landing and calm errors", () => {
 });
 
 describe("sponsored settings", () => {
+  test("does not promise email recovery for username-only accounts", () => {
+    render(
+      <Settings
+        subscriptionStatus="expired"
+        onBack={() => {}}
+        onLogOut={() => {}}
+        onOpenPaywall={() => {}}
+        onManageSubscription={() => {}}
+        onDeleteAccount={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText("Reset password")).not.toBeInTheDocument();
+  });
+
   test("shows the verified provider and removes every subscription control", () => {
     render(
       <Settings
@@ -993,7 +1008,7 @@ describe("sponsored research choice", () => {
     );
     await reachConsent(user);
 
-    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.getByLabelText("Username")).toBeVisible();
     expect(screen.getByText("8 of 8")).toBeVisible();
     expect(screen.queryByText(/answers are not sold/i)).not.toBeInTheDocument();
   });
@@ -1125,6 +1140,63 @@ describe("custom radio accessibility", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+  });
+});
+
+describe("compatible account credentials", () => {
+  const completedInterview = {
+    name: "Jane",
+    age: 74,
+    internetUse: "Every day",
+    primaryDevice: "Tablet",
+    confidence: "Sometimes I need help",
+    scamFrequency: "Never",
+    concerns: [],
+    scamScenario: "Call my bank using the number on my card",
+    aiExperience: "No",
+    accessibilityNeeds: [],
+    trustedContact: "Maybe later",
+  };
+
+  test("keeps username signup for the public app", async () => {
+    const onComplete = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ProfileInterview
+        initialInterview={completedInterview}
+        onComplete={onComplete}
+        onBack={() => {}}
+        onLogIn={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText("Username")).toBeVisible();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Username"), " Jane.Miller ");
+    await user.type(screen.getByLabelText("Choose a password"), "secret12");
+    await user.click(screen.getByRole("button", { name: "Build my plan" }));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete.mock.calls[0][0]).toMatchObject({
+      username: "jane.miller",
+      password: "secret12",
+    });
+    expect(onComplete.mock.calls[0][0]).not.toHaveProperty("email");
+  });
+
+  test("keeps recoverable email signup for sponsored learners", () => {
+    render(
+      <ProfileInterview
+        partner={PARTNER}
+        initialInterview={{ ...completedInterview, researchConsent: false }}
+        onComplete={vi.fn()}
+        onBack={() => {}}
+        onLogIn={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
   });
 });
 
@@ -3414,12 +3486,21 @@ describe("sponsored signup orchestration", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Get Started" }));
     await reachConsent(user);
-    expect(screen.getByLabelText("Email")).toBeVisible();
-    await user.type(screen.getByLabelText("Email"), "jane@example.com");
+    expect(screen.getByLabelText("Username")).toBeVisible();
+    await user.type(screen.getByLabelText("Username"), "Jane.Miller");
     await user.type(screen.getByLabelText("Choose a password"), "secret12");
     await user.click(screen.getByRole("button", { name: "Build my plan" }));
 
     expect(await screen.findByRole("button", { name: "See my plan options" })).toBeVisible();
+    expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledWith(
+      {},
+      "jane.miller@accounts.everwise.app",
+      "secret12",
+    );
+    expect(mocks.setDoc.mock.calls[0][1]).toMatchObject({
+      username: "jane.miller",
+    });
+    expect(mocks.setDoc.mock.calls[0][1]).not.toHaveProperty("email");
     await user.click(screen.getByRole("button", { name: "See my plan options" }));
     expect(screen.getByRole("heading", { name: "Pricing and subscription" })).toBeVisible();
     expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
@@ -3429,7 +3510,7 @@ describe("sponsored signup orchestration", () => {
     window.history.replaceState(null, "", "/");
     const firebaseUser = {
       uid: "public-profile-failed",
-      email: "jane@example.com",
+      email: "janemiller@accounts.everwise.app",
     };
     mocks.createUserWithEmailAndPassword.mockResolvedValue({ user: firebaseUser });
     mocks.setDoc.mockRejectedValue(new Error("private Firestore detail"));
@@ -3437,7 +3518,7 @@ describe("sponsored signup orchestration", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Get Started" }));
     await reachConsent(user);
-    await user.type(screen.getByLabelText("Email"), "jane@example.com");
+    await user.type(screen.getByLabelText("Username"), "janemiller");
     await user.type(screen.getByLabelText("Choose a password"), "secret12");
     await user.click(screen.getByRole("button", { name: "Build my plan" }));
 

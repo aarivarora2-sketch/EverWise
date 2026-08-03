@@ -65,3 +65,28 @@ test("DigitalOcean deployment preflights the built archive with the versioned al
   assert.match(workflow, /< "\$release_archive"/);
   assert.doesNotMatch(workflow, /tar -czf -[^\n]*\|\s*\n\s*ssh/);
 });
+
+test("DigitalOcean deployment refuses to run with an outdated remote helper", () => {
+  assert.match(workflow, /sha256sum ops\/deploy-everwise/);
+  assert.match(workflow, /verify-helper \$helper_sha/);
+});
+
+test("partner token verification targets the company Firebase project", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(server, /FIREBASE_PROJECT_ID[\s\S]*games-caf0e/);
+  assert.match(
+    server,
+    /createFirebaseTokenVerifier\(\{\s*projectId:\s*FIREBASE_PROJECT_ID,?\s*\}\)/,
+  );
+  assert.doesNotMatch(server, /everwise-46cf0/);
+});
+
+test("GitHub Pages uses the production API and the server allows only its exact origin", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(
+    pagesWorkflow,
+    /VITE_EVERWISE_API_URL:\s*https:\/\/everwise\.dexio-games\.com/,
+  );
+  assert.match(server, /https:\/\/aarivarora2-sketch\.github\.io/);
+  assert.match(server, /request\.headers\.origin === githubPagesOrigin/);
+});

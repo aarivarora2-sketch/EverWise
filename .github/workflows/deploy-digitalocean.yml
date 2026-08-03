@@ -49,6 +49,17 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/everwise_deploy ~/.ssh/known_hosts
 
+      - name: Verify installed deployment helper
+        run: |
+          helper_sha="$(sha256sum ops/deploy-everwise)"
+          helper_sha="${helper_sha%% *}"
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "verify-helper $helper_sha"
+
       - name: Configure production API credentials
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

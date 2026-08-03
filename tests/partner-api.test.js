@@ -952,6 +952,27 @@ test("ignores spoofed forwarded addresses from non-loopback direct clients", asy
   assert.equal(blocked.json.code, "RATE_LIMITED");
 });
 
+test("uses the proxy-appended address instead of a spoofable first forwarded value", async (t) => {
+  const { api, created } = await setupApi(t);
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const invalid = await directRequest(api, {
+      pathname: "/api/partner/admin/report",
+      body: { adminToken: "invalid-admin-token" },
+      remoteAddress: "127.0.0.1",
+      forwardedFor: `203.0.113.${attempt}, 198.51.100.77`,
+    });
+    assert.equal(invalid.statusCode, 401);
+  }
+  const blocked = await directRequest(api, {
+    pathname: "/api/partner/admin/report",
+    body: { adminToken: created.adminToken },
+    remoteAddress: "127.0.0.1",
+    forwardedFor: "203.0.113.250, 198.51.100.77",
+  });
+  assert.equal(blocked.statusCode, 429);
+  assert.equal(blocked.json.code, "RATE_LIMITED");
+});
+
 test("admin JSON contains aggregates but no token hashes, UID keys, emails, or rows", async (t) => {
   const { store, created, request } = await setupApi(t);
   for (let index = 1; index <= 5; index += 1) {

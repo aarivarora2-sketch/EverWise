@@ -241,11 +241,13 @@ export default function Settings({
           Account
         </p>
         <Row label="Log out" onClick={onLogOut} disabled={busy} />
-        <Row
-          label="Reset password"
-          hint="Send a secure reset link to your email"
-          onClick={busy ? undefined : resetPassword}
-        />
+        {typeof onResetPassword === "function" ? (
+          <Row
+            label="Reset password"
+            hint="Send a secure reset link to your email"
+            onClick={busy ? undefined : resetPassword}
+          />
+        ) : null}
         <Row
           label="Contact support"
           hint={SUPPORT_EMAIL}

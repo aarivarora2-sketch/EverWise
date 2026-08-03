@@ -4,7 +4,13 @@ import Field from "../components/Field";
 import ReadAloud from "../components/ReadAloud";
 import { authErrorMessage } from "../utils/authErrors";
 import { buildResearchSnapshot } from "../utils/partnerResearch.js";
-import { isValidEmail, normalizeEmail } from "../utils/validation";
+import {
+  isValidEmail,
+  isValidUsername,
+  normalizeEmail,
+  normalizeUsername,
+  USERNAME_MIN_LENGTH,
+} from "../utils/validation";
 
 const PUBLIC_STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
 const SPONSORED_STEP_IDS = [1, 2, 3, 4, 5, 7, 11, "consent", 12];
@@ -236,6 +242,8 @@ export default function ProfileInterview({
     existingAccountEmail || initial.email || "",
   );
   const [emailTouched, setEmailTouched] = useState(false);
+  const [username, setUsername] = useState(initial.username || "");
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState(initial.password || "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -294,10 +302,18 @@ export default function ProfileInterview({
     }
     if (step === 12) {
       if (existingAccountEmail) return "";
-      setEmailTouched(true);
-      if (!email.trim()) return "Please enter your email.";
-      if (!isValidEmail(email)) {
-        return "Please enter a complete email like name@example.com.";
+      if (partner) {
+        setEmailTouched(true);
+        if (!email.trim()) return "Please enter your email.";
+        if (!isValidEmail(email)) {
+          return "Please enter a complete email like name@example.com.";
+        }
+      } else {
+        setUsernameTouched(true);
+        if (!username.trim()) return "Please choose a username.";
+        if (!isValidUsername(username)) {
+          return `Usernames need at least ${USERNAME_MIN_LENGTH} characters and can use letters, numbers, dots, underscores and hyphens.`;
+        }
       }
       if (password.length < 6) {
         return "Please choose a password with at least 6 characters.";
@@ -326,7 +342,6 @@ export default function ProfileInterview({
       const interview = {
         name: name.trim(),
         age: Number(age),
-        email: normalizeEmail(email),
         password,
         internetUse,
         primaryDevice,
@@ -338,6 +353,8 @@ export default function ProfileInterview({
         accessibilityNeeds,
         trustedContact,
       };
+      if (partner) interview.email = normalizeEmail(email);
+      else interview.username = normalizeUsername(username);
       if (partner && !existingAccountEmail) {
         interview.researchConsent = researchConsent;
         interview.researchSnapshot = buildResearchSnapshot(interview, {
@@ -665,32 +682,71 @@ export default function ProfileInterview({
               </div>
             ) : (
               <>
-                <Field
-                  id="profile-email"
-                  label="Email"
-                  type="email"
-                  value={email}
-                  onChange={setEmail}
-                  onBlur={() => setEmailTouched(true)}
-                  autoComplete="email"
-                  placeholder="jane@example.com"
-                  inputMode="email"
-                  ariaInvalid={emailTouched && !isValidEmail(email)}
-                  describedBy="profile-email-help"
-                />
-                <p
-                  id="profile-email-help"
-                  className={`-mt-3 text-base font-semibold ${
-                    emailTouched && !isValidEmail(email)
-                      ? "text-alert"
-                      : "text-ink-soft"
-                  }`}
-                  role={emailTouched && !isValidEmail(email) ? "alert" : undefined}
-                >
-                  {emailTouched && !isValidEmail(email)
-                    ? "Enter a complete address like name@example.com."
-                    : "We’ll use this address to save your account."}
-                </p>
+                {partner ? (
+                  <>
+                    <Field
+                      id="profile-email"
+                      label="Email"
+                      type="email"
+                      value={email}
+                      onChange={setEmail}
+                      onBlur={() => setEmailTouched(true)}
+                      autoComplete="email"
+                      placeholder="jane@example.com"
+                      inputMode="email"
+                      ariaInvalid={emailTouched && !isValidEmail(email)}
+                      describedBy="profile-email-help"
+                    />
+                    <p
+                      id="profile-email-help"
+                      className={`-mt-3 text-base font-semibold ${
+                        emailTouched && !isValidEmail(email)
+                          ? "text-alert"
+                          : "text-ink-soft"
+                      }`}
+                      role={
+                        emailTouched && !isValidEmail(email)
+                          ? "alert"
+                          : undefined
+                      }
+                    >
+                      {emailTouched && !isValidEmail(email)
+                        ? "Enter a complete address like name@example.com."
+                        : "We’ll use this address for sign-in and password recovery."}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      id="profile-username"
+                      label="Username"
+                      value={username}
+                      onChange={setUsername}
+                      onBlur={() => setUsernameTouched(true)}
+                      autoComplete="username"
+                      placeholder="janemiller"
+                      ariaInvalid={usernameTouched && !isValidUsername(username)}
+                      describedBy="profile-username-help"
+                    />
+                    <p
+                      id="profile-username-help"
+                      className={`-mt-3 text-base font-semibold ${
+                        usernameTouched && !isValidUsername(username)
+                          ? "text-alert"
+                          : "text-ink-soft"
+                      }`}
+                      role={
+                        usernameTouched && !isValidUsername(username)
+                          ? "alert"
+                          : undefined
+                      }
+                    >
+                      {usernameTouched && !isValidUsername(username)
+                        ? `Use at least ${USERNAME_MIN_LENGTH} letters or numbers. Dots, underscores and hyphens are okay.`
+                        : "You’ll use this name to sign in."}
+                    </p>
+                  </>
+                )}
                 <Field
                   id="profile-password"
                   label="Choose a password"

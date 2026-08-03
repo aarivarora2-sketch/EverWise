@@ -30,6 +30,8 @@ jobs:
       - name: Test EverWise
         run: npm test
       - name: Build EverWise
+        env:
+          VITE_EVERWISE_API_URL: https://everwise.dexio-games.com
         run: npm run build -- --base=/EverWise/
       - name: Fix app paths for GitHub Pages
         run: |

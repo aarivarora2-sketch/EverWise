@@ -1,4 +1,5 @@
 import React from "react";
+import { apiEndpoint } from "../utils/apiEndpoint.js";
 
 function sameOriginPartnerLogo(logoPath) {
   if (typeof logoPath !== "string" || !logoPath.startsWith("/partners/")) {
@@ -6,11 +7,15 @@ function sameOriginPartnerLogo(logoPath) {
   }
 
   try {
-    const origin = window.location.origin;
-    const url = new URL(logoPath, origin);
-    return url.origin === origin && url.pathname.startsWith("/partners/")
+    const appOrigin = window.location.origin;
+    const allowedOrigin = new URL(apiEndpoint("/"), appOrigin).origin;
+    const url = new URL(apiEndpoint(logoPath), appOrigin);
+    if (url.origin !== allowedOrigin || !url.pathname.startsWith("/partners/")) {
+      return null;
+    }
+    return allowedOrigin === appOrigin
       ? `${url.pathname}${url.search}`
-      : null;
+      : url.href;
   } catch {
     return null;
   }

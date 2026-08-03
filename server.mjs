@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT || 8787);
 const ELEVENLABS_VOICE_ID =
   process.env.ELEVENLABS_VOICE_ID || "Gfpl8Yo74Is0W6cPUWWT";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "games-caf0e";
+const githubPagesOrigin = "https://aarivarora2-sketch.github.io";
 const localQaOrigin = (() => {
   const configured = process.env.EVERWISE_LOCAL_QA_ORIGIN;
   if (!configured) return null;
@@ -42,7 +44,7 @@ const partnerStorePath =
   "/var/lib/everwise/partners.json";
 const partnerStore = createPartnerStore({ filePath: partnerStorePath });
 const { verifyIdToken } = createFirebaseTokenVerifier({
-  projectId: "everwise-46cf0",
+  projectId: FIREBASE_PROJECT_ID,
 });
 const partnerApi = createPartnerApi({ store: partnerStore, verifyIdToken });
 const scamCheckLimiter = createRouteRateLimiter({
@@ -240,8 +242,14 @@ async function handleReadAloud(request, response) {
 const server = createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url, "http://localhost").pathname;
-    if (localQaOrigin && request.headers.origin === localQaOrigin) {
-      response.setHeader("Access-Control-Allow-Origin", localQaOrigin);
+    const corsOrigin =
+      request.headers.origin === githubPagesOrigin
+        ? githubPagesOrigin
+        : localQaOrigin && request.headers.origin === localQaOrigin
+          ? localQaOrigin
+          : null;
+    if (corsOrigin) {
+      response.setHeader("Access-Control-Allow-Origin", corsOrigin);
       response.setHeader("Access-Control-Allow-Methods", "POST");
       response.setHeader(
         "Access-Control-Allow-Headers",

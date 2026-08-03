@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { isIP } from "node:net";
 import { PartnerStoreError } from "./partnerErrors.mjs";
 import { FIREBASE_CERTIFICATES_UNAVAILABLE_CODE } from "./firebaseTokenVerifier.mjs";
+import { requestClientIp } from "./apiGuard.mjs";
 
 const MAXIMUM_BODY_BYTES = 25_000;
 const INVALID_ADMIN_WINDOW_MS = 10 * 60 * 1000;
@@ -213,38 +213,6 @@ async function verifiedLearner(request, verifyIdToken) {
   }
 }
 
-function normalizeIp(address) {
-  if (typeof address !== "string") return null;
-  const trimmed = address.trim();
-  if (trimmed.startsWith("::ffff:") && isIP(trimmed.slice(7)) === 4) {
-    return trimmed.slice(7);
-  }
-  return isIP(trimmed) ? trimmed : null;
-}
-
-function isLoopback(address) {
-  const normalized = normalizeIp(address);
-  if (!normalized) return false;
-  if (normalized === "::1") return true;
-  if (isIP(normalized) === 4) return normalized.split(".")[0] === "127";
-  return false;
-}
-
-function clientIp(request) {
-  const directAddress = normalizeIp(request.socket?.remoteAddress) || "unknown";
-  if (!isLoopback(directAddress)) return directAddress;
-  const forwarded = request.headers?.["x-forwarded-for"];
-  const values = Array.isArray(forwarded) ? forwarded : [forwarded];
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    for (const candidate of value.split(",")) {
-      const normalized = normalizeIp(candidate);
-      if (normalized) return normalized;
-    }
-  }
-  return directAddress;
-}
-
 function currentMilliseconds(now) {
   const value = now();
   const milliseconds = value instanceof Date ? value.getTime() : Number.NaN;
@@ -415,7 +383,7 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
   }
 
   async function runAdmin(request, body, operation) {
-    const ip = clientIp(request);
+    const ip = requestClientIp(request);
     return serializeAdmin(ip, async () => {
       const timestamp = currentMilliseconds(now);
       pruneExpiredRateLimits(timestamp);

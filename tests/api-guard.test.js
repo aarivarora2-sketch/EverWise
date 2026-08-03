@@ -51,6 +51,30 @@ test("route limiter blocks excess requests without trusting spoofed forwarding",
   assert.equal(limiter.allow(requestFrom("127.0.0.1", "198.51.100.20")), true);
   assert.equal(limiter.allow(requestFrom("127.0.0.1", "198.51.100.20")), false);
 
+  const proxiedLimiter = createRouteRateLimiter({
+    limit: 2,
+    windowMs: 60_000,
+    now: () => now,
+  });
+  assert.equal(
+    proxiedLimiter.allow(
+      requestFrom("127.0.0.1", "203.0.113.1, 198.51.100.30"),
+    ),
+    true,
+  );
+  assert.equal(
+    proxiedLimiter.allow(
+      requestFrom("127.0.0.1", "203.0.113.2, 198.51.100.30"),
+    ),
+    true,
+  );
+  assert.equal(
+    proxiedLimiter.allow(
+      requestFrom("127.0.0.1", "203.0.113.3, 198.51.100.30"),
+    ),
+    false,
+  );
+
   now += 60_001;
   assert.equal(limiter.allow(requestFrom("203.0.113.10")), true);
 });

@@ -8,6 +8,7 @@ import {
 import { primaryNavigationState } from "../utils/responsiveNavigation.js";
 import { PartnerLogo } from "./PartnerBrand.jsx";
 import TextSizeControl from "./TextSizeControl";
+import CourseProgressCard from "./CourseProgressCard";
 
 const iconByDestination = {
   home: HomeIcon,
@@ -30,6 +31,7 @@ export default function AppShell({
   onSettings,
   textSize,
   onTextSizeChange,
+  courseProgress = null,
 }) {
   const navigation = primaryNavigationState(screen, isAuthenticated);
   const handlers = {
@@ -103,6 +105,12 @@ export default function AppShell({
                 </div>
               ) : null}
             </div>
+
+            {/* Pinned to the bottom of the sidebar: where you are in the
+                course, visible from any screen. */}
+            {courseProgress ? (
+              <CourseProgressCard {...courseProgress} />
+            ) : null}
           </nav>
         ) : null}
 

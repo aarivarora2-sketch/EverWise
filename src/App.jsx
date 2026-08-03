@@ -27,6 +27,7 @@ import {
 } from "./data/lessons";
 import { getPhase } from "./data/phases";
 import {
+  courseStanding,
   isCourseComplete,
   requiredCourseIds,
 } from "./utils/courseProgress.js";
@@ -69,6 +70,11 @@ import {
   authErrorMessage,
 } from "./utils/authErrors.js";
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
+import {
+  loginIdentifierToAuthEmail,
+  normalizeUsername,
+  usernameToAuthEmail,
+} from "./utils/validation.js";
 import {
   getCurrentEntitlement,
   getSubscriptionProducts,
@@ -1217,6 +1223,27 @@ function LearnerApp({ initialPartnerFragment }) {
   ).length;
   const badgesEarnedCount = (profile?.badges ?? []).length;
 
+  const standing = courseStanding(completedLessons, requiredLearningIds, {
+    lessons: lessonsByOrder,
+    challenges: challengesByOrder,
+    exams: examsByOrder,
+  });
+  const standingPhase = standing.currentPhase
+    ? getPhase(standing.currentPhase)
+    : null;
+  // Only meaningful once someone is signed in and has a profile to measure.
+  const courseProgress = user
+    ? {
+        percent: standing.percent,
+        phaseNumber: standing.currentPhase,
+        phaseTitle: standingPhase?.title,
+        phaseBiome: standingPhase?.biome,
+        phaseColor: standingPhase?.color,
+        phaseCount: standing.phaseCount,
+        isComplete: standing.isComplete,
+      }
+    : null;
+
   const accountDeletionAllowsNavigation = () =>
     !accountDeletionBusyRef.current;
   const goHome = () => {
@@ -1301,6 +1328,7 @@ function LearnerApp({ initialPartnerFragment }) {
     const {
       name,
       email,
+      username,
       password,
       researchConsent,
       researchSnapshot,
@@ -1314,9 +1342,15 @@ function LearnerApp({ initialPartnerFragment }) {
       signupFragment?.kind === "learner" &&
       Boolean(inviteToken) &&
       Boolean(signupPartner);
+    const normalizedUsername = sponsoredSignup
+      ? null
+      : normalizeUsername(username);
+    const authEmail = sponsoredSignup
+      ? email
+      : usernameToAuthEmail(normalizedUsername);
     const profileBase = {
       name,
-      email,
+      ...(sponsoredSignup ? { email } : { username: normalizedUsername }),
       profileInterview,
       onboardingCompleted: true,
       scamsCaught: 0,
@@ -1326,12 +1360,16 @@ function LearnerApp({ initialPartnerFragment }) {
       subscriptionStatus: "expired",
       plan: null,
     };
-    const operation = beginPartnerOperation(email);
+    const operation = beginPartnerOperation(authEmail);
     let sponsoredAccountCreated = false;
     let failureHandled = false;
     try {
       if (sponsoredSignup) setPartnerStatus("claiming");
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        authEmail,
+        password,
+      );
       sponsoredAccountCreated = sponsoredSignup;
       operation.uid = cred.user.uid;
       if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
@@ -1847,9 +1885,10 @@ function LearnerApp({ initialPartnerFragment }) {
     }
   };
 
-  const logIn = async (email, password) => {
+  const logIn = async (identifier, password) => {
+    const authEmail = loginIdentifierToAuthEmail(identifier);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, authEmail, password);
     } catch (err) {
       if (import.meta.env.DEV) {
         console.error(
@@ -2694,7 +2733,7 @@ function LearnerApp({ initialPartnerFragment }) {
           onManageSubscription={() =>
             window.open("https://apps.apple.com/account/subscriptions", "_blank")
           }
-          onResetPassword={resetPassword}
+          onResetPassword={profile?.email ? resetPassword : undefined}
           onDeleteAccount={deleteAccount}
           textSize={textSize}
           onTextSizeChange={setTextSize}
@@ -2801,6 +2840,7 @@ function LearnerApp({ initialPartnerFragment }) {
       onSettings={accountDeletionBusy ? undefined : goSettings}
       textSize={textSize}
       onTextSizeChange={setTextSize}
+      courseProgress={courseProgress}
     >
       <div
         key={screen}
