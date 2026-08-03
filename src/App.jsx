@@ -28,6 +28,7 @@ import {
 } from "./data/lessons";
 import { getPhase } from "./data/phases";
 import {
+  courseStanding,
   isCourseComplete,
   requiredCourseIds,
 } from "./utils/courseProgress.js";
@@ -276,6 +277,27 @@ export default function App() {
     lessonIdSet.has(id)
   ).length;
   const badgesEarnedCount = (profile?.badges ?? []).length;
+
+  const standing = courseStanding(completedLessons, requiredLearningIds, {
+    lessons: lessonsByOrder,
+    challenges: challengesByOrder,
+    exams: examsByOrder,
+  });
+  const standingPhase = standing.currentPhase
+    ? getPhase(standing.currentPhase)
+    : null;
+  // Only meaningful once someone is signed in and has a profile to measure.
+  const courseProgress = user
+    ? {
+        percent: standing.percent,
+        phaseNumber: standing.currentPhase,
+        phaseTitle: standingPhase?.title,
+        phaseBiome: standingPhase?.biome,
+        phaseColor: standingPhase?.color,
+        phaseCount: standing.phaseCount,
+        isComplete: standing.isComplete,
+      }
+    : null;
 
   const goHome = () => setScreen("home");
   const goPath = () => {
@@ -772,6 +794,7 @@ export default function App() {
       onSettings={goSettings}
       textSize={textSize}
       onTextSizeChange={setTextSize}
+      courseProgress={courseProgress}
     >
       <div
         key={screen}

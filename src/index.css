@@ -295,6 +295,12 @@
     height: 3rem;
   }
 
+  /* No room for it in the horizontal tablet bar — the path screen already
+     shows the phase in its own header there. */
+  .app-navigation-progress {
+    display: none;
+  }
+
   .app-canvas {
     min-height: calc(100dvh - 3rem);
     overflow: visible;
@@ -562,6 +568,60 @@
   .app-navigation-textsize-button {
     width: 100%;
     height: 3.5rem;
+  }
+
+  /* Bottom of the sidebar: current phase + overall course percentage. */
+  .app-navigation-progress {
+    display: block;
+    margin-top: auto;
+    padding: 0.95rem;
+    border: 2px solid rgb(34 32 28 / 12%);
+    border-radius: 16px;
+    background: #f3ece0;
+  }
+
+  .app-navigation-progress-eyebrow {
+    color: #4a463f;
+    font-size: calc(0.8rem * var(--text-scale));
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .app-navigation-progress-title {
+    margin-top: 0.2rem;
+    color: #22201c;
+    font-size: calc(1.05rem * var(--text-scale));
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  .app-navigation-progress-biome {
+    color: #4a463f;
+    font-size: calc(0.9rem * var(--text-scale));
+    font-weight: 600;
+  }
+
+  .app-navigation-progress-track {
+    overflow: hidden;
+    height: 0.65rem;
+    margin-top: 0.7rem;
+    border-radius: 999px;
+    background: rgb(34 32 28 / 12%);
+  }
+
+  .app-navigation-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 320ms ease;
+  }
+
+  .app-navigation-progress-percent {
+    margin-top: 0.45rem;
+    color: #4a463f;
+    font-size: calc(0.9rem * var(--text-scale));
+    font-weight: 700;
+    line-height: 1.25;
   }
 
   .app-canvas,

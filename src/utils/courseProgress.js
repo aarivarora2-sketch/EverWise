@@ -35,6 +35,42 @@ export function requiredCourseIds(lessons, challenges, exams) {
   return ids;
 }
 
+// Overall course standing for the sidebar: which phase the learner is
+// working through, and how far along the whole course they are. Percent is
+// measured against every required item (lessons + challenges + exams), so it
+// matches what the path screen actually asks them to finish.
+export function courseStanding(completedIds, requiredIds, curriculum) {
+  const doneSet = asDoneSet(completedIds);
+  const total = requiredIds.length;
+  const completed = requiredIds.filter((id) => doneSet.has(id)).length;
+  const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+
+  const { lessons, challenges, exams } = curriculum;
+  const phases = sortedPhases(lessons, challenges, exams);
+
+  // The current phase is the first one still carrying unfinished work; if
+  // everything is done we stay on the last phase rather than running off the
+  // end of the list.
+  const currentPhase =
+    phases.find(
+      (phase) =>
+        !phaseRequirementsComplete(phase, doneSet, {
+          lessons,
+          challenges,
+          exams,
+        }),
+    ) ?? phases.at(-1) ?? null;
+
+  return {
+    completed,
+    total,
+    percent,
+    currentPhase,
+    phaseCount: phases.length,
+    isComplete: total > 0 && completed === total,
+  };
+}
+
 export function isCourseComplete(completedIds, requiredIds) {
   const doneSet = asDoneSet(completedIds);
   return requiredIds.every((id) => doneSet.has(id));
