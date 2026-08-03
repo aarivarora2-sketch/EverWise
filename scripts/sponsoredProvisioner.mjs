@@ -268,18 +268,14 @@ function credentialsFor(row) {
 }
 
 function isRetryable(error) {
-  if (
-    typeof error?.code === "string" &&
-    error.code !== "UNAVAILABLE" &&
-    error.code !== "PARTNER_UNAVAILABLE"
-  ) {
-    return false;
+  if (error?.code === "UNAVAILABLE" || error?.code === "PARTNER_UNAVAILABLE") {
+    return true;
   }
-  return Boolean(
-    error?.code === "UNAVAILABLE" ||
-      error?.code === "PARTNER_UNAVAILABLE" ||
-      error?.status === 429 ||
-      (Number.isInteger(error?.status) && error.status >= 500 && error.status <= 599),
+  if (error?.code === "RATE_LIMITED") return error?.status === 429;
+  if (typeof error?.code === "string") return false;
+  return (
+    error?.status === 429 ||
+    (Number.isInteger(error?.status) && error.status >= 500 && error.status <= 599)
   );
 }
 
@@ -382,9 +378,9 @@ export async function provisionSponsoredRoster({
   let pending = 0;
   let failed = 0;
 
-  const reportProgress = (row, status) => {
+  const reportProgress = async (row, status) => {
     try {
-      onProgress({ accountNumber: row.accountNumber, username: row.username, status });
+      await onProgress({ accountNumber: row.accountNumber, username: row.username, status });
     } catch {
       throw safeRowError(row, "could not report progress");
     }
@@ -402,7 +398,7 @@ export async function provisionSponsoredRoster({
     }
     rows = nextRows;
     active += 1;
-    reportProgress(row, "active");
+    await reportProgress(row, "active");
   };
 
   for (const originalRow of initialRows) {
@@ -430,7 +426,7 @@ export async function provisionSponsoredRoster({
         throw safeRowError(row, "has conflicting sponsored access");
       }
       active += 1;
-      reportProgress(row, "active");
+      await reportProgress(row, "active");
       continue;
     }
 
@@ -449,7 +445,7 @@ export async function provisionSponsoredRoster({
     if (!accessResult.ok) {
       if (isRetryable(accessResult.error)) {
         pending += 1;
-        reportProgress(row, "pending");
+        await reportProgress(row, "pending");
         continue;
       }
       throw safeRowError(row, "could not be verified");
@@ -493,7 +489,7 @@ export async function provisionSponsoredRoster({
       if (!reconciliation.ok) {
         if (isRetryable(reconciliation.error)) {
           pending += 1;
-          reportProgress(row, "pending");
+          await reportProgress(row, "pending");
           continue;
         }
         throw safeRowError(row, "could not reconcile sponsored access");
@@ -504,7 +500,7 @@ export async function provisionSponsoredRoster({
       }
       if (validAccess(reconciliation.value) && reconciliation.value.status === "none") {
         pending += 1;
-        reportProgress(row, "pending");
+        await reportProgress(row, "pending");
         continue;
       }
       throw safeRowError(row, "has conflicting sponsored access");
@@ -539,7 +535,7 @@ export async function provisionSponsoredRoster({
         }
       }
       failed += 1;
-      reportProgress(row, "failed");
+      await reportProgress(row, "failed");
       continue;
     }
 

@@ -595,6 +595,21 @@ test("retryable claim failures use at most three attempts and injected backoff",
   }
 });
 
+test("a RATE_LIMITED service error with HTTP 429 retries at most three total attempts", async () => {
+  const scenario = pendingScenario({
+    claimImpl: async (attempt) => {
+      if (attempt < 3) throw codedError("RATE_LIMITED", { status: 429 });
+      return ACTIVE_ACCESS;
+    },
+  });
+
+  const result = await provisionSponsoredRoster(scenario.options);
+
+  assert.equal(scenario.calls.claim, 3);
+  assert.deepEqual(scenario.calls.backoff, [1, 2]);
+  assert.deepEqual(result, { active: 500, pending: 0, failed: 0 });
+});
+
 test("nonretryable claim errors stop after one attempt", async () => {
   const scenario = pendingScenario({
     claimImpl: async () => {
@@ -708,6 +723,24 @@ test("injected backoff and progress failures are sanitized after external state 
   });
   assert.equal(progressScenario.calls.persist, 1);
   assert.equal(progressScenario.calls.delete, 0);
+});
+
+test("an asynchronous progress rejection is awaited and sanitized", async () => {
+  const scenario = pendingScenario();
+  const secret = `${INVITE_TOKEN} id-token-1 ${scenario.options.rows[0].password}`;
+  scenario.options.onProgress = async () => {
+    throw new Error(secret);
+  };
+
+  await assert.rejects(provisionSponsoredRoster(scenario.options), (error) => {
+    assertSecretsAbsent(error);
+    assert.equal(error.message.includes("id-token-1"), false);
+    assert.equal(error.message.includes(scenario.options.rows[0].password), false);
+    assert.match(error.message, /1 \(EverWise001\)/);
+    return true;
+  });
+  assert.equal(scenario.calls.persist, 1);
+  assert.equal(scenario.calls.delete, 0);
 });
 
 test("progress payloads contain only account identity and status", async () => {
