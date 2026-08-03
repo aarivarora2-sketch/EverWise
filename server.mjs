@@ -9,14 +9,16 @@ const ELEVENLABS_VOICE_ID =
   process.env.ELEVENLABS_VOICE_ID || "Gfpl8Yo74Is0W6cPUWWT";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const localQaOrigin = (() => {
-  const configured = process.env.EVERWISE_LOCAL_QA_ORIGIN?.trim();
+  const configured = process.env.EVERWISE_LOCAL_QA_ORIGIN;
   if (!configured) return null;
   try {
     const url = new URL(configured);
     if (
+      configured !== url.origin ||
       url.protocol !== "http:" ||
       !["127.0.0.1", "localhost"].includes(url.hostname) ||
       !url.port ||
+      Number(url.port) < 1 ||
       url.pathname !== "/" ||
       url.search ||
       url.hash ||
@@ -25,7 +27,7 @@ const localQaOrigin = (() => {
     ) {
       return null;
     }
-    return url.origin;
+    return configured;
   } catch {
     return null;
   }
