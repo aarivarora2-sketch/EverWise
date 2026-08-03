@@ -46,6 +46,47 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/everwise_deploy ~/.ssh/known_hosts
 
+      - name: Configure production API credentials
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+        run: |
+          test -n "$OPENAI_API_KEY"
+          test -n "$ELEVENLABS_API_KEY"
+          test -n "$ELEVENLABS_VOICE_ID"
+
+          credentials_file="$(mktemp)"
+          trap 'rm -f "$credentials_file"' EXIT
+          chmod 600 "$credentials_file"
+          {
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'ELEVENLABS_API_KEY=%s\n' "$ELEVENLABS_API_KEY"
+            printf 'ELEVENLABS_VOICE_ID=%s\n' "$ELEVENLABS_VOICE_ID"
+          } > "$credentials_file"
+
+          remote_credentials_file="/tmp/everwise-runtime.env.${GITHUB_SHA}"
+          scp \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$credentials_file" \
+            "root@143.198.64.226:$remote_credentials_file"
+
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "set -eu
+             install -d -m 700 /etc/everwise
+             install -m 600 '$remote_credentials_file' /etc/everwise/runtime.env
+             rm -f '$remote_credentials_file'
+             install -d -m 755 /etc/systemd/system/everwise-api.service.d
+             printf '%s\\n' '[Service]' 'EnvironmentFile=/etc/everwise/runtime.env' > /etc/systemd/system/everwise-api.service.d/20-runtime-env.conf
+             chmod 644 /etc/systemd/system/everwise-api.service.d/20-runtime-env.conf
+             systemctl daemon-reload"
+
       - name: Deploy production release
         run: |
           tar -czf - dist server.mjs |
@@ -55,3 +96,17 @@ jobs:
               -o StrictHostKeyChecking=yes \
               root@143.198.64.226 \
               "deploy ${GITHUB_SHA}"
+
+      - name: Verify production API configuration
+        run: |
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "set -eu
+             systemctl restart everwise-api.service
+             systemctl is-active --quiet everwise-api.service
+             health=\$(curl --fail --silent http://127.0.0.1:8787/healthz)
+             printf '%s' \"\$health\" | grep --quiet '\"readAloudConfigured\":true'
+             printf '%s' \"\$health\" | grep --quiet '\"scamCheckerConfigured\":true'"
