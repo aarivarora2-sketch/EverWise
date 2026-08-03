@@ -30,3 +30,18 @@ test("DigitalOcean deployment verifies both API integrations through the restric
   assert.doesNotMatch(workflow, /systemctl restart everwise-api\.service/);
   assert.doesNotMatch(workflow, /root@143\.198\.64\.226\s+\\\s+"set -eu/);
 });
+
+test("DigitalOcean deployment archives only the built app and reviewed partner server tooling", () => {
+  assert.match(
+    workflow,
+    /tar -czf - dist server\.mjs server scripts\/manage-partners\.mjs \|/,
+  );
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*\bscripts\b(?!\/manage-partners\.mjs)/);
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*(?:\.env|node_modules|partners\.json)/);
+});
+
+test("DigitalOcean deployment checks partner configuration and store health after release", () => {
+  assert.match(workflow, /"partnerAccessConfigured":true/);
+  assert.match(workflow, /"partnerStoreHealthy":true/);
+  assert.match(workflow, /https:\/\/everwise\.dexio-games\.com\/healthz/);
+});
