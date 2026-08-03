@@ -2,6 +2,11 @@ import { createServer } from "node:http";
 import { createFirebaseTokenVerifier } from "./server/firebaseTokenVerifier.mjs";
 import { createPartnerApi } from "./server/partnerApi.mjs";
 import { createPartnerStore } from "./server/partnerStore.mjs";
+import {
+  ApiRequestError,
+  createRouteRateLimiter,
+  readJsonBody,
+} from "./server/apiGuard.mjs";
 
 const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 8787);
@@ -40,6 +45,14 @@ const { verifyIdToken } = createFirebaseTokenVerifier({
   projectId: "everwise-46cf0",
 });
 const partnerApi = createPartnerApi({ store: partnerStore, verifyIdToken });
+const scamCheckLimiter = createRouteRateLimiter({
+  limit: 30,
+  windowMs: 60_000,
+});
+const readAloudLimiter = createRouteRateLimiter({
+  limit: 60,
+  windowMs: 60_000,
+});
 
 const scamAssessmentSchema = {
   type: "object",
@@ -70,19 +83,6 @@ const scamAssessmentSchema = {
     "urgent_action",
   ],
 };
-
-async function readJsonBody(request, maxBytes = 25000) {
-  const chunks = [];
-  let size = 0;
-
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > maxBytes) throw new Error("Request too large");
-    chunks.push(chunk);
-  }
-
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
 
 function jsonResponse(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -118,12 +118,12 @@ function extractAssessment(openAIResponse) {
 }
 
 async function handleScamCheck(request, response) {
+  const { message } = await readJsonBody(request);
   if (!process.env.OPENAI_API_KEY) {
     jsonResponse(response, 503, { error: "Scam checker is not configured" });
     return;
   }
 
-  const { message } = await readJsonBody(request);
   const cleanMessage = typeof message === "string" ? message.trim() : "";
 
   if (!cleanMessage || cleanMessage.length > 6000) {
@@ -184,12 +184,12 @@ Even when likely legitimate, recommend independent verification before sharing i
 }
 
 async function handleReadAloud(request, response) {
+  const { text } = await readJsonBody(request);
   if (!process.env.ELEVENLABS_API_KEY) {
     textResponse(response, 503, "Read-aloud service is not configured");
     return;
   }
 
-  const { text } = await readJsonBody(request);
   const cleanText = typeof text === "string" ? text.trim() : "";
 
   if (!cleanText || cleanText.length > 5000) {
@@ -275,17 +275,40 @@ const server = createServer(async (request, response) => {
     }
 
     if (pathname === "/api/read-aloud") {
+      if (!readAloudLimiter.allow(request)) {
+        response.setHeader("Retry-After", "60");
+        jsonResponse(response, 429, {
+          error: "Too many requests. Please wait and try again.",
+          code: "RATE_LIMITED",
+        });
+        return;
+      }
       await handleReadAloud(request, response);
       return;
     }
 
     if (pathname === "/api/check-message") {
+      if (!scamCheckLimiter.allow(request)) {
+        response.setHeader("Retry-After", "60");
+        jsonResponse(response, 429, {
+          error: "Too many requests. Please wait and try again.",
+          code: "RATE_LIMITED",
+        });
+        return;
+      }
       await handleScamCheck(request, response);
       return;
     }
 
     textResponse(response, 404, "Not found");
   } catch (error) {
+    if (error instanceof ApiRequestError) {
+      jsonResponse(response, error.status, {
+        error: error.message,
+        code: error.code,
+      });
+      return;
+    }
     console.error("[Everwise][API] Request failed:", error.message);
     jsonResponse(response, 500, { error: "Request could not be completed" });
   }

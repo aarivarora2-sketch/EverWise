@@ -2,6 +2,7 @@ import { useState } from "react";
 import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 import { openLegalPage } from "../config/legalLinks";
+import TextSizeControl from "../components/TextSizeControl";
 
 const SUPPORT_EMAIL = "everwisedigitalliteracy@gmail.com";
 
@@ -111,6 +112,8 @@ export default function Settings({
   onManageSubscription,
   onResetPassword,
   onDeleteAccount,
+  textSize,
+  onTextSizeChange,
 }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -150,11 +153,7 @@ export default function Settings({
     const password = currentPassword;
     setCurrentPassword("");
     try {
-      if (sponsored) {
-        await onDeleteAccount?.(password);
-      } else {
-        await onDeleteAccount?.();
-      }
+      await onDeleteAccount?.(password);
     } catch (err) {
       setError(
         err.message ||
@@ -180,6 +179,27 @@ export default function Settings({
       </div>
 
       <div className="settings-grid">
+        <section className="settings-section settings-display mt-8 space-y-3">
+          <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+            Display
+          </p>
+          <div className="responsive-split flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 shadow-card">
+            <div className="min-w-0">
+              <p className="text-xl font-semibold text-ink">Text size</p>
+              <p className="mt-1 text-lg text-ink-soft">
+                Applies everywhere in the app
+              </p>
+            </div>
+            {onTextSizeChange ? (
+              <TextSizeControl
+                textSize={textSize}
+                onTextSizeChange={onTextSizeChange}
+                buttonClassName="h-12 w-12"
+              />
+            ) : null}
+          </div>
+        </section>
+
         {sponsored ? (
           <section className="settings-section settings-subscription mt-8 space-y-3">
             <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
@@ -254,29 +274,27 @@ export default function Settings({
               This permanently deletes your account, progress, and badges.
               This cannot be undone.
             </p>
-            {sponsored ? (
-              <div className="mt-4">
-                <label
-                  htmlFor="delete-current-password"
-                  className="block text-xl font-semibold text-ink"
-                >
-                  Current password
-                </label>
-                <input
-                  id="delete-current-password"
-                  name="delete-current-password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(event) => setCurrentPassword(event.target.value)}
-                  autoComplete="current-password"
-                  className="mt-2 w-full rounded-2xl border-2 border-ink/20 bg-cream-card px-5 text-xl text-ink transition-colors focus:border-clay"
-                  style={{ minHeight: "62px" }}
-                />
-                <p className="mt-2 text-base text-ink-soft">
-                  Enter your current password to confirm it is you.
-                </p>
-              </div>
-            ) : null}
+            <div className="mt-4">
+              <label
+                htmlFor="delete-current-password"
+                className="block text-xl font-semibold text-ink"
+              >
+                Current password
+              </label>
+              <input
+                id="delete-current-password"
+                name="delete-current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+                className="mt-2 w-full rounded-2xl border-2 border-ink/20 bg-cream-card px-5 text-xl text-ink transition-colors focus:border-clay"
+                style={{ minHeight: "62px" }}
+              />
+              <p className="mt-2 text-base text-ink-soft">
+                Enter your current password to confirm it is you.
+              </p>
+            </div>
             <div className="mt-4 flex gap-3">
               <button
                 type="button"
@@ -293,7 +311,7 @@ export default function Settings({
                 type="button"
                 className="flex-1 rounded-2xl bg-alert px-6 py-5 text-center text-lg font-bold text-cream-card shadow-btn transition-all active:translate-y-1 active:shadow-none disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={handleDeleteAccount}
-                disabled={busy || (sponsored && !currentPassword)}
+                disabled={busy || !currentPassword}
               >
                 {busy ? "Deleting…" : "Yes, delete"}
               </button>

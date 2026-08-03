@@ -1164,4 +1164,46 @@ test("server composes partner health without changing narration and scam-checker
   assert.deepEqual(await scamCheck.json(), {
     error: "Scam checker is not configured",
   });
+
+  const malformed = await fetch(`${baseUrl}/api/check-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{not json",
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), {
+    error: "The request body is invalid.",
+    code: "INVALID_JSON",
+  });
+
+  const oversized = await fetch(`${baseUrl}/api/check-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "x".repeat(25_001) }),
+  });
+  assert.equal(oversized.status, 413);
+  assert.deepEqual(await oversized.json(), {
+    error: "The request body is too large.",
+    code: "PAYLOAD_TOO_LARGE",
+  });
+
+  for (let index = 0; index < 27; index += 1) {
+    const allowed = await fetch(`${baseUrl}/api/check-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Hello" }),
+    });
+    assert.equal(allowed.status, 503);
+  }
+  const limited = await fetch(`${baseUrl}/api/check-message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "Hello" }),
+  });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get("retry-after"), "60");
+  assert.deepEqual(await limited.json(), {
+    error: "Too many requests. Please wait and try again.",
+    code: "RATE_LIMITED",
+  });
 });

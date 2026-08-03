@@ -16,7 +16,6 @@ import {
   getDoc,
   setDoc,
   updateDoc,
-  Timestamp,
 } from "firebase/firestore";
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
@@ -34,7 +33,7 @@ import {
 import {
   isTrialExpired,
 } from "./utils/subscription";
-import { resolveFullAccess } from "./utils/access.js";
+import { canOpenLesson, resolveFullAccess } from "./utils/access.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
   beginPartnerRelease,
@@ -666,10 +665,14 @@ async function normalizeSubscription(uid, data) {
 
   next = { ...next, ...updates };
   try {
-    console.log("[Everwise][firestore] subscription normalize users/", uid, updates);
     await updateDoc(doc(db, "users", uid), updates);
   } catch (err) {
-    console.error("[Everwise][firestore] Failed to normalize subscription:", err);
+    if (import.meta.env.DEV) {
+      console.error(
+        "[Everwise][firestore] Failed to normalize subscription:",
+        err?.code || err?.name || "unknown",
+      );
+    }
   }
   return next;
 }
@@ -892,7 +895,12 @@ function LearnerApp({ initialPartnerFragment }) {
 
     if (Capacitor.getPlatform() === "ios") {
       Keyboard.setAccessoryBarVisible({ isVisible: false }).catch((error) => {
-        console.warn("[Everwise] Keyboard accessory bar could not be hidden:", error);
+        if (import.meta.env.DEV) {
+          console.warn(
+            "[Everwise] Keyboard accessory bar could not be hidden:",
+            error?.code || error?.name || "unknown",
+          );
+        }
       });
     }
 
@@ -900,7 +908,12 @@ function LearnerApp({ initialPartnerFragment }) {
       getSubscriptionProducts()
         .then(setStoreProducts)
         .catch((error) => {
-          console.warn("[Everwise] Subscription products unavailable:", error);
+          if (import.meta.env.DEV) {
+            console.warn(
+              "[Everwise] Subscription products unavailable:",
+              error?.code || error?.name || "unknown",
+            );
+          }
         });
     }
   }, []);
@@ -913,10 +926,6 @@ function LearnerApp({ initialPartnerFragment }) {
       // Text resizing still works for this visit when storage is unavailable.
     }
   }, [textSize]);
-
-  useEffect(() => {
-    console.log("speech supported:", "speechSynthesis" in window);
-  }, []);
 
   useEffect(() => {
     const screenBackground = screen === "paywall" ? "#F8F5EF" : "#EFE9DC";
@@ -954,7 +963,12 @@ function LearnerApp({ initialPartnerFragment }) {
         await updateDoc(doc(db, "users", user.uid), updates);
       })
       .catch((error) => {
-        console.warn("[Everwise] Current subscription could not be checked:", error);
+        if (import.meta.env.DEV) {
+          console.warn(
+            "[Everwise] Current subscription could not be checked:",
+            error?.code || error?.name || "unknown",
+          );
+        }
       });
 
     return () => {
@@ -963,7 +977,6 @@ function LearnerApp({ initialPartnerFragment }) {
   }, [user]);
 
   useEffect(() => {
-    console.log("[Everwise][auth] Subscribing to onAuthStateChanged…");
     let receivedInitialAuthState = false;
     const startupFallback = window.setTimeout(() => {
       if (receivedInitialAuthState) return;
@@ -979,10 +992,6 @@ function LearnerApp({ initialPartnerFragment }) {
       authGenerationRef.current = generation;
       authSettledRef.current = false;
       currentAuthUidRef.current = u?.uid || null;
-      console.log(
-        "[Everwise][auth] state changed:",
-        u ? "logged in" : "no user logged in"
-      );
       setUser(u);
       setAuthChecked(false);
 
@@ -1033,7 +1042,6 @@ function LearnerApp({ initialPartnerFragment }) {
       setProfileCompletion(null);
 
       try {
-        console.log("[Everwise][firestore] Loading learner profile.");
         const snap = await getDoc(doc(db, "users", u.uid));
         if (
           generation !== authGenerationRef.current ||
@@ -1042,7 +1050,6 @@ function LearnerApp({ initialPartnerFragment }) {
           return;
         }
         if (!snap.exists()) {
-          console.warn("[Everwise][firestore] No profile doc for this user yet.");
           try {
             const authoritativeAccess = await fetchAuthoritativePartnerAccess(u);
             if (
@@ -1092,7 +1099,6 @@ function LearnerApp({ initialPartnerFragment }) {
           return;
         }
 
-        console.log("[Everwise][firestore] Learner profile loaded.");
         const normalized = await normalizeSubscription(u.uid, snap.data());
         if (
           generation !== authGenerationRef.current ||
@@ -1168,7 +1174,12 @@ function LearnerApp({ initialPartnerFragment }) {
           generation === authGenerationRef.current &&
           currentAuthUidRef.current === u.uid
         ) {
-          console.error("[Everwise][firestore] Failed to load profile:", err);
+          if (import.meta.env.DEV) {
+            console.error(
+              "[Everwise][firestore] Failed to load profile:",
+              err?.code || err?.name || "unknown",
+            );
+          }
         }
       } finally {
         if (
@@ -1244,14 +1255,14 @@ function LearnerApp({ initialPartnerFragment }) {
     if (!user) return;
     setProfile((p) => ({ ...p, ...updates }));
     try {
-      console.log(
-        "[Everwise][firestore] subscription update users/",
-        user.uid,
-        updates
-      );
       await updateDoc(doc(db, "users", user.uid), updates);
     } catch (err) {
-      console.error("[Everwise][firestore] Failed to update subscription:", err);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][firestore] Failed to update subscription:",
+          err?.code || err?.name || "unknown",
+        );
+      }
     }
   };
 
@@ -1262,13 +1273,23 @@ function LearnerApp({ initialPartnerFragment }) {
       await deleteUser(newUser);
       deleted = true;
     } catch (error) {
-      console.error("[Everwise][auth] New account cleanup failed:", error);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][auth] New account cleanup failed:",
+          error?.code || error?.name || "unknown",
+        );
+      }
     }
     try {
       await signOut(auth);
       signedOut = true;
     } catch (error) {
-      console.error("[Everwise][auth] Sign out after cleanup failed:", error);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][auth] Sign out after cleanup failed:",
+          error?.code || error?.name || "unknown",
+        );
+      }
     }
     return { deleted, signedOut };
   };
@@ -1310,7 +1331,6 @@ function LearnerApp({ initialPartnerFragment }) {
     let failureHandled = false;
     try {
       if (sponsoredSignup) setPartnerStatus("claiming");
-      console.log("[Everwise][auth] Creating learner account.");
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       sponsoredAccountCreated = sponsoredSignup;
       operation.uid = cred.user.uid;
@@ -1318,7 +1338,6 @@ function LearnerApp({ initialPartnerFragment }) {
         finishPartnerOperation(operation);
         throw new StalePartnerOperationError();
       }
-      console.log("[Everwise][auth] Learner account created.");
 
       let sponsoredEntitlement = null;
       if (sponsoredSignup) {
@@ -1419,12 +1438,27 @@ function LearnerApp({ initialPartnerFragment }) {
       }
 
       const initial = partnerProfileFromBase(profileBase, sponsoredEntitlement);
-      console.log("[Everwise][firestore] Saving learner profile.");
       try {
         await setDoc(doc(db, "users", cred.user.uid), initial);
       } catch (profileError) {
         if (!partnerOperationIsCurrent(operation, cred.user.uid)) {
           throw new StalePartnerOperationError();
+        }
+        if (!sponsoredSignup) {
+          failureHandled = true;
+          const cleanup = await cleanUpFailedSponsoredSignup(cred.user);
+          finishPartnerOperation(operation);
+          if (!cleanup.deleted || !cleanup.signedOut) {
+            setUser(cleanup.signedOut ? null : cred.user);
+            setProfile(null);
+            updatePartnerRecovery({
+              kind: "cleanup",
+              user: cred.user,
+              cleanup,
+            });
+            setScreen("partner-error");
+          }
+          throw profileError;
         }
         if (
           sponsoredEntitlement?.status === "active" ||
@@ -1455,7 +1489,6 @@ function LearnerApp({ initialPartnerFragment }) {
         finishPartnerOperation(operation);
         throw new StalePartnerOperationError();
       }
-      console.log("[Everwise][firestore] profile document created.");
 
       setUser(cred.user);
       setProfile(initial);
@@ -1496,7 +1529,12 @@ function LearnerApp({ initialPartnerFragment }) {
         }
       }
       if (!failureHandled) finishPartnerOperation(operation);
-      console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][auth] Sign up failed:",
+          err?.code || err?.name || "unknown",
+        );
+      }
       throw err;
     }
   };
@@ -1811,11 +1849,14 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const logIn = async (email, password) => {
     try {
-      console.log("[Everwise][auth] Signing in learner account.");
       await signInWithEmailAndPassword(auth, email, password);
-      console.log("[Everwise][auth] Learner account signed in.");
     } catch (err) {
-      console.error("[Everwise][auth] Log in failed:", err.code, err.message);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][auth] Log in failed:",
+          err?.code || err?.name || "unknown",
+        );
+      }
       throw err;
     }
   };
@@ -1825,9 +1866,7 @@ function LearnerApp({ initialPartnerFragment }) {
     operationIdRef.current += 1;
     activeOperationRef.current = null;
     try {
-      console.log("[Everwise][auth] signOut");
       await signOut(auth);
-      console.log("[Everwise][auth] signed out.");
       authGenerationRef.current += 1;
       currentAuthUidRef.current = null;
       setUser(null);
@@ -1842,14 +1881,25 @@ function LearnerApp({ initialPartnerFragment }) {
       setAuthChecked(true);
       setScreen("landing");
     } catch (err) {
-      console.error("[Everwise][auth] Sign out failed:", err);
+      if (import.meta.env.DEV) {
+        console.error(
+          "[Everwise][auth] Sign out failed:",
+          err?.code || err?.name || "unknown",
+        );
+      }
     }
   };
 
   const startLesson = (index) => {
     const lesson = lessonsByOrder[index];
     const done = lesson && completedLessons.includes(lesson.id);
-    if (!access && !done) {
+    if (
+      !canOpenLesson({
+        lessonId: lesson?.id,
+        completed: done,
+        fullAccess: access,
+      })
+    ) {
       goPaywall();
       return;
     }
@@ -1882,24 +1932,20 @@ function LearnerApp({ initialPartnerFragment }) {
   };
 
   const startFreeTrial = async (plan = "annual") => {
-    if (nativePurchasesAvailable()) {
-      const entitlement = await purchaseSubscription(plan);
-      if (!entitlement.active) {
-        throw new Error("The subscription is not active yet.");
-      }
-      await updateSubscription({
-        subscriptionStatus: "active",
-        trialStartedAt: null,
-        plan: planForProduct(entitlement.productId) || plan,
-      });
-    } else {
-      // Browser preview only. App Store builds always use StoreKit above.
-      await updateSubscription({
-        subscriptionStatus: "trial",
-        trialStartedAt: Timestamp.now(),
-        plan,
-      });
+    if (!nativePurchasesAvailable()) {
+      throw new Error(
+        "Subscriptions are not available in the browser. Use a sponsored access link to unlock the full course.",
+      );
     }
+    const entitlement = await purchaseSubscription(plan);
+    if (!entitlement.active) {
+      throw new Error("The subscription is not active yet.");
+    }
+    await updateSubscription({
+      subscriptionStatus: "active",
+      trialStartedAt: null,
+      plan: planForProduct(entitlement.productId) || plan,
+    });
     goHome();
   };
 
@@ -2010,28 +2056,80 @@ function LearnerApp({ initialPartnerFragment }) {
   const deleteAccount = async (currentPassword) => {
     if (!user) throw new Error("No account is signed in.");
     if (!sponsoredActive) {
-      try {
-        console.log("[Everwise][firestore] deleteDoc users/", user.uid);
-        await deleteDoc(doc(db, "users", user.uid));
-        console.log("[Everwise][auth] deleteUser", user.uid);
-        await deleteUser(user);
-        console.log("[Everwise][auth] account deleted.");
-        finishDeletedAccountLocally();
-      } catch (err) {
-        console.error(
-          "[Everwise][auth] Delete account failed:",
-          err.code,
-          err.message,
+      if (!user.email || typeof currentPassword !== "string" || !currentPassword) {
+        throw new Error("Please enter your current password.");
+      }
+      const expectedUser = user;
+      const expectedUid = user.uid;
+      const cachedProfile = profile;
+      const operation = beginAccountDeletionOperation(expectedUid);
+      if (!operation || !cachedProfile) {
+        throw new Error(
+          "We could not safely prepare account deletion. Please try again.",
         );
+      }
+      let profileDeleted = false;
+      let firebaseDeleted = false;
+      try {
+        const credential = EmailAuthProvider.credential(
+          expectedUser.email,
+          currentPassword,
+        );
+        await reauthenticateWithCredential(expectedUser, credential);
+        requireCurrentAccountDeletion(operation);
+        await deleteDoc(doc(db, "users", expectedUid));
+        profileDeleted = true;
+        requireCurrentAccountDeletion(operation);
+        try {
+          await deleteUser(expectedUser);
+          firebaseDeleted = true;
+        } catch (deletionError) {
+          try {
+            await reload(expectedUser);
+          } catch (lookupError) {
+            if (lookupError?.code === "auth/user-not-found") {
+              firebaseDeleted = true;
+            } else {
+              throw new FirebaseDeletionStatusIndeterminateError();
+            }
+          }
+          if (!firebaseDeleted) throw deletionError;
+        }
+      } catch (err) {
+        let profileRestored = !profileDeleted || firebaseDeleted;
+        if (profileDeleted && !firebaseDeleted) {
+          try {
+            await setDoc(doc(db, "users", expectedUid), cachedProfile);
+            profileRestored = true;
+          } catch {
+            profileRestored = false;
+          }
+        }
+        finishAccountDeletionOperation(operation);
+        if (!profileRestored) {
+          throw new Error(
+            "Account deletion stopped and your saved profile could not be restored. Please contact support.",
+          );
+        }
+        if (err instanceof FirebaseDeletionStatusIndeterminateError) {
+          throw new Error(
+            "We could not confirm whether your account was deleted. Please contact support before trying again.",
+          );
+        }
         if (err.code === "auth/requires-recent-login") {
           throw new Error(
             "For your security, please log out and log back in, then try deleting your account again.",
           );
         }
         throw new Error(
-          "We could not delete your account right now. Please try again.",
+          profileDeleted
+            ? "We could not delete your account right now. Your saved profile was restored."
+            : "We could not delete your account right now. Please try again.",
         );
       }
+      const deletionStillCurrent = accountDeletionOperationIsCurrent(operation);
+      finishAccountDeletionOperation(operation);
+      if (deletionStillCurrent) finishDeletedAccountLocally();
       return;
     }
 
@@ -2268,18 +2366,14 @@ function LearnerApp({ initialPartnerFragment }) {
         };
         setProfile((p) => ({ ...p, ...updates }));
         try {
-          console.log(
-            "[Everwise][firestore] challenge complete users/",
-            user.uid,
-            updates
-          );
           await updateDoc(doc(db, "users", user.uid), updates);
-          console.log("[Everwise][firestore] challenge progress saved.");
         } catch (err) {
-          console.error(
-            "[Everwise][firestore] Failed to save challenge:",
-            err
-          );
+          if (import.meta.env.DEV) {
+            console.error(
+              "[Everwise][firestore] Failed to save challenge:",
+              err?.code || err?.name || "unknown",
+            );
+          }
         }
       }
     }
@@ -2303,18 +2397,20 @@ function LearnerApp({ initialPartnerFragment }) {
 
       setProfile((p) => ({ ...p, ...updates }));
       try {
-        console.log("[Everwise][firestore] updateDoc users/", user.uid, updates);
         await updateDoc(doc(db, "users", user.uid), updates);
-        console.log("[Everwise][firestore] progress saved.");
       } catch (err) {
-        console.error("[Everwise][firestore] Failed to save progress:", err);
+        if (import.meta.env.DEV) {
+          console.error(
+            "[Everwise][firestore] Failed to save progress:",
+            err?.code || err?.name || "unknown",
+          );
+        }
       }
     }
     setScreen("complete");
   };
 
   const finishExam = async ({
-    score,
     tier,
     earnedPhaseBadge,
     phaseBadge,
@@ -2344,15 +2440,14 @@ function LearnerApp({ initialPartnerFragment }) {
 
       setProfile((p) => ({ ...p, ...updates }));
       try {
-        console.log(
-          "[Everwise][firestore] exam pass update users/",
-          user.uid,
-          { score, ...updates }
-        );
         await updateDoc(doc(db, "users", user.uid), updates);
-        console.log("[Everwise][firestore] exam progress saved.");
       } catch (err) {
-        console.error("[Everwise][firestore] Failed to save exam:", err);
+        if (import.meta.env.DEV) {
+          console.error(
+            "[Everwise][firestore] Failed to save exam:",
+            err?.code || err?.name || "unknown",
+          );
+        }
       }
     }
     goPath();
@@ -2601,6 +2696,8 @@ function LearnerApp({ initialPartnerFragment }) {
           }
           onResetPassword={resetPassword}
           onDeleteAccount={deleteAccount}
+          textSize={textSize}
+          onTextSizeChange={setTextSize}
         />
       );
       break;
@@ -2615,6 +2712,7 @@ function LearnerApp({ initialPartnerFragment }) {
           onStartTrial={startFreeTrial}
           onRestore={restorePurchase}
           storeProducts={storeProducts}
+          purchasesAvailable={nativePurchasesAvailable()}
           onStartLearning={goHome}
           onMaybeLater={goHome}
         />
@@ -2701,6 +2799,8 @@ function LearnerApp({ initialPartnerFragment }) {
       onScamChecker={accountDeletionBusy ? undefined : goScamChecker}
       onBadges={accountDeletionBusy ? undefined : goBadges}
       onSettings={accountDeletionBusy ? undefined : goSettings}
+      textSize={textSize}
+      onTextSizeChange={setTextSize}
     >
       <div
         key={screen}

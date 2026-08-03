@@ -12,7 +12,7 @@ test("Terms opens the approved public page safely", () => {
 
   openLegalPage("terms", (...args) => calls.push(args));
 
-  assert.equal(TERMS_URL, "https://everwise.dexio-games.com/terms.html");
+  assert.equal(TERMS_URL, "https://dexio-games.com/terms-of-use");
   assert.deepEqual(calls, [[TERMS_URL, "_blank", "noopener,noreferrer"]]);
 });
 
@@ -21,7 +21,7 @@ test("Privacy opens the approved public page safely", () => {
 
   openLegalPage("privacy", (...args) => calls.push(args));
 
-  assert.equal(PRIVACY_POLICY_URL, "https://everwise.dexio-games.com/privacy.html");
+  assert.equal(PRIVACY_POLICY_URL, "https://dexio-games.com/privacy-policy");
   assert.deepEqual(calls, [[PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer"]]);
 });
 

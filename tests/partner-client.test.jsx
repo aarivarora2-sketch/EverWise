@@ -647,6 +647,29 @@ async function openReturningSponsoredSettings(overrides = {}) {
   return { returningProfile, returningUser, user };
 }
 
+async function openReturningPublicSettings(overrides = {}) {
+  window.history.replaceState(null, "", "/");
+  const returningUser = {
+    uid: "returning-public-delete",
+    email: "public@example.com",
+    getIdToken: vi.fn(async () => "returning-public-token"),
+    ...overrides,
+  };
+  const returningProfile = learnerProfile({ email: returningUser.email });
+  mocks.getDoc.mockResolvedValue(profileSnapshot(returningProfile));
+  mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByRole("button", { name: "Get Started" });
+  await act(async () => {
+    await mocks.authCallback(returningUser);
+  });
+  await user.click(screen.getByRole("button", { name: "Open Settings" }));
+  await user.click(screen.getByRole("button", { name: /^Delete account/i }));
+  await user.type(screen.getByLabelText("Current password"), "public-password");
+  return { returningProfile, returningUser, user };
+}
+
 async function switchToPublicAccount(uid) {
   const currentUser = {
     uid,
@@ -829,7 +852,7 @@ describe("sponsored settings", () => {
     pendingDeletion.resolve();
   });
 
-  test("preserves public deletion without asking for a password", async () => {
+  test("requires recent authentication for public deletion too", async () => {
     const onDeleteAccount = vi.fn(() => Promise.resolve());
     const user = userEvent.setup();
     render(
@@ -845,9 +868,13 @@ describe("sponsored settings", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /^Delete account/i }));
-    expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
+    const password = screen.getByLabelText("Current password");
+    expect(screen.getByRole("button", { name: "Yes, delete" })).toBeDisabled();
+    await user.type(password, "public-delete-password");
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
-    await waitFor(() => expect(onDeleteAccount).toHaveBeenCalledWith());
+    await waitFor(() =>
+      expect(onDeleteAccount).toHaveBeenCalledWith("public-delete-password"),
+    );
   });
 });
 
@@ -1078,6 +1105,26 @@ describe("custom radio accessibility", () => {
     await user.keyboard("{End}");
     expect(monthly).toHaveFocus();
     expect(monthly).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("browser paywall does not promise or restore an unavailable App Store purchase", async () => {
+    const RealPaywall = (await vi.importActual("../src/screens/Paywall.jsx")).default;
+    render(
+      <RealPaywall
+        purchasesAvailable={false}
+        onStartTrial={vi.fn()}
+        onMaybeLater={() => {}}
+        onRestore={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Continue learning on the web" }),
+    ).toBeVisible();
+    expect(screen.getByText(/Lesson 1 is free/i)).toBeVisible();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
   });
 });
 
@@ -1454,6 +1501,38 @@ describe("sponsored signup orchestration", () => {
     ).toBeVisible();
     expect(screen.queryByText("Start free trial")).not.toBeInTheDocument();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+  });
+
+  test("restores a public profile when Firebase user deletion fails", async () => {
+    mocks.deleteUser.mockRejectedValue({
+      code: "auth/internal-error",
+      message: "private Firebase detail",
+    });
+    const { returningProfile, returningUser, user } =
+      await openReturningPublicSettings();
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+
+    await waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledWith(returningUser));
+    expect(mocks.credential).toHaveBeenCalledWith(
+      "public@example.com",
+      "public-password",
+    );
+    expect(mocks.reauthenticateWithCredential).toHaveBeenCalledWith(
+      returningUser,
+      { email: "public@example.com", password: "public-password" },
+    );
+    expect(mocks.deleteDoc).toHaveBeenCalledWith({
+      collection: "users",
+      uid: "returning-public-delete",
+    });
+    expect(mocks.setDoc).toHaveBeenCalledWith(
+      { collection: "users", uid: "returning-public-delete" },
+      returningProfile,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "We could not delete your account right now. Your saved profile was restored.",
+    );
   });
 
   test("reauthenticates and releases a sponsored account in the exact destructive order", async () => {
@@ -3344,5 +3423,29 @@ describe("sponsored signup orchestration", () => {
     await user.click(screen.getByRole("button", { name: "See my plan options" }));
     expect(screen.getByRole("heading", { name: "Pricing and subscription" })).toBeVisible();
     expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("removes a public Firebase account when its profile cannot be created", async () => {
+    window.history.replaceState(null, "", "/");
+    const firebaseUser = {
+      uid: "public-profile-failed",
+      email: "jane@example.com",
+    };
+    mocks.createUserWithEmailAndPassword.mockResolvedValue({ user: firebaseUser });
+    mocks.setDoc.mockRejectedValue(new Error("private Firestore detail"));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Get Started" }));
+    await reachConsent(user);
+    await user.type(screen.getByLabelText("Email"), "jane@example.com");
+    await user.type(screen.getByLabelText("Choose a password"), "secret12");
+    await user.click(screen.getByRole("button", { name: "Build my plan" }));
+
+    await waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledWith(firebaseUser));
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Something went wrong. Please try again.",
+    );
+    expect(screen.queryByRole("button", { name: "See my plan options" })).not.toBeInTheDocument();
   });
 });

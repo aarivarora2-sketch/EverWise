@@ -44,6 +44,8 @@ export default function PartnerAccessError({
       code === "PARTNER_PROFILE_INCOMPLETE" ||
       code === "PARTNER_PROFILE_MISSING") &&
     typeof onRetry === "function";
+  const heading =
+    code === "PARTNER_CLEANUP_INCOMPLETE" ? "Account setup" : "Sponsored access";
 
   return (
     <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
@@ -53,7 +55,7 @@ export default function PartnerAccessError({
           strokeWidth={2}
           aria-hidden="true"
         />
-        <h1 className="page-title mt-6">Sponsored access</h1>
+        <h1 className="page-title mt-6">{heading}</h1>
         <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
           {messageFor(code, partnerName)}
         </p>

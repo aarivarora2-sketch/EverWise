@@ -309,6 +309,25 @@
     color: #fbf9f4;
   }
 
+  /* Tablet: the nav is a horizontal bar, so the text-size stepper sits at
+     the end of the row and its label is redundant next to the +/− buttons. */
+  .app-navigation-textsize {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: 0.35rem;
+  }
+
+  .app-navigation-textsize-label {
+    display: none;
+  }
+
+  .app-navigation-textsize-button {
+    width: 3rem;
+    height: 3rem;
+  }
+
   .app-canvas {
     min-height: calc(100dvh - 3rem);
     overflow: visible;
@@ -479,14 +498,19 @@
 }
 
 @media (min-width: 1024px) {
+  /* Fill the whole browser window on desktop — no padded margin, no
+     max-width cap, no rounded "framed card" look. That treatment reads as
+     a tablet-sized app floating in the middle of the screen; a real
+     desktop web app uses the full window. */
   .app-viewport {
-    padding: 2rem;
+    padding: 0;
   }
 
   .app-shell {
-    max-width: 1180px;
-    min-height: calc(100dvh - 4rem);
-    border-radius: 36px;
+    max-width: none;
+    width: 100%;
+    min-height: 100dvh;
+    border-radius: 0;
   }
 
   .app-shell.has-app-navigation {
@@ -496,8 +520,8 @@
   }
 
   .app-navigation {
-    top: 2rem;
-    height: calc(100dvh - 4rem);
+    top: 0;
+    height: 100dvh;
     min-height: 620px;
     flex-direction: column;
     align-items: stretch;
@@ -505,7 +529,7 @@
     padding: 1.5rem 1rem;
     border-right: 1px solid rgb(34 32 28 / 10%);
     border-bottom: 0;
-    border-radius: 36px 0 0 36px;
+    border-radius: 0;
     box-shadow: 8px 0 24px rgb(34 32 28 / 4%);
   }
 
@@ -545,9 +569,45 @@
     text-align: left;
   }
 
+  /* The path nodes are positioned from the canvas centre, so letting the
+     canvas run full width keeps them centred while the phase colour bands
+     reach both edges. Capped at 760px it read as a phone screen pasted onto
+     the desktop page. */
+  .course-path-canvas {
+    max-width: none;
+  }
+
+  /* Desktop: the nav is a vertical sidebar. Push the text-size stepper to
+     the bottom, below the links, and show its label. */
+  /* Desktop: keep it in the sidebar flow right below the links rather than
+     pinned to the bottom corner, where it was easy to miss. */
+  .app-navigation-textsize {
+    margin-top: 1.25rem;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+    padding: 0.9rem;
+    border: 2px solid rgb(34 32 28 / 12%);
+    border-radius: 16px;
+    background: #f3ece0;
+  }
+
+  .app-navigation-textsize-label {
+    display: block;
+    color: #22201c;
+    font-size: calc(1rem * var(--text-scale));
+    font-weight: 800;
+  }
+
+  .app-navigation-textsize-button {
+    width: 100%;
+    height: 3.5rem;
+  }
+
   .app-canvas,
   .has-app-navigation .app-canvas {
-    min-height: calc(100dvh - 4rem);
+    min-height: 100dvh;
   }
 
   .home-dashboard {
@@ -612,11 +672,11 @@
   }
 
   .app-canvas-badges .badges-screen > header {
-    border-radius: 0 36px 0 0;
+    border-radius: 0;
   }
 
   .app-canvas-path .path-header {
-    border-radius: 0 36px 0 0;
+    border-radius: 0;
   }
 }
 

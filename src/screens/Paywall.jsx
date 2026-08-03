@@ -159,6 +159,7 @@ export default function Paywall({
   onMaybeLater,
   onRestore,
   storeProducts = [],
+  purchasesAvailable = true,
 }) {
   const [selectedPlan, setSelectedPlan] = useState("annual");
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
@@ -225,6 +226,76 @@ export default function Paywall({
       setBusy(false);
     }
   };
+
+  if (!purchasesAvailable) {
+    return (
+      <div className="release-paywall relative flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto bg-[#F8F5EF] px-5 pb-6 pt-4">
+        <header className="paywall-header relative flex h-14 shrink-0 items-center justify-center">
+          <button
+            type="button"
+            onClick={onMaybeLater}
+            className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/5"
+            aria-label="Close access options"
+          >
+            <X className="h-7 w-7" strokeWidth={2} aria-hidden="true" />
+          </button>
+          <div className="flex min-w-0 items-center justify-center gap-2">
+            <img
+              src="/everwise-logo-192.png"
+              alt=""
+              className="paywall-logo h-[52px] w-[52px] shrink-0 object-contain"
+            />
+            <span className="truncate font-serif text-3xl font-bold text-ink">
+              EverWise
+            </span>
+          </div>
+        </header>
+
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-8 text-center">
+          <h1 className="font-serif text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+            Continue learning on the web
+          </h1>
+          <div className="mt-7 rounded-3xl bg-cream-card px-6 py-7 text-left shadow-card sm:px-8">
+            <p className="text-xl font-bold text-ink">Lesson 1 is free.</p>
+            <p className="mt-3 text-lg leading-relaxed text-ink-soft">
+              You can complete the introduction and Lesson 1 in any browser.
+              The remaining lessons require sponsored access from a participating
+              community organization.
+            </p>
+            <p className="mt-3 text-lg leading-relaxed text-ink-soft">
+              If an organization sent you an EverWise access link, open that link
+              to unlock the full course. No payment is required for sponsored access.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary mt-7"
+            onClick={onMaybeLater}
+          >
+            Continue with Lesson 1
+          </button>
+        </main>
+
+        <footer className="flex min-h-12 shrink-0 items-center justify-center gap-3 text-lg font-semibold text-teal-800">
+          <button
+            type="button"
+            className="min-h-9 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current"
+            onClick={() => openLegalPage("terms")}
+          >
+            Terms
+          </button>
+          <span aria-hidden="true">•</span>
+          <button
+            type="button"
+            className="min-h-9 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current"
+            onClick={() => openLegalPage("privacy")}
+          >
+            Privacy
+          </button>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className="release-paywall relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#F8F5EF] px-5 pb-0 pt-4">

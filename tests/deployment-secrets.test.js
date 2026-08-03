@@ -6,6 +6,18 @@ const workflow = readFileSync(
   new URL("../.github/workflows/deploy-digitalocean.yml", import.meta.url),
   "utf8",
 );
+const pagesWorkflow = readFileSync(
+  new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
+  "utf8",
+);
+
+test("deployment workflows install reproducibly and test before publishing", () => {
+  for (const candidate of [workflow, pagesWorkflow]) {
+    assert.match(candidate, /run: npm ci --no-audit --no-fund/);
+    assert.match(candidate, /npm test/);
+    assert.doesNotMatch(candidate, /run: npm install\b/);
+  }
+});
 
 test("DigitalOcean deployment provisions API credentials from GitHub", () => {
   assert.match(
