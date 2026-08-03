@@ -777,6 +777,83 @@ test("admin JSON contains aggregates but no token hashes, UID keys, emails, or r
   }
 });
 
+test("server permits the configured local QA origin for partner browser requests", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-partner-cors-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const storePath = join(directory, "partners.json");
+  const store = createPartnerStore({ filePath: storePath });
+  const created = await store.createPartner({
+    partnerId: "local-qa",
+    name: "LOCAL QA Partner",
+    seatLimit: 500,
+    branding: {
+      name: "LOCAL QA Partner",
+      logoPath: null,
+      accent: "#2F6B61",
+    },
+  });
+  const port = await reservePort();
+  let stderrText = "";
+  const child = spawn(process.execPath, ["server.mjs"], {
+    cwd: join(import.meta.dirname, ".."),
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      EVERWISE_PARTNER_STORE_PATH: storePath,
+      EVERWISE_LOCAL_QA_ORIGIN: "http://127.0.0.1:5174",
+      OPENAI_API_KEY: "",
+      ELEVENLABS_API_KEY: "",
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderrText += chunk;
+  });
+  t.after(() => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+  });
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  await waitForServer(child, `${baseUrl}/healthz`, () => stderrText);
+
+  const preflight = await fetch(`${baseUrl}/api/partner/preview`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "http://127.0.0.1:5174",
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type",
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(
+    preflight.headers.get("access-control-allow-origin"),
+    "http://127.0.0.1:5174",
+  );
+  assert.equal(preflight.headers.get("access-control-allow-methods"), "POST");
+  assert.equal(
+    preflight.headers.get("access-control-allow-headers"),
+    "Authorization, Content-Type",
+  );
+  assert.equal(preflight.headers.get("vary"), "Origin");
+
+  const preview = await fetch(`${baseUrl}/api/partner/preview`, {
+    method: "POST",
+    headers: {
+      Origin: "http://127.0.0.1:5174",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inviteToken: created.inviteToken }),
+  });
+  assert.equal(preview.status, 200);
+  assert.equal(
+    preview.headers.get("access-control-allow-origin"),
+    "http://127.0.0.1:5174",
+  );
+  assert.equal((await preview.json()).partnerId, "local-qa");
+});
+
 test("server composes partner health without changing narration and scam-checker routes", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "everwise-partner-server-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

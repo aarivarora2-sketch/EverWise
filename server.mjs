@@ -8,6 +8,28 @@ const PORT = Number(process.env.PORT || 8787);
 const ELEVENLABS_VOICE_ID =
   process.env.ELEVENLABS_VOICE_ID || "Gfpl8Yo74Is0W6cPUWWT";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const localQaOrigin = (() => {
+  const configured = process.env.EVERWISE_LOCAL_QA_ORIGIN?.trim();
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol !== "http:" ||
+      !["127.0.0.1", "localhost"].includes(url.hostname) ||
+      !url.port ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+})();
 const partnerStorePath =
   process.env.EVERWISE_PARTNER_STORE_PATH ||
   "/var/lib/everwise/partners.json";
@@ -216,6 +238,20 @@ async function handleReadAloud(request, response) {
 const server = createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url, "http://localhost").pathname;
+    if (localQaOrigin && request.headers.origin === localQaOrigin) {
+      response.setHeader("Access-Control-Allow-Origin", localQaOrigin);
+      response.setHeader("Access-Control-Allow-Methods", "POST");
+      response.setHeader(
+        "Access-Control-Allow-Headers",
+        "Authorization, Content-Type",
+      );
+      response.setHeader("Vary", "Origin");
+      if (request.method === "OPTIONS") {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+    }
 
     if (request.method === "GET" && pathname === "/healthz") {
       const partnerHealth = await partnerStore.health();
