@@ -111,6 +111,39 @@ test("rejects null, malformed, and overlong public account arguments safely", as
   }
 });
 
+test("rejects primitive, missing, wrongly typed, and hostile public arguments safely", async () => {
+  const getterDetail = `${apiKey}${email}${password}${idToken}`;
+  const hostileCredentials = {};
+  Object.defineProperty(hostileCredentials, "email", {
+    get() { throw new Error(getterDetail); },
+  });
+  const hostileToken = {};
+  Object.defineProperty(hostileToken, "idToken", {
+    get() { throw new Error(getterDetail); },
+  });
+  const client = createFirebaseIdentityClient({ apiKey, fetchImpl: async () => response({}) });
+  const cases = [
+    () => client.createAccount("not an object"),
+    () => client.createAccount({ password }),
+    () => client.createAccount({ email: 123, password }),
+    () => client.createAccount(hostileCredentials),
+    () => client.signIn(42),
+    () => client.signIn({ email }),
+    () => client.signIn({ email, password: false }),
+    () => client.signIn(hostileCredentials),
+    () => client.deleteAccount(true),
+    () => client.deleteAccount({}),
+    () => client.deleteAccount({ idToken: 123 }),
+    () => client.deleteAccount(hostileToken),
+  ];
+  for (const call of cases) {
+    await assert.rejects(call(), (error) => {
+      assert.equal(error.message, "Firebase returned an invalid response.");
+      return expectSafeError(error, "INVALID_RESPONSE", getterDetail);
+    });
+  }
+});
+
 test("rejects a non-boolean fetch ok value before returning credentials", async () => {
   const client = createFirebaseIdentityClient({
     apiKey,
