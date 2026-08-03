@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { createPartnerApi } from "../server/partnerApi.mjs";
+import { PartnerStoreError } from "../server/partnerErrors.mjs";
 import { createPartnerStore } from "../server/partnerStore.mjs";
 
 const PARTNER_PATHS = [
@@ -193,6 +194,45 @@ async function waitForServer(child, url, stderr) {
     }
   }
   throw new Error(`server did not listen in time: ${stderr()}`);
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function nextTurn() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+function createRateLimitApi({ getAdminReport, now = () => new Date() }) {
+  const store = {
+    getAdminReport,
+    async rotateInvite({ adminToken }) {
+      if (adminToken !== "valid-admin") {
+        throw new PartnerStoreError("INVALID_ADMIN", "private detail");
+      }
+      return { partnerId: "pilot", inviteToken: "a".repeat(43) };
+    },
+  };
+  return createPartnerApi({
+    store,
+    verifyIdToken: async () => {
+      throw new Error("not used");
+    },
+    now,
+  });
+}
+
+function directAdminReport(api, ip, adminToken) {
+  return directRequest(api, {
+    pathname: "/api/partner/admin/report",
+    body: { adminToken },
+    remoteAddress: ip,
+  });
 }
 
 test("owns exactly the eight partner routes and rejects non-POST methods", async (t) => {
@@ -487,6 +527,187 @@ test("limits 30 successful reports per token and IP without limiting invite rota
     body: { adminToken: created.adminToken },
   });
   assert.equal(nextWindow.response.status, 200);
+});
+
+test("atomically admits only 30 concurrent successful reports per token and IP", async () => {
+  const gate = deferred();
+  let storeCalls = 0;
+  const api = createRateLimitApi({
+    async getAdminReport({ adminToken }) {
+      assert.equal(adminToken, "valid-admin");
+      storeCalls += 1;
+      await gate.promise;
+      return { partnerId: "pilot" };
+    },
+  });
+  const requests = Array.from({ length: 31 }, () =>
+    directAdminReport(api, "198.51.100.80", "valid-admin"),
+  );
+  await nextTurn();
+  gate.resolve();
+
+  const results = await Promise.all(requests);
+  assert.equal(results.filter(({ statusCode }) => statusCode === 200).length, 30);
+  assert.equal(results.filter(({ statusCode }) => statusCode === 429).length, 1);
+  assert.equal(storeCalls, 30);
+});
+
+test("atomically applies invalid-admin cooldown to concurrent attempts from one IP", async () => {
+  const gate = deferred();
+  let storeCalls = 0;
+  const api = createRateLimitApi({
+    async getAdminReport() {
+      storeCalls += 1;
+      await gate.promise;
+      throw new PartnerStoreError("INVALID_ADMIN", "private detail");
+    },
+  });
+  const requests = Array.from({ length: 11 }, () =>
+    directAdminReport(api, "198.51.100.81", "invalid-admin"),
+  );
+  await nextTurn();
+  gate.resolve();
+
+  const results = await Promise.all(requests);
+  assert.equal(results.filter(({ statusCode }) => statusCode === 401).length, 10);
+  assert.equal(results.filter(({ statusCode }) => statusCode === 429).length, 1);
+  assert.equal(storeCalls, 10);
+});
+
+test("failed report operations roll back admission because only successes count", async () => {
+  let failuresRemaining = 5;
+  let successes = 0;
+  const api = createRateLimitApi({
+    async getAdminReport({ adminToken }) {
+      assert.equal(adminToken, "valid-admin");
+      if (failuresRemaining > 0) {
+        failuresRemaining -= 1;
+        throw new PartnerStoreError("STORE_CORRUPT", "private detail");
+      }
+      successes += 1;
+      return { partnerId: "pilot" };
+    },
+  });
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const failed = await directAdminReport(
+      api,
+      "198.51.100.82",
+      "valid-admin",
+    );
+    assert.equal(failed.statusCode, 503);
+  }
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    const successful = await directAdminReport(
+      api,
+      "198.51.100.82",
+      "valid-admin",
+    );
+    assert.equal(successful.statusCode, 200);
+  }
+  const limited = await directAdminReport(
+    api,
+    "198.51.100.82",
+    "valid-admin",
+  );
+  assert.equal(limited.statusCode, 429);
+  assert.equal(successes, 30);
+});
+
+test("bounds attacker-created limiter keys without evicting an active cooldown", async () => {
+  const api = createRateLimitApi({
+    async getAdminReport({ adminToken }) {
+      if (adminToken !== "valid-admin") {
+        throw new PartnerStoreError("INVALID_ADMIN", "private detail");
+      }
+      return { partnerId: "pilot" };
+    },
+  });
+  const oldestIp = "10.0.0.1";
+  const protectedIp = "10.0.0.2";
+  assert.equal(
+    (await directAdminReport(api, oldestIp, "invalid-admin")).statusCode,
+    401,
+  );
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    assert.equal(
+      (await directAdminReport(api, protectedIp, "invalid-admin")).statusCode,
+      401,
+    );
+  }
+
+  for (let index = 0; index < 1_024; index += 1) {
+    const third = Math.floor(index / 256);
+    const fourth = index % 256;
+    const attackerIp = `172.16.${third}.${fourth}`;
+    assert.equal(
+      (await directAdminReport(api, attackerIp, "invalid-admin")).statusCode,
+      401,
+    );
+  }
+
+  const stillBlocked = await directAdminReport(
+    api,
+    protectedIp,
+    "valid-admin",
+  );
+  assert.equal(stillBlocked.statusCode, 429);
+
+  for (let attempt = 1; attempt <= 9; attempt += 1) {
+    assert.equal(
+      (await directAdminReport(api, oldestIp, "invalid-admin")).statusCode,
+      401,
+    );
+  }
+  const evictedHistory = await directAdminReport(api, oldestIp, "valid-admin");
+  assert.equal(evictedHistory.statusCode, 200);
+});
+
+test("bounds report limiter keys without evicting an active report limit", async () => {
+  const api = createRateLimitApi({
+    async getAdminReport() {
+      return { partnerId: "pilot" };
+    },
+  });
+  const oldestIp = "10.1.0.1";
+  const protectedIp = "10.1.0.2";
+  await directAdminReport(api, oldestIp, "oldest-admin");
+  for (let request = 1; request <= 30; request += 1) {
+    assert.equal(
+      (await directAdminReport(api, protectedIp, "protected-admin")).statusCode,
+      200,
+    );
+  }
+
+  for (let index = 0; index < 1_024; index += 1) {
+    const third = Math.floor(index / 256);
+    const fourth = index % 256;
+    const attackerIp = `172.20.${third}.${fourth}`;
+    assert.equal(
+      (await directAdminReport(api, attackerIp, `attacker-admin-${index}`))
+        .statusCode,
+      200,
+    );
+  }
+
+  const protectedLimit = await directAdminReport(
+    api,
+    protectedIp,
+    "protected-admin",
+  );
+  assert.equal(protectedLimit.statusCode, 429);
+
+  for (let request = 1; request <= 29; request += 1) {
+    assert.equal(
+      (await directAdminReport(api, oldestIp, "oldest-admin")).statusCode,
+      200,
+    );
+  }
+  const evictedHistory = await directAdminReport(
+    api,
+    oldestIp,
+    "oldest-admin",
+  );
+  assert.equal(evictedHistory.statusCode, 200);
 });
 
 test("ignores spoofed forwarded addresses from non-loopback direct clients", async (t) => {

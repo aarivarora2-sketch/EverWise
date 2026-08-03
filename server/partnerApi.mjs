@@ -8,6 +8,7 @@ const INVALID_ADMIN_LIMIT = 10;
 const INVALID_ADMIN_COOLDOWN_MS = 10 * 60 * 1000;
 const REPORT_WINDOW_MS = 60 * 1000;
 const REPORT_LIMIT = 30;
+const MAXIMUM_RATE_LIMIT_KEYS = 1_024;
 
 const ROUTES = new Map([
   ["/api/partner/preview", "preview"],
@@ -259,20 +260,97 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
   }
   const invalidAdminByIp = new Map();
   const successfulReports = new Map();
+  const adminQueues = new Map();
+
+  function pruneExpiredRateLimits(timestamp) {
+    for (const [ip, state] of invalidAdminByIp) {
+      if (state.blockedUntil > timestamp) continue;
+      if (state.blockedUntil !== 0) {
+        invalidAdminByIp.delete(ip);
+        continue;
+      }
+      state.timestamps = pruneTimestamps(
+        state.timestamps,
+        timestamp - INVALID_ADMIN_WINDOW_MS,
+      );
+      if (state.timestamps.length === 0) invalidAdminByIp.delete(ip);
+    }
+    for (const [key, state] of successfulReports) {
+      state.timestamps = pruneTimestamps(
+        state.timestamps,
+        timestamp - REPORT_WINDOW_MS,
+      );
+      if (state.timestamps.length === 0) successfulReports.delete(key);
+    }
+  }
+
+  function invalidEvictionKey(timestamp) {
+    let selectedKey = null;
+    let selectedState = null;
+    for (const [key, state] of invalidAdminByIp) {
+      const selectedIsBlocked = selectedState?.blockedUntil > timestamp;
+      const stateIsBlocked = state.blockedUntil > timestamp;
+      if (
+        selectedState === null ||
+        (selectedIsBlocked && !stateIsBlocked) ||
+        (selectedIsBlocked === stateIsBlocked &&
+          (state.timestamps.length < selectedState.timestamps.length ||
+            (state.timestamps.length === selectedState.timestamps.length &&
+              state.lastSeen < selectedState.lastSeen)))
+      ) {
+        selectedKey = key;
+        selectedState = state;
+      }
+    }
+    return selectedKey;
+  }
+
+  function reportEvictionKey() {
+    let selectedKey = null;
+    let selectedState = null;
+    for (const [key, state] of successfulReports) {
+      if (
+        selectedState === null ||
+        state.timestamps.length < selectedState.timestamps.length ||
+        (state.timestamps.length === selectedState.timestamps.length &&
+          state.lastSeen < selectedState.lastSeen)
+      ) {
+        selectedKey = key;
+        selectedState = state;
+      }
+    }
+    return selectedKey;
+  }
+
+  function enforceRateLimitBounds(timestamp) {
+    while (invalidAdminByIp.size > MAXIMUM_RATE_LIMIT_KEYS) {
+      invalidAdminByIp.delete(invalidEvictionKey(timestamp));
+    }
+    while (successfulReports.size > MAXIMUM_RATE_LIMIT_KEYS) {
+      successfulReports.delete(reportEvictionKey());
+    }
+  }
+
+  async function serializeAdmin(ip, operation) {
+    const previous = adminQueues.get(ip) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
+    adminQueues.set(ip, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (adminQueues.get(ip) === current) adminQueues.delete(ip);
+    }
+  }
 
   function adminIsBlocked(ip, timestamp) {
     const state = invalidAdminByIp.get(ip);
     if (!state) return false;
     if (state.blockedUntil > timestamp) return true;
-    if (state.blockedUntil !== 0) {
-      invalidAdminByIp.delete(ip);
-      return false;
-    }
-    state.timestamps = pruneTimestamps(
-      state.timestamps,
-      timestamp - INVALID_ADMIN_WINDOW_MS,
-    );
-    if (state.timestamps.length === 0) invalidAdminByIp.delete(ip);
     return false;
   }
 
@@ -280,49 +358,59 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
     const state = invalidAdminByIp.get(ip) || {
       timestamps: [],
       blockedUntil: 0,
+      lastSeen: timestamp,
     };
     state.timestamps = pruneTimestamps(
       state.timestamps,
       timestamp - INVALID_ADMIN_WINDOW_MS,
     );
     state.timestamps.push(timestamp);
+    state.lastSeen = timestamp;
     if (state.timestamps.length >= INVALID_ADMIN_LIMIT) {
       state.timestamps = [];
       state.blockedUntil = timestamp + INVALID_ADMIN_COOLDOWN_MS;
     }
     invalidAdminByIp.set(ip, state);
+    enforceRateLimitBounds(timestamp);
   }
 
-  function reportIsLimited(key, timestamp) {
-    const timestamps = pruneTimestamps(
-      successfulReports.get(key) || [],
-      timestamp - REPORT_WINDOW_MS,
-    );
-    if (timestamps.length === 0) successfulReports.delete(key);
-    else successfulReports.set(key, timestamps);
-    return timestamps.length >= REPORT_LIMIT;
+  function reportIsLimited(key) {
+    const state = successfulReports.get(key);
+    return Boolean(state && state.timestamps.length >= REPORT_LIMIT);
   }
 
   function recordSuccessfulReport(key, timestamp) {
-    const timestamps = successfulReports.get(key) || [];
-    timestamps.push(timestamp);
-    successfulReports.set(key, timestamps);
+    const state = successfulReports.get(key) || {
+      timestamps: [],
+      lastSeen: timestamp,
+    };
+    state.timestamps.push(timestamp);
+    state.lastSeen = timestamp;
+    successfulReports.set(key, state);
+    enforceRateLimitBounds(timestamp);
   }
 
   async function runAdmin(request, body, operation) {
     const ip = clientIp(request);
-    const timestamp = currentMilliseconds(now);
-    if (adminIsBlocked(ip, timestamp)) {
-      throw apiError(429, "RATE_LIMITED", "Too many requests. Try again later.");
-    }
-    try {
-      return await operation(body.adminToken, ip, timestamp);
-    } catch (error) {
-      if (error instanceof PartnerStoreError && error.code === "INVALID_ADMIN") {
-        recordInvalidAdmin(ip, timestamp);
+    return serializeAdmin(ip, async () => {
+      const timestamp = currentMilliseconds(now);
+      pruneExpiredRateLimits(timestamp);
+      if (adminIsBlocked(ip, timestamp)) {
+        throw apiError(
+          429,
+          "RATE_LIMITED",
+          "Too many requests. Try again later.",
+        );
       }
-      throw error;
-    }
+      try {
+        return await operation(body.adminToken, ip, timestamp);
+      } catch (error) {
+        if (error instanceof PartnerStoreError && error.code === "INVALID_ADMIN") {
+          recordInvalidAdmin(ip, timestamp);
+        }
+        throw error;
+      }
+    });
   }
 
   return {
@@ -404,7 +492,7 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
               body,
               async (adminToken, ip, timestamp) => {
                 const key = tokenRateKey(adminToken, ip);
-                if (reportIsLimited(key, timestamp)) {
+                if (reportIsLimited(key)) {
                   throw apiError(
                     429,
                     "RATE_LIMITED",
