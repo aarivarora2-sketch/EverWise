@@ -235,6 +235,11 @@
     flex-wrap: wrap;
   }
 
+  .app-navigation-brand-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .app-navigation-partner-lockup {
     display: flex;
     min-width: 0;
@@ -620,14 +625,23 @@
     gap: 0.65rem;
   }
 
-  .app-navigation-brand > span {
-    display: none;
+  .app-navigation-brand {
+    display: grid;
+    width: 100%;
+    max-width: 11rem;
+    flex: 0 1 11rem;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0.2rem 0.6rem;
+  }
+
+  .app-navigation-brand-name {
+    align-self: center;
   }
 
   .app-navigation-partner-lockup {
-    max-width: 9rem;
-    flex: 0 1 9rem;
-    flex-basis: auto;
+    width: 100%;
+    max-width: 100%;
+    grid-column: 1 / -1;
     padding-left: 0;
   }
 

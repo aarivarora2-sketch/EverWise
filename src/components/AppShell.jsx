@@ -55,7 +55,7 @@ export default function AppShell({
                 aria-hidden="true"
                 className="app-navigation-logo"
               />
-              <span>Everwise</span>
+              <strong className="app-navigation-brand-name">Everwise</strong>
               {partnerName ? (
                 <div className="app-navigation-partner-lockup">
                   <PartnerLogo

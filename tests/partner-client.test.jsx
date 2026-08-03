@@ -1,6 +1,8 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import postcss from "postcss";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 await vi.hoisted(async () => {
@@ -17,6 +19,8 @@ import ProfileInterview from "../src/screens/ProfileInterview.jsx";
 import PartnerAccessErrorScreen from "../src/screens/PartnerAccessError.jsx";
 import Settings from "../src/screens/Settings.jsx";
 import { PartnerAccessError } from "../src/services/partnerAccess.js";
+
+const appStyles = readFileSync("src/index.css", "utf8");
 
 const TOKEN = "a".repeat(43);
 const scheduleTimeout = window.setTimeout.bind(window);
@@ -214,6 +218,40 @@ function deferred() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function mediaMatchesWidth(conditionText, width) {
+  const minimum = conditionText.match(/min-width:\s*(\d+)px/);
+  const maximum = conditionText.match(/max-width:\s*(\d+)px/);
+  return (
+    (!minimum || width >= Number(minimum[1])) &&
+    (!maximum || width <= Number(maximum[1]))
+  );
+}
+
+function installStylesForWidth(width) {
+  const activeRules = [];
+  function collectRules(nodes) {
+    for (const node of nodes) {
+      if (node.type === "rule") {
+        activeRules.push(node.toString());
+      } else if (
+        node.type === "atrule" &&
+        node.name === "media" &&
+        mediaMatchesWidth(node.params, width)
+      ) {
+        collectRules(node.nodes || []);
+      } else if (node.type === "atrule" && node.name !== "media") {
+        collectRules(node.nodes || []);
+      }
+    }
+  }
+  collectRules(postcss.parse(appStyles).nodes);
+
+  const active = document.createElement("style");
+  active.textContent = activeRules.join("\n");
+  document.head.append(active);
+  return () => active.remove();
 }
 
 function partnerReport({
@@ -469,6 +507,46 @@ describe("aggregate partner dashboard", () => {
     expect(
       screen.getByRole("img", { name: "Community Partner logo" }),
     ).toHaveAttribute("src", "/partners/community-partner.svg");
+  });
+
+  test("keeps Everwise visible and semantically primary before partner attribution at iPad width", () => {
+    const previousTextSize = document.documentElement.getAttribute("data-text-size");
+    document.documentElement.setAttribute("data-text-size", "size-10");
+    const removeViewportStyles = installStylesForWidth(800);
+
+    try {
+      render(
+        <AppShell screen="settings" isAuthenticated partner={BRANDED_PARTNER}>
+          <p>Learning</p>
+        </AppShell>,
+      );
+
+      const navigation = screen.getByRole("navigation", {
+        name: "Primary navigation",
+      });
+      const everwise = within(navigation).getByText("Everwise", { exact: true });
+      const attribution = within(navigation).getByText(
+        "Access provided by Community Partner",
+      );
+
+      expect(getComputedStyle(navigation).flexDirection).toBe("column");
+      expect(everwise).toBeVisible();
+      expect(everwise.tagName).toBe("STRONG");
+      expect(attribution.tagName).toBe("SMALL");
+      expect(
+        everwise.compareDocumentPosition(attribution) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
+      expect(
+        within(navigation).getByRole("img", { name: "Community Partner logo" }),
+      ).toBeVisible();
+    } finally {
+      removeViewportStyles();
+      if (previousTextSize === null) {
+        document.documentElement.removeAttribute("data-text-size");
+      } else {
+        document.documentElement.setAttribute("data-text-size", previousTextSize);
+      }
+    }
   });
 
   test("never renders or leaks an external partner logo URL", async () => {
