@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, HelpCircle } from "lucide-react";
 import Field from "../components/Field";
 import ReadAloud from "../components/ReadAloud";
 import { authErrorMessage } from "../utils/authErrors";
+import { buildResearchSnapshot } from "../utils/partnerResearch.js";
 import { isValidEmail, normalizeEmail } from "../utils/validation";
 
-const STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
-const TOTAL_STEPS = STEP_IDS.length;
+const PUBLIC_STEP_IDS = [1, 2, 3, 4, 5, 7, 11, 12];
+const SPONSORED_STEP_IDS = [1, 2, 3, 4, 5, 7, 11, "consent", 12];
 
 const options = {
   internetUse: [
@@ -73,6 +74,7 @@ const prompts = {
   5: "Your bank card is locked. Open this link immediately. What would you do?",
   7: "Have you used artificial intelligence, such as ChatGPT or a voice assistant?",
   11: "Tell us what could make the app more comfortable, and whether you may want help from a trusted person.",
+  consent: "Would you like to share a de-identified copy to help improve EverWise?",
   12: "Create a secure account so your personal plan and lesson progress are saved.",
 };
 
@@ -141,8 +143,15 @@ function HelpfulNote({ children }) {
   );
 }
 
-export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
+export default function ProfileInterview({
+  partner = null,
+  onComplete,
+  onBack,
+  onLogIn,
+}) {
   const contentRef = useRef(null);
+  const stepIds = partner ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
+  const totalSteps = stepIds.length;
   const [stepIndex, setStepIndex] = useState(0);
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
@@ -155,6 +164,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const [aiExperience, setAiExperience] = useState("");
   const [accessibilityNeeds, setAccessibilityNeeds] = useState([]);
   const [trustedContact, setTrustedContact] = useState("");
+  const [researchConsent, setResearchConsent] = useState(null);
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
@@ -162,10 +172,10 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const step = STEP_IDS[stepIndex];
+  const step = stepIds[stepIndex];
   const progress = useMemo(
-    () => ((stepIndex + 1) / TOTAL_STEPS) * 100,
-    [stepIndex],
+    () => ((stepIndex + 1) / totalSteps) * 100,
+    [stepIndex, totalSteps],
   );
 
   useEffect(() => {
@@ -209,6 +219,9 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
     if (step === 11 && !trustedContact) {
       return "Please choose whether you may want trusted-person help.";
     }
+    if (step === "consent" && researchConsent === null) {
+      return "Please choose Yes or No before continuing.";
+    }
     if (step === 12) {
       setEmailTouched(true);
       if (!email.trim()) return "Please enter your email.";
@@ -230,7 +243,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
     }
     setError("");
 
-    if (stepIndex < TOTAL_STEPS - 1) {
+    if (stepIndex < totalSteps - 1) {
       setStepIndex((current) => current + 1);
       setShowHelp(false);
       return;
@@ -238,7 +251,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
 
     setBusy(true);
     try {
-      await onComplete({
+      const interview = {
         name: name.trim(),
         age: Number(age),
         email: normalizeEmail(email),
@@ -252,7 +265,15 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
         aiExperience,
         accessibilityNeeds,
         trustedContact,
-      });
+      };
+      if (partner) {
+        interview.researchConsent = researchConsent;
+        interview.researchSnapshot = buildResearchSnapshot(interview, {
+          consent: researchConsent,
+          consentedAt: new Date().toISOString(),
+        });
+      }
+      await onComplete(interview);
     } catch (err) {
       setError(authErrorMessage(err));
       setBusy(false);
@@ -262,7 +283,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   const skip = () => {
     setError("");
     setShowHelp(false);
-    if (stepIndex < TOTAL_STEPS - 1) {
+    if (stepIndex < totalSteps - 1) {
       setStepIndex((current) => current + 1);
     }
   };
@@ -275,6 +296,10 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
   };
 
   const question = prompts[step];
+  const canSkip =
+    stepIndex > 0 &&
+    stepIndex < totalSteps - 1 &&
+    step !== "consent";
 
   return (
     <div className="onboarding-focus interview-focus flex min-h-0 flex-1 flex-col bg-cream">
@@ -291,9 +316,9 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
             <ChevronLeft className="h-8 w-8" strokeWidth={2.5} />
           </button>
           <p className="text-center text-base font-bold text-ink-soft">
-            {stepIndex + 1} of {TOTAL_STEPS}
+            {stepIndex + 1} of {totalSteps}
           </p>
-          {stepIndex > 0 && stepIndex < TOTAL_STEPS - 1 ? (
+          {canSkip ? (
             <button
               type="button"
               onClick={skip}
@@ -310,7 +335,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           role="progressbar"
           aria-label="Personal plan progress"
           aria-valuemin="1"
-          aria-valuemax={TOTAL_STEPS}
+          aria-valuemax={totalSteps}
           aria-valuenow={stepIndex + 1}
         >
           <div
@@ -329,6 +354,8 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
             <h1 className="page-title">
               {step === 1
                 ? "Let’s make Everwise fit you"
+                : step === "consent"
+                  ? "Your choice about research"
                 : step === 12
                   ? "Save your personal plan"
                   : question.split("?")[0] + (question.includes("?") ? "?" : "")}
@@ -348,7 +375,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           </div>
         </div>
 
-        {step < 12 ? (
+        {step !== 12 ? (
           <div className="mt-4">
             <ReadAloud text={question} label="Read this question" />
           </div>
@@ -500,6 +527,42 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           </div>
         ) : null}
 
+        {step === "consent" ? (
+          <div className="mt-5 animate-fade-up">
+            <div className="rounded-2xl bg-cream-card px-5 py-4 text-lg leading-relaxed text-ink shadow-card">
+              <p className="font-bold">Your personal plan</p>
+              <p className="mt-1">
+                We save your answers to create your personal plan and remember
+                your accessibility preferences.
+              </p>
+            </div>
+            <fieldset className="mt-6">
+              <legend className="text-xl font-bold leading-snug text-ink">
+                Optional research choice
+              </legend>
+              <p className="mt-3 text-lg leading-relaxed text-ink-soft">
+                Your answers are not sold. {partner.name} receives group totals
+                only, never your individual answers. Saying no does not affect
+                your free access.
+              </p>
+              <Choices
+                values={[
+                  {
+                    value: true,
+                    label: "Yes, share a de-identified copy to improve EverWise",
+                  },
+                  {
+                    value: false,
+                    label: "No, use my answers only for my personal plan",
+                  },
+                ]}
+                selected={researchConsent}
+                onSelect={setResearchConsent}
+              />
+            </fieldset>
+          </div>
+        ) : null}
+
         {step === 12 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
               <Field
@@ -550,7 +613,7 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           </div>
         ) : null}
 
-        {stepIndex > 0 && stepIndex < TOTAL_STEPS - 1 ? (
+        {canSkip ? (
           <button
             type="button"
             onClick={() => setShowHelp((current) => !current)}
@@ -590,8 +653,10 @@ export default function ProfileInterview({ onComplete, onBack, onLogIn }) {
           disabled={busy}
         >
           {busy
-            ? "Saving your answers…"
-            : stepIndex === TOTAL_STEPS - 1
+            ? partner
+              ? "Claiming your free access…"
+              : "Saving your answers…"
+            : stepIndex === totalSteps - 1
               ? "Build my plan"
               : stepIndex === 0
                 ? "Start"

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
@@ -29,9 +29,14 @@ import {
   requiredCourseIds,
 } from "./utils/courseProgress.js";
 import {
-  hasFullAccess,
   isTrialExpired,
 } from "./utils/subscription";
+import { resolveFullAccess } from "./utils/access.js";
+import { consumePartnerFragment } from "./utils/partnerLinks.js";
+import {
+  claimPartnerSeat,
+  previewInvite,
+} from "./services/partnerAccess.js";
 import AppShell from "./components/AppShell";
 import Badges from "./screens/Badges";
 import Landing from "./screens/Landing";
@@ -48,6 +53,7 @@ import ChallengePlayer from "./screens/ChallengePlayer";
 import ExamPlayer from "./screens/ExamPlayer";
 import Complete from "./screens/Complete";
 import ScamChecker from "./screens/ScamChecker";
+import PartnerAccessError from "./screens/PartnerAccessError";
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
 import {
   getCurrentEntitlement,
@@ -65,7 +71,7 @@ const requiredLearningIds = requiredCourseIds(
   examsByOrder,
 );
 const subscriptionBypassEnabled =
-  import.meta.env.VITE_BYPASS_SUBSCRIPTION === "true";
+  import.meta.env.DEV && import.meta.env.VITE_BYPASS_SUBSCRIPTION === "true";
 const TEXT_SIZE_OPTIONS = new Set(
   Array.from({ length: 10 }, (_, index) => `size-${index + 1}`),
 );
@@ -83,6 +89,31 @@ function getSavedTextSize() {
   } catch {
     return "size-2";
   }
+}
+
+function capturePartnerFragment() {
+  const hash = window.location.hash;
+  const isLearnerFragment =
+    hash === "#partner" ||
+    hash.startsWith("#partner=") ||
+    hash.startsWith("#partner&");
+  const fragment = consumePartnerFragment({ hash });
+  if (fragment) return fragment;
+  return isLearnerFragment ? { kind: "learner-invalid", token: null } : null;
+}
+
+function statusForPartnerError(error) {
+  if (error?.code === "INVALID_INVITE") return "invalid";
+  if (error?.code === "PARTNER_FULL") return "full";
+  if (error?.code === "PARTNER_SUSPENDED") return "suspended";
+  return "unavailable";
+}
+
+function codeForPartnerStatus(status) {
+  if (status === "invalid") return "INVALID_INVITE";
+  if (status === "full") return "PARTNER_FULL";
+  if (status === "suspended") return "PARTNER_SUSPENDED";
+  return "PARTNER_UNAVAILABLE";
 }
 
 /** Ensure subscription fields exist and expire trials past 7 days. */
@@ -114,6 +145,15 @@ async function normalizeSubscription(uid, data) {
 }
 
 export default function App() {
+  const [partnerFragment, setPartnerFragment] = useState(capturePartnerFragment);
+  const [partnerStatus, setPartnerStatus] = useState(() => {
+    if (partnerFragment?.kind === "learner") return "previewing";
+    if (partnerFragment?.kind === "learner-invalid") return "invalid";
+    return "idle";
+  });
+  const [partner, setPartner] = useState(null);
+  const [partnerPreviewAttempt, setPartnerPreviewAttempt] = useState(0);
+  const [pendingSponsoredInterview, setPendingSponsoredInterview] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [launchAnimationDone, setLaunchAnimationDone] = useState(false);
   const [user, setUser] = useState(null);
@@ -127,6 +167,38 @@ export default function App() {
   const [storeProducts, setStoreProducts] = useState([]);
   // After signup we route to the intro paywall; don't let auth state overwrite it.
   const skipAuthHomeRef = useRef(false);
+  const preservePartnerErrorRef = useRef(false);
+
+  useEffect(() => {
+    if (partnerFragment?.kind !== "learner" || !partnerFragment.token) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setPartnerStatus("previewing");
+    previewInvite({ inviteToken: partnerFragment.token })
+      .then((preview) => {
+        if (cancelled) return;
+        const branding = preview.branding || { name: preview.name };
+        setPartner(branding);
+        if (preview.seatAvailable) {
+          setPartnerStatus("ready");
+        } else {
+          setPartnerStatus("full");
+          setPartnerFragment(null);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const nextStatus = statusForPartnerError(error);
+        setPartnerStatus(nextStatus);
+        if (nextStatus !== "unavailable") setPartnerFragment(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [partnerFragment, partnerPreviewAttempt]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setLaunchAnimationDone(true), 3000);
@@ -225,15 +297,15 @@ export default function App() {
       window.clearTimeout(startupFallback);
       console.log(
         "[Everwise][auth] state changed:",
-        u ? `logged in (uid: ${u.uid})` : "no user logged in"
+        u ? "logged in" : "no user logged in"
       );
       setUser(u);
       if (u) {
         try {
-          console.log("[Everwise][firestore] getDoc users/", u.uid);
+          console.log("[Everwise][firestore] Loading learner profile.");
           const snap = await getDoc(doc(db, "users", u.uid));
           if (snap.exists()) {
-            console.log("[Everwise][firestore] profile loaded:", snap.data());
+            console.log("[Everwise][firestore] Learner profile loaded.");
             const normalized = await normalizeSubscription(u.uid, snap.data());
             setProfile(normalized);
             if (skipAuthHomeRef.current) {
@@ -252,7 +324,7 @@ export default function App() {
         }
       } else {
         setProfile(null);
-        setScreen("landing");
+        if (!preservePartnerErrorRef.current) setScreen("landing");
       }
       setAuthChecked(true);
     });
@@ -266,8 +338,11 @@ export default function App() {
   const completedLessons = profile?.completedLessons ?? [];
   const allDone = isCourseComplete(completedLessons, requiredLearningIds);
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
-  const access =
-    subscriptionBypassEnabled || hasFullAccess(subscriptionStatus);
+  const access = resolveFullAccess({
+    sponsoredStatus: partnerStatus,
+    subscriptionStatus,
+    developmentBypass: subscriptionBypassEnabled,
+  });
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -281,6 +356,10 @@ export default function App() {
     setScreen("path");
   };
   const goPaywall = () => {
+    if (partnerStatus === "active") {
+      goHome();
+      return;
+    }
     setPaywallVariant("subscribe");
     setScreen("paywall");
   };
@@ -303,14 +382,67 @@ export default function App() {
     }
   };
 
+  const cleanUpFailedSponsoredSignup = async (newUser) => {
+    try {
+      await deleteUser(newUser);
+    } catch (error) {
+      console.error("[Everwise][auth] New account cleanup failed:", error);
+    }
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("[Everwise][auth] Sign out after cleanup failed:", error);
+    }
+  };
+
   const signUp = async (interview) => {
-    const { name, email, password, ...profileInterview } = interview;
+    const {
+      name,
+      email,
+      password,
+      researchConsent,
+      researchSnapshot,
+      ...profileInterview
+    } = interview;
+    const sponsoredSignup =
+      partnerFragment?.kind === "learner" &&
+      Boolean(partnerFragment.token) &&
+      Boolean(partner);
+    let sponsoredAccountCreated = false;
     try {
       // Prevent onAuthStateChanged from jumping to Home before the plan reveal.
       skipAuthHomeRef.current = true;
-      console.log("[Everwise][auth] createUserWithEmailAndPassword:", email);
+      if (sponsoredSignup) setPartnerStatus("claiming");
+      console.log("[Everwise][auth] Creating learner account.");
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-      console.log("[Everwise][auth] account created, uid:", cred.user.uid);
+      sponsoredAccountCreated = sponsoredSignup;
+      console.log("[Everwise][auth] Learner account created.");
+
+      let sponsoredEntitlement = null;
+      if (sponsoredSignup) {
+        try {
+          const idToken = await cred.user.getIdToken(true);
+          sponsoredEntitlement = await claimPartnerSeat({
+            idToken,
+            inviteToken: partnerFragment.token,
+            researchConsent,
+            researchSnapshot,
+          });
+        } catch (claimError) {
+          const nextStatus = statusForPartnerError(claimError);
+          preservePartnerErrorRef.current = true;
+          setPendingSponsoredInterview(
+            nextStatus === "unavailable" ? interview : null,
+          );
+          await cleanUpFailedSponsoredSignup(cred.user);
+          setUser(null);
+          setProfile(null);
+          setPartnerStatus(nextStatus);
+          setScreen("partner-error");
+          if (nextStatus !== "unavailable") setPartnerFragment(null);
+          throw claimError;
+        }
+      }
 
       const initial = {
         name,
@@ -323,32 +455,59 @@ export default function App() {
         trialStartedAt: null,
         subscriptionStatus: "expired",
         plan: null,
+        ...(sponsoredEntitlement?.status === "active"
+          ? {
+              accessSource: "partner",
+              partnerId: sponsoredEntitlement.partnerId,
+            }
+          : {}),
       };
-      console.log("[Everwise][firestore] setDoc users/", cred.user.uid, initial);
+      console.log("[Everwise][firestore] Saving learner profile.");
       await setDoc(doc(db, "users", cred.user.uid), initial);
       console.log("[Everwise][firestore] profile document created.");
 
       setUser(cred.user);
       setProfile(initial);
-      setPaywallVariant("subscribe");
+      if (sponsoredEntitlement?.status === "active") {
+        setPartnerStatus("active");
+        setPartner(sponsoredEntitlement.branding || {
+          name: sponsoredEntitlement.name,
+        });
+        setPartnerFragment(null);
+        setPendingSponsoredInterview(null);
+        preservePartnerErrorRef.current = false;
+      } else {
+        setPaywallVariant("subscribe");
+      }
       setScreen("personal-plan");
     } catch (err) {
       skipAuthHomeRef.current = false;
+      if (sponsoredSignup && !sponsoredAccountCreated) {
+        setPartnerStatus("ready");
+      }
       console.error("[Everwise][auth] Sign up failed:", err.code, err.message);
       throw err;
     }
   };
 
+  const retryPartnerAccess = () => {
+    if (pendingSponsoredInterview) {
+      void signUp(pendingSponsoredInterview).catch(() => {});
+      return;
+    }
+    setPartnerPreviewAttempt((current) => current + 1);
+  };
+
   const logIn = async (email, password) => {
     try {
-      console.log("[Everwise][auth] signInWithEmailAndPassword:", email);
+      console.log("[Everwise][auth] Signing in learner account.");
       const cred = await signInWithEmailAndPassword(auth, email, password);
-      console.log("[Everwise][auth] signed in, uid:", cred.user.uid);
+      console.log("[Everwise][auth] Learner account signed in.");
 
-      console.log("[Everwise][firestore] getDoc users/", cred.user.uid);
+      console.log("[Everwise][firestore] Loading learner profile.");
       const snap = await getDoc(doc(db, "users", cred.user.uid));
       if (snap.exists()) {
-        console.log("[Everwise][firestore] profile loaded:", snap.data());
+        console.log("[Everwise][firestore] Learner profile loaded.");
         const normalized = await normalizeSubscription(
           cred.user.uid,
           snap.data()
@@ -577,10 +736,26 @@ export default function App() {
     goPath();
   };
 
-  if (!authChecked || !launchAnimationDone) {
+  if (
+    !authChecked ||
+    !launchAnimationDone ||
+    partnerStatus === "previewing"
+  ) {
     return (
       <AppShell screen="loading">
         <Loading />
+      </AppShell>
+    );
+  }
+
+  if (["invalid", "full", "suspended", "unavailable"].includes(partnerStatus)) {
+    return (
+      <AppShell screen="partner-error">
+        <PartnerAccessError
+          code={codeForPartnerStatus(partnerStatus)}
+          partnerName={partner?.name}
+          onRetry={retryPartnerAccess}
+        />
       </AppShell>
     );
   }
@@ -590,6 +765,7 @@ export default function App() {
     case "landing":
       content = (
         <Landing
+          partner={partnerStatus === "ready" ? partner : null}
           onGetStarted={() => setScreen("interview")}
           onLogIn={() => setScreen("login")}
         />
@@ -598,6 +774,11 @@ export default function App() {
     case "interview":
       content = (
         <ProfileInterview
+          partner={
+            partnerStatus === "ready" || partnerStatus === "claiming"
+              ? partner
+              : null
+          }
           onComplete={signUp}
           onBack={() => setScreen("landing")}
           onLogIn={() => setScreen("login")}
@@ -674,9 +855,13 @@ export default function App() {
       content = (
         <PersonalPlan
           profile={profile}
+          sponsored={partnerStatus === "active"}
           onContinue={() => {
-            setPaywallVariant("subscribe");
-            setScreen("paywall");
+            if (partnerStatus === "active") goHome();
+            else {
+              setPaywallVariant("subscribe");
+              setScreen("paywall");
+            }
           }}
         />
       );
