@@ -12,6 +12,7 @@ dist
 dist-ssr
 .derived-data
 .superpowers/
+.worktrees/
 *.local
 
 # Editor directories and files
