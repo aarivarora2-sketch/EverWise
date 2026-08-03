@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { PartnerStoreError } from "./partnerErrors.mjs";
+import { FIREBASE_CERTIFICATES_UNAVAILABLE_CODE } from "./firebaseTokenVerifier.mjs";
 
 const MAXIMUM_BODY_BYTES = 25_000;
 const INVALID_ADMIN_WINDOW_MS = 10 * 60 * 1000;
@@ -200,7 +201,14 @@ async function verifiedLearner(request, verifyIdToken) {
       throw new Error("invalid verifier result");
     }
     return learner;
-  } catch {
+  } catch (error) {
+    if (error?.code === FIREBASE_CERTIFICATES_UNAVAILABLE_CODE) {
+      throw apiError(
+        503,
+        "PARTNER_UNAVAILABLE",
+        "Sponsored access is temporarily unavailable.",
+      );
+    }
     throw apiError(401, "UNAUTHENTICATED", "Authentication is required.");
   }
 }

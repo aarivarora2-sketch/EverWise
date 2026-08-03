@@ -99,8 +99,6 @@ const DEFINITIVE_PARTNER_CLAIM_REJECTIONS = new Set([
   "INVALID_RESEARCH",
   "PARTNER_FULL",
   "PARTNER_SUSPENDED",
-  "RATE_LIMITED",
-  "UNAUTHENTICATED",
 ]);
 const requiredLearningIds = requiredCourseIds(
   lessonsByOrder,

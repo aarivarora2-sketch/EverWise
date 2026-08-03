@@ -90,6 +90,13 @@ async function expectRejected(verifier, token) {
   await assert.rejects(() => verifier.verifyIdToken(token));
 }
 
+async function expectRejectedCode(verifier, token, code) {
+  await assert.rejects(() => verifier.verifyIdToken(token), (error) => {
+    assert.equal(error.code, code);
+    return true;
+  });
+}
+
 test("valid RS256 Firebase token returns only the minimal learner identity", async () => {
   const { verifier, requests } = setupVerifier();
   const token = createToken();
@@ -106,7 +113,11 @@ test("valid RS256 Firebase token returns only the minimal learner identity", asy
 
 test("rejects a token signed by a different private key", async () => {
   const { verifier } = setupVerifier();
-  await expectRejected(verifier, createToken({ privateKey: otherKeys.privateKey }));
+  await expectRejectedCode(
+    verifier,
+    createToken({ privateKey: otherKeys.privateKey }),
+    "INVALID_FIREBASE_TOKEN",
+  );
 });
 
 test("rejects an unsupported signing algorithm", async () => {
@@ -278,7 +289,11 @@ test("does not retain a failed in-flight certificate request", async () => {
     },
   });
 
-  await expectRejected(verifier, createToken());
+  await expectRejectedCode(
+    verifier,
+    createToken(),
+    "FIREBASE_CERTIFICATES_UNAVAILABLE",
+  );
   assert.deepEqual(await verifier.verifyIdToken(createToken()), {
     uid: "firebase-uid-1",
     email: "learner@example.com",
@@ -307,7 +322,7 @@ test("aborts Google certificate retrieval at its bounded timeout", async (t) => 
   assert.ok(signal instanceof AbortSignal);
   t.mock.timers.tick(60_000);
   await assert.rejects(verification, (error) => {
-    assert.equal(error.code, "INVALID_FIREBASE_TOKEN");
+    assert.equal(error.code, "FIREBASE_CERTIFICATES_UNAVAILABLE");
     assert.equal(error.message, "Firebase signing certificates are unavailable.");
     return true;
   });

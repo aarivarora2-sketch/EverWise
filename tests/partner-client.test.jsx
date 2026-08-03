@@ -1350,6 +1350,58 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
+  test.each([
+    ["UNAUTHENTICATED", 401],
+    ["RATE_LIMITED", 429],
+  ])(
+    "preserves the same Firebase UID after retryable %s claim rejection",
+    async (code, status) => {
+      const firebaseUser = {
+        uid: `retry-${code.toLowerCase()}`,
+        email: "jane@example.com",
+        getIdToken: vi.fn(async () => "same-id-token"),
+      };
+      mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+        await mocks.authCallback(firebaseUser);
+        return { user: firebaseUser };
+      });
+      mocks.claimPartnerSeat
+        .mockRejectedValueOnce(new PartnerAccessError(code, status))
+        .mockResolvedValueOnce({
+          status: "active",
+          partnerId: "community-partner",
+          name: "Community Partner",
+          branding: PARTNER,
+        });
+      mocks.fetchPartnerAccess
+        .mockRejectedValueOnce(
+          new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
+        )
+        .mockResolvedValueOnce({ status: "none" });
+      const user = userEvent.setup();
+      render(<App />);
+      await screen.findByText("Everwise with Community Partner");
+
+      await completeSponsoredAppInterview(
+        user,
+        "No, use my answers only for my personal plan",
+      );
+      await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+      await waitFor(() => expect(mocks.setDoc).toHaveBeenCalledTimes(1));
+      expect(mocks.createUserWithEmailAndPassword).toHaveBeenCalledTimes(1);
+      expect(mocks.claimPartnerSeat).toHaveBeenCalledTimes(2);
+      expect(mocks.claimPartnerSeat.mock.calls[1][0].idToken).toBe(
+        "same-id-token",
+      );
+      expect(mocks.deleteUser).not.toHaveBeenCalled();
+      expect(mocks.signOut).not.toHaveBeenCalled();
+      expect(
+        await screen.findByRole("button", { name: "Start learning" }),
+      ).toBeVisible();
+    },
+  );
+
   test("restores authoritative sponsored access after reload before routing Home", async () => {
     window.history.replaceState(null, "", "/");
     const accessResult = deferred();

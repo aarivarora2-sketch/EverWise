@@ -52,7 +52,11 @@ function researchSnapshot(overrides = {}) {
 
 async function setupApi(
   t,
-  { seatLimit = 5, learnerIdentityOverrides = {} } = {},
+  {
+    seatLimit = 5,
+    learnerIdentityOverrides = {},
+    verifyIdToken: verifyIdTokenOverride,
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "everwise-partner-api-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -73,16 +77,20 @@ async function setupApi(
     ["learner-token", "learner-uid"],
     ["second-learner-token", "second-learner-uid"],
   ]);
-  const verifyIdToken = async (token) => {
-    const uid = tokenUids.get(token);
-    if (!uid) throw new Error("invalid Firebase token containing private detail");
-    return {
-      uid,
-      email: `${uid}@private.example`,
-      authTime: START_SECONDS,
-      ...learnerIdentityOverrides,
-    };
-  };
+  const verifyIdToken =
+    verifyIdTokenOverride ||
+    (async (token) => {
+      const uid = tokenUids.get(token);
+      if (!uid) {
+        throw new Error("invalid Firebase token containing private detail");
+      }
+      return {
+        uid,
+        email: `${uid}@private.example`,
+        authTime: START_SECONDS,
+        ...learnerIdentityOverrides,
+      };
+    });
   const api = createPartnerApi({ store, verifyIdToken, now });
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url, "http://localhost").pathname;
@@ -375,6 +383,49 @@ test("requires a valid Authorization bearer for every authenticated learner rout
       assertSecurityHeaders(result.response);
     }
   }
+});
+
+test("maps certificate infrastructure unavailability to a safe retryable response", async (t) => {
+  const privateMessage = "Google certificate fetch exposed private detail";
+  const { created, request } = await setupApi(t, {
+    verifyIdToken: async () => {
+      const error = new Error(privateMessage);
+      error.code = "FIREBASE_CERTIFICATES_UNAVAILABLE";
+      throw error;
+    },
+  });
+
+  const result = await request("/api/partner/claim", {
+    headers: AUTHORIZATION,
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+
+  assert.equal(result.response.status, 503);
+  assert.deepEqual(result.json, {
+    code: "PARTNER_UNAVAILABLE",
+    message: "Sponsored access is temporarily unavailable.",
+  });
+  assert.equal(result.text.includes(privateMessage), false);
+  assertSecurityHeaders(result.response);
+});
+
+test("keeps a truly invalid Firebase bearer unauthenticated", async (t) => {
+  const { created, request } = await setupApi(t, {
+    verifyIdToken: async () => {
+      const error = new Error("invalid token private detail");
+      error.code = "INVALID_FIREBASE_TOKEN";
+      throw error;
+    },
+  });
+
+  const result = await request("/api/partner/claim", {
+    headers: AUTHORIZATION,
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+
+  assert.equal(result.response.status, 401);
+  assertGenericError(result.json, "UNAUTHENTICATED");
+  assert.equal(result.text.includes("private detail"), false);
 });
 
 test("supports claim, returning access, release cancellation, and receipt-only confirmation", async (t) => {

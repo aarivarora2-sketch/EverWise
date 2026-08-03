@@ -18,6 +18,9 @@ const MAX_TOKEN_CHARS =
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
+export const FIREBASE_CERTIFICATES_UNAVAILABLE_CODE =
+  "FIREBASE_CERTIFICATES_UNAVAILABLE";
+
 export class FirebaseTokenVerificationError extends Error {
   constructor(message = "The Firebase ID token is invalid.") {
     super(message);
@@ -26,14 +29,20 @@ export class FirebaseTokenVerificationError extends Error {
   }
 }
 
+export class FirebaseCertificateUnavailableError extends Error {
+  constructor() {
+    super("Firebase signing certificates are unavailable.");
+    this.name = "FirebaseCertificateUnavailableError";
+    this.code = FIREBASE_CERTIFICATES_UNAVAILABLE_CODE;
+  }
+}
+
 function invalidToken() {
   return new FirebaseTokenVerificationError();
 }
 
 function certificateError() {
-  return new FirebaseTokenVerificationError(
-    "Firebase signing certificates are unavailable.",
-  );
+  return new FirebaseCertificateUnavailableError();
 }
 
 function isRecord(value) {
