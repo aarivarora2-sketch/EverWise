@@ -12,7 +12,10 @@ function cleanLocation() {
 }
 
 function defaultReplace(path) {
-  globalThis.window?.history?.replaceState?.(null, "", path);
+  const history = globalThis.window?.history;
+  if (!history || typeof history.replaceState !== "function") return false;
+  history.replaceState(null, "", path);
+  return true;
 }
 
 function parseFragmentEntry(entry) {
@@ -24,7 +27,15 @@ function parseFragmentEntry(entry) {
   };
 }
 
-export function consumePartnerFragment({ hash, replace = defaultReplace } = {}) {
+export function consumePartnerFragment(options = {}) {
+  let hash;
+  let replace = defaultReplace;
+  try {
+    hash = options?.hash;
+    if (options?.replace !== undefined) replace = options.replace;
+  } catch {
+    return null;
+  }
   if (typeof hash !== "string" || !hash.startsWith("#")) return null;
 
   const entries = hash.slice(1).split("&").map(parseFragmentEntry);
@@ -32,9 +43,10 @@ export function consumePartnerFragment({ hash, replace = defaultReplace } = {}) 
   if (!recognized) return null;
 
   try {
-    if (typeof replace === "function") replace(cleanLocation());
+    if (typeof replace !== "function" || replace(cleanLocation()) !== true) return null;
   } catch {
     // Never surface a URL fragment, which can contain a one-time secret.
+    return null;
   }
 
   if (entries.length !== 1) return null;

@@ -48,6 +48,41 @@ function safeCode(value) {
     : "PARTNER_UNAVAILABLE";
 }
 
+async function readBoundedResponseText(response) {
+  const body = response.body;
+  if (!body?.getReader) return null;
+
+  const reader = body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) {
+        await reader.cancel();
+        return null;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_PARTNER_PAYLOAD_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function parseResponse(response) {
   try {
     if (!response || typeof response !== "object") return null;
@@ -56,7 +91,7 @@ async function parseResponse(response) {
       return null;
     }
 
-    const text = await response.text();
+    const text = await readBoundedResponseText(response);
     if (typeof text !== "string" || byteLength(text) > MAX_PARTNER_PAYLOAD_BYTES) {
       return null;
     }
@@ -72,6 +107,20 @@ async function resolveApiEndpoint(path, apiEndpointImpl) {
   if (typeof apiEndpointImpl === "function") return apiEndpointImpl(path);
   const { apiEndpoint } = await import("../utils/apiEndpoint.js");
   return apiEndpoint(path);
+}
+
+function readPublicOptions(options, keys) {
+  try {
+    const values = {};
+    for (const key of keys) values[key] = options?.[key];
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+function rejectedUnsafeArguments() {
+  return Promise.reject(new PartnerAccessError());
 }
 
 async function partnerRequest(path, {
@@ -108,7 +157,10 @@ async function partnerRequest(path, {
   return payload;
 }
 
-export function previewInvite({ inviteToken, fetchImpl, apiEndpointImpl } = {}) {
+export function previewInvite(options) {
+  const values = readPublicOptions(options, ["inviteToken", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { inviteToken, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/preview", {
     body: { inviteToken },
     fetchImpl,
@@ -116,14 +168,24 @@ export function previewInvite({ inviteToken, fetchImpl, apiEndpointImpl } = {}) 
   });
 }
 
-export function claimPartnerSeat({
-  idToken,
-  inviteToken,
-  researchConsent,
-  researchSnapshot,
-  fetchImpl,
-  apiEndpointImpl,
-} = {}) {
+export function claimPartnerSeat(options) {
+  const values = readPublicOptions(options, [
+    "idToken",
+    "inviteToken",
+    "researchConsent",
+    "researchSnapshot",
+    "fetchImpl",
+    "apiEndpointImpl",
+  ]);
+  if (!values) return rejectedUnsafeArguments();
+  const {
+    idToken,
+    inviteToken,
+    researchConsent,
+    researchSnapshot,
+    fetchImpl,
+    apiEndpointImpl,
+  } = values;
   const body = { inviteToken };
   if (researchConsent !== undefined) body.researchConsent = researchConsent;
   if (researchSnapshot !== undefined) body.researchSnapshot = researchSnapshot;
@@ -135,7 +197,10 @@ export function claimPartnerSeat({
   });
 }
 
-export function fetchPartnerAccess({ idToken, fetchImpl, apiEndpointImpl } = {}) {
+export function fetchPartnerAccess(options) {
+  const values = readPublicOptions(options, ["idToken", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { idToken, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/access", {
     idToken,
     body: {},
@@ -144,7 +209,10 @@ export function fetchPartnerAccess({ idToken, fetchImpl, apiEndpointImpl } = {})
   });
 }
 
-export function beginPartnerRelease({ idToken, fetchImpl, apiEndpointImpl } = {}) {
+export function beginPartnerRelease(options) {
+  const values = readPublicOptions(options, ["idToken", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { idToken, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/release-intent", {
     idToken,
     body: {},
@@ -153,12 +221,15 @@ export function beginPartnerRelease({ idToken, fetchImpl, apiEndpointImpl } = {}
   });
 }
 
-export function cancelPartnerRelease({
-  idToken,
-  receipt,
-  fetchImpl,
-  apiEndpointImpl,
-} = {}) {
+export function cancelPartnerRelease(options) {
+  const values = readPublicOptions(options, [
+    "idToken",
+    "receipt",
+    "fetchImpl",
+    "apiEndpointImpl",
+  ]);
+  if (!values) return rejectedUnsafeArguments();
+  const { idToken, receipt, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/release-cancel", {
     idToken,
     body: { receipt },
@@ -167,7 +238,10 @@ export function cancelPartnerRelease({
   });
 }
 
-export function confirmPartnerRelease({ receipt, fetchImpl, apiEndpointImpl } = {}) {
+export function confirmPartnerRelease(options) {
+  const values = readPublicOptions(options, ["receipt", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { receipt, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/release-confirm", {
     body: { receipt },
     fetchImpl,
@@ -175,7 +249,10 @@ export function confirmPartnerRelease({ receipt, fetchImpl, apiEndpointImpl } = 
   });
 }
 
-export function fetchPartnerReport({ adminToken, fetchImpl, apiEndpointImpl } = {}) {
+export function fetchPartnerReport(options) {
+  const values = readPublicOptions(options, ["adminToken", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { adminToken, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/admin/report", {
     body: { adminToken },
     fetchImpl,
@@ -183,7 +260,10 @@ export function fetchPartnerReport({ adminToken, fetchImpl, apiEndpointImpl } = 
   });
 }
 
-export function rotatePartnerInvite({ adminToken, fetchImpl, apiEndpointImpl } = {}) {
+export function rotatePartnerInvite(options) {
+  const values = readPublicOptions(options, ["adminToken", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { adminToken, fetchImpl, apiEndpointImpl } = values;
   return partnerRequest("/api/partner/admin/rotate-invite", {
     body: { adminToken },
     fetchImpl,

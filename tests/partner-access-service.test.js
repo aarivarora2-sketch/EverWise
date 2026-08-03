@@ -24,13 +24,24 @@ function successfulFetch(calls, responseBody = { ok: true }) {
       ok: true,
       status: 200,
       headers: { get: () => null },
-      text: async () => JSON.stringify(responseBody),
+      body: streamBody([JSON.stringify(responseBody)]),
     };
   };
 }
 
 function sameOriginEndpoint(path) {
   return `https://everwise.example${path}`;
+}
+
+function streamBody(chunks, { onCancel, keepOpen = false } = {}) {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      if (!keepOpen) controller.close();
+    },
+    cancel: onCancel,
+  });
 }
 
 test("partner methods use POST, the shared endpoint resolver, JSON bodies, and correct authentication", async () => {
@@ -127,10 +138,10 @@ test("maps stable API codes to safe PartnerAccessError messages without token di
     ok: false,
     status: 400,
     headers: { get: () => null },
-    text: async () => JSON.stringify({
+    body: streamBody([JSON.stringify({
       code: "INVALID_INVITE",
       message: `server detail ${INVITE_TOKEN}`,
-    }),
+    })]),
   });
 
   await assert.rejects(
@@ -155,7 +166,6 @@ test("uses safe generic errors for malformed, oversized, and failed responses", 
       ok: false,
       status: 500,
       headers: { get: () => "999999" },
-      text: async () => JSON.stringify({ code: "INVALID_INVITE", message: INVITE_TOKEN }),
     }),
     async () => {
       throw new Error(INVITE_TOKEN);
@@ -185,6 +195,41 @@ test("uses safe generic errors for malformed, oversized, and failed responses", 
   }
 });
 
+test("parses bounded chunked responses and cancels a stream that exceeds the response limit", async () => {
+  const success = await previewInvite({
+    inviteToken: INVITE_TOKEN,
+    apiEndpointImpl: sameOriginEndpoint,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: streamBody(['{"seat', 'Available":true}']),
+    }),
+  });
+  assert.deepEqual(success, { seatAvailable: true });
+
+  let cancelled = false;
+  await assert.rejects(
+    previewInvite({
+      inviteToken: INVITE_TOKEN,
+      apiEndpointImpl: sameOriginEndpoint,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        headers: { get: () => null },
+        body: streamBody(["x".repeat(25_001)], {
+          keepOpen: true,
+          onCancel: () => {
+            cancelled = true;
+          },
+        }),
+      }),
+    }),
+    PartnerAccessError,
+  );
+  assert.equal(cancelled, true);
+});
+
 test("rejects oversized partner request bodies without exposing their contents", async () => {
   await assert.rejects(
     claimPartnerSeat({
@@ -202,4 +247,35 @@ test("rejects oversized partner request bodies without exposing their contents",
       return true;
     },
   );
+});
+
+test("converts hostile public argument getters to safe PartnerAccessError rejections", async () => {
+  const cases = [
+    [previewInvite, "inviteToken"],
+    [claimPartnerSeat, "idToken"],
+    [fetchPartnerReport, "adminToken"],
+    [confirmPartnerRelease, "receipt"],
+  ];
+
+  for (const [method, property] of cases) {
+    const options = {
+      apiEndpointImpl: sameOriginEndpoint,
+      fetchImpl: successfulFetch([]),
+    };
+    Object.defineProperty(options, property, {
+      get() {
+        throw new Error(INVITE_TOKEN);
+      },
+    });
+
+    let request;
+    assert.doesNotThrow(() => {
+      request = method(options);
+    });
+    await assert.rejects(request, (error) => {
+      assert.ok(error instanceof PartnerAccessError);
+      assert.equal(error.message.includes(INVITE_TOKEN), false);
+      return true;
+    });
+  }
 });

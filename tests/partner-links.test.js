@@ -20,7 +20,10 @@ test("consumes a learner partner fragment and immediately removes it from histor
     assert.deepEqual(
       consumePartnerFragment({
         hash: `#partner=${TOKEN}`,
-        replace: (path) => replacements.push(path),
+        replace: (path) => {
+          replacements.push(path);
+          return true;
+        },
       }),
       { kind: "learner", token: TOKEN },
     );
@@ -35,7 +38,10 @@ test("consumes an admin partner fragment and immediately removes it from history
     assert.deepEqual(
       consumePartnerFragment({
         hash: `#partner-admin=${TOKEN}`,
-        replace: (path) => replacements.push(path),
+        replace: (path) => {
+          replacements.push(path);
+          return true;
+        },
       }),
       { kind: "admin", token: TOKEN },
     );
@@ -55,7 +61,10 @@ test("rejects invalid or ambiguous fragments while scrubbing every recognized pa
       assert.equal(
         consumePartnerFragment({
           hash,
-          replace: (path) => replacements.push(path),
+          replace: (path) => {
+            replacements.push(path);
+            return true;
+          },
         }),
         null,
       );
@@ -67,15 +76,46 @@ test("rejects invalid or ambiguous fragments while scrubbing every recognized pa
   });
 });
 
-test("never throws a partner token when fragment history replacement fails", (t) => {
+test("fails closed when partner fragment history replacement cannot be confirmed", (t) => {
   withLocation(t, { pathname: "/join", search: "" }, () => {
-    assert.doesNotThrow(() => {
-      consumePartnerFragment({
-        hash: `#partner=${TOKEN}`,
-        replace: () => {
-          throw new Error(TOKEN);
-        },
+    for (const replace of [
+      () => {
+        throw new Error(TOKEN);
+      },
+      null,
+      () => undefined,
+      () => false,
+    ]) {
+      assert.doesNotThrow(() => {
+        assert.equal(
+          consumePartnerFragment({
+            hash: `#partner=${TOKEN}`,
+            replace,
+          }),
+          null,
+        );
       });
-    });
+    }
   });
+});
+
+test("fails closed without surfacing errors from hostile fragment argument getters", () => {
+  const hostileHash = {
+    get hash() {
+      throw new Error(TOKEN);
+    },
+    replace: () => true,
+  };
+  const hostileReplace = {
+    hash: `#partner=${TOKEN}`,
+    get replace() {
+      throw new Error(TOKEN);
+    },
+  };
+
+  for (const options of [hostileHash, hostileReplace]) {
+    assert.doesNotThrow(() => {
+      assert.equal(consumePartnerFragment(options), null);
+    });
+  }
 });
