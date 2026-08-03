@@ -115,21 +115,85 @@ function getSavedTextSize() {
   }
 }
 
-function removeStoredPartnerReleaseKey(key) {
+function storedPartnerReleaseMatchesOperation(serialized, recovery, state) {
+  if (!serialized || !recovery) return false;
   try {
-    window.sessionStorage.removeItem(key);
-    return window.sessionStorage.getItem(key) === null;
+    const stored = JSON.parse(serialized);
+    const status = partnerReleaseRecoveryStatus(stored);
+    return Boolean(
+      status.valid &&
+        status.state === state &&
+        !status.reconciliation &&
+        stored.receipt === recovery.receipt &&
+        stored.expiresAt === recovery.expiresAt,
+    );
   } catch {
     return false;
   }
 }
 
-function clearStoredPartnerRelease() {
-  const confirmableCleared = removeStoredPartnerReleaseKey(
-    PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
-  );
-  if (!confirmableCleared) return false;
-  return removeStoredPartnerReleaseKey(PARTNER_RELEASE_RECEIPT_STORAGE_KEY);
+function removeStoredPartnerReleaseKeyIfUnchanged(key, expectedSerialized) {
+  try {
+    if (window.sessionStorage.getItem(key) !== expectedSerialized) {
+      return "not-owner";
+    }
+    window.sessionStorage.removeItem(key);
+    return window.sessionStorage.getItem(key) === null ? "removed" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+function clearStoredPartnerRelease(
+  recovery,
+  { requireConfirmable = false } = {},
+) {
+  try {
+    const preparedSerialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+    );
+    if (
+      !storedPartnerReleaseMatchesOperation(
+        preparedSerialized,
+        recovery,
+        "prepared",
+      )
+    ) {
+      return "not-owner";
+    }
+
+    const confirmableSerialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+    );
+    if (requireConfirmable && confirmableSerialized === null) {
+      return "not-owner";
+    }
+    if (
+      confirmableSerialized !== null &&
+      !storedPartnerReleaseMatchesOperation(
+        confirmableSerialized,
+        recovery,
+        "confirmable",
+      )
+    ) {
+      return "not-owner";
+    }
+    if (confirmableSerialized !== null) {
+      const markerRemoval = removeStoredPartnerReleaseKeyIfUnchanged(
+        PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+        confirmableSerialized,
+      );
+      if (markerRemoval !== "removed") return markerRemoval;
+    }
+
+    const preparedRemoval = removeStoredPartnerReleaseKeyIfUnchanged(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+      preparedSerialized,
+    );
+    return preparedRemoval === "removed" ? "cleared" : preparedRemoval;
+  } catch {
+    return "failed";
+  }
 }
 
 function partnerReleaseRecoveryStatus(value) {
@@ -214,8 +278,9 @@ function storedPartnerReleaseIsConfirmable(recovery) {
 }
 
 function readStoredPartnerRelease() {
+  let serialized = null;
   try {
-    const serialized = window.sessionStorage.getItem(
+    serialized = window.sessionStorage.getItem(
       PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
     );
     if (!serialized) return null;
@@ -232,24 +297,74 @@ function readStoredPartnerRelease() {
             : null);
       return terminal ? { ...recovery, terminal } : recovery;
     }
-    clearStoredPartnerRelease();
+    removeStoredPartnerReleaseKeyIfUnchanged(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+      serialized,
+    );
   } catch {
     // A blocked or corrupted store must not prevent the signed-out experience.
   }
   return null;
 }
 
-function storeTerminalPartnerReconciliation(recovery, reconciliation) {
-  const confirmableCleared = removeStoredPartnerReleaseKey(
-    PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
-  );
+function storeTerminalPartnerReconciliation(
+  recovery,
+  reconciliation,
+  { requireConfirmable = false } = {},
+) {
+  let markerSecured = false;
   try {
+    const preparedSerialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+    );
+    if (
+      !storedPartnerReleaseMatchesOperation(
+        preparedSerialized,
+        recovery,
+        "prepared",
+      )
+    ) {
+      return "not-owner";
+    }
+    const confirmableSerialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+    );
+    if (requireConfirmable && confirmableSerialized === null) {
+      return "not-owner";
+    }
+    if (
+      confirmableSerialized !== null &&
+      !storedPartnerReleaseMatchesOperation(
+        confirmableSerialized,
+        recovery,
+        "confirmable",
+      )
+    ) {
+      return "not-owner";
+    }
+    if (confirmableSerialized !== null) {
+      const markerRemoval = removeStoredPartnerReleaseKeyIfUnchanged(
+        PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+        confirmableSerialized,
+      );
+      if (markerRemoval === "not-owner") return "not-owner";
+      markerSecured = markerRemoval === "removed";
+    } else {
+      markerSecured = true;
+    }
+
     const serialized = JSON.stringify({
       receipt: recovery.receipt,
       expiresAt: recovery.expiresAt,
       state: "prepared",
       reconciliation,
     });
+    if (
+      window.sessionStorage.getItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY) !==
+      preparedSerialized
+    ) {
+      return "not-owner";
+    }
     window.sessionStorage.setItem(
       PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
       serialized,
@@ -257,19 +372,32 @@ function storeTerminalPartnerReconciliation(recovery, reconciliation) {
     const terminalVerified =
       window.sessionStorage.getItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY) ===
       serialized;
-    return confirmableCleared || terminalVerified;
+    return markerSecured || terminalVerified ? "terminalized" : "failed";
   } catch {
-    return confirmableCleared;
+    return markerSecured ? "terminalized" : "failed";
   }
 }
 
 function storePreparedPartnerRelease(recovery) {
-  if (
-    !removeStoredPartnerReleaseKey(PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY)
-  ) {
-    return false;
-  }
   try {
+    const confirmableSerialized = window.sessionStorage.getItem(
+      PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+    );
+    if (confirmableSerialized !== null) {
+      if (
+        !storedPartnerReleaseMatchesOperation(
+          confirmableSerialized,
+          recovery,
+          "confirmable",
+        ) ||
+        removeStoredPartnerReleaseKeyIfUnchanged(
+          PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+          confirmableSerialized,
+        ) !== "removed"
+      ) {
+        return false;
+      }
+    }
     const serialized = JSON.stringify({
       receipt: recovery.receipt,
       ...(typeof recovery.expiresAt === "string"
@@ -310,11 +438,30 @@ function storeConfirmablePartnerRelease(recovery) {
     ) {
       return false;
     }
+    const existingConfirmable = window.sessionStorage.getItem(
+      PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+    );
+    if (
+      existingConfirmable !== null &&
+      !storedPartnerReleaseMatchesOperation(
+        existingConfirmable,
+        recovery,
+        "confirmable",
+      )
+    ) {
+      return false;
+    }
     const serialized = JSON.stringify({
       receipt: recovery.receipt,
       expiresAt: recovery.expiresAt,
       state: "confirmable",
     });
+    if (
+      window.sessionStorage.getItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY) !==
+      preparedSerialized
+    ) {
+      return false;
+    }
     window.sessionStorage.setItem(
       PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
       serialized,
@@ -323,13 +470,42 @@ function storeConfirmablePartnerRelease(recovery) {
       PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
     );
     if (verified !== serialized) {
-      removeStoredPartnerReleaseKey(PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY);
+      if (
+        storedPartnerReleaseMatchesOperation(
+          verified,
+          recovery,
+          "confirmable",
+        )
+      ) {
+        removeStoredPartnerReleaseKeyIfUnchanged(
+          PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+          verified,
+        );
+      }
       return false;
     }
     const status = partnerReleaseRecoveryStatus(JSON.parse(verified));
     return status.valid && !status.expired && status.state === "confirmable";
   } catch {
-    removeStoredPartnerReleaseKey(PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY);
+    try {
+      const confirmableSerialized = window.sessionStorage.getItem(
+        PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+      );
+      if (
+        storedPartnerReleaseMatchesOperation(
+          confirmableSerialized,
+          recovery,
+          "confirmable",
+        )
+      ) {
+        removeStoredPartnerReleaseKeyIfUnchanged(
+          PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY,
+          confirmableSerialized,
+        );
+      }
+    } catch {
+      // The prepared base remains fail-closed when marker cleanup is blocked.
+    }
     return false;
   }
 }
@@ -713,11 +889,8 @@ export default function App() {
     const startupFallback = window.setTimeout(() => {
       if (receivedInitialAuthState) return;
       console.warn(
-        "[Everwise][auth] Initial auth state timed out; opening signed-out experience.",
+        "[Everwise][auth] Initial auth state timed out; still waiting for Firebase.",
       );
-      authSettledRef.current = true;
-      setAuthChecked(true);
-      setScreen("landing");
     }, 2500);
 
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -1586,7 +1759,10 @@ export default function App() {
     try {
       const result = await confirmPartnerRelease({ receipt: recovery.receipt });
       if (!partnerReleaseWasConfirmed(result)) return;
-      if (!clearStoredPartnerRelease()) {
+      const cleanup = clearStoredPartnerRelease(recovery, {
+        requireConfirmable: true,
+      });
+      if (cleanup === "failed") {
         storeTerminalPartnerReconciliation(recovery, "storage-cleanup");
         if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
           setPendingPartnerRelease({
@@ -1597,16 +1773,23 @@ export default function App() {
         return;
       }
       if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
-        setPendingPartnerRelease(null);
+        setPendingPartnerRelease(
+          cleanup === "cleared" ? null : readStoredPartnerRelease(),
+        );
       }
     } catch (error) {
       if (error?.code === "INVALID_RECEIPT") {
-        storeTerminalPartnerReconciliation(recovery, "invalid-receipt");
+        const terminalization = storeTerminalPartnerReconciliation(
+          recovery,
+          "invalid-receipt",
+          { requireConfirmable: true },
+        );
         if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
-          setPendingPartnerRelease({
-            ...recovery,
-            terminal: "invalid-receipt",
-          });
+          setPendingPartnerRelease(
+            terminalization === "not-owner"
+              ? readStoredPartnerRelease()
+              : { ...recovery, terminal: "invalid-receipt" },
+          );
         }
       }
     } finally {
@@ -1729,8 +1912,9 @@ export default function App() {
       if (!profileRestored) {
         reconciliation = "compensation";
       }
-      if (!reconciliation && receipt && !clearStoredPartnerRelease()) {
-        reconciliation = "storage-cleanup";
+      if (!reconciliation && receipt) {
+        const cleanup = clearStoredPartnerRelease(releaseRecovery);
+        if (cleanup === "failed") reconciliation = "storage-cleanup";
       }
       if (reconciliation && releaseRecovery) {
         storeTerminalPartnerReconciliation(releaseRecovery, reconciliation);
@@ -1752,8 +1936,9 @@ export default function App() {
     }
 
     const confirmationReady = storeConfirmablePartnerRelease(releaseRecovery);
+    let confirmationPreparation = "terminalized";
     if (!confirmationReady) {
-      storeTerminalPartnerReconciliation(
+      confirmationPreparation = storeTerminalPartnerReconciliation(
         releaseRecovery,
         "storage-cleanup",
       );
@@ -1769,10 +1954,11 @@ export default function App() {
     const confirmationOperation = beginSignedOutReleaseConfirmation();
     if (!confirmationReady) {
       if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
-        setPendingPartnerRelease({
-          ...releaseRecovery,
-          terminal: "storage-cleanup",
-        });
+        setPendingPartnerRelease(
+          confirmationPreparation === "not-owner"
+            ? readStoredPartnerRelease()
+            : { ...releaseRecovery, terminal: "storage-cleanup" },
+        );
       }
       finishSignedOutReleaseConfirmation(confirmationOperation);
       return;
@@ -1786,7 +1972,10 @@ export default function App() {
       if (!partnerReleaseWasConfirmed(result)) {
         return;
       }
-      if (!clearStoredPartnerRelease()) {
+      const cleanup = clearStoredPartnerRelease(releaseRecovery, {
+        requireConfirmable: true,
+      });
+      if (cleanup === "failed") {
         storeTerminalPartnerReconciliation(
           releaseRecovery,
           "storage-cleanup",
@@ -1800,19 +1989,23 @@ export default function App() {
         return;
       }
       if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
-        setPendingPartnerRelease(null);
+        setPendingPartnerRelease(
+          cleanup === "cleared" ? null : readStoredPartnerRelease(),
+        );
       }
     } catch (error) {
       if (error?.code === "INVALID_RECEIPT") {
-        storeTerminalPartnerReconciliation(
+        const terminalization = storeTerminalPartnerReconciliation(
           releaseRecovery,
           "invalid-receipt",
+          { requireConfirmable: true },
         );
         if (signedOutReleaseConfirmationIsCurrent(confirmationOperation)) {
-          setPendingPartnerRelease({
-            ...releaseRecovery,
-            terminal: "invalid-receipt",
-          });
+          setPendingPartnerRelease(
+            terminalization === "not-owner"
+              ? readStoredPartnerRelease()
+              : { ...releaseRecovery, terminal: "invalid-receipt" },
+          );
         }
       }
     } finally {

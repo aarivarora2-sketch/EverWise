@@ -38,10 +38,30 @@ function storeConfirmablePartnerRecovery(
   );
 }
 
+function storeByteExactConfirmablePartnerRecovery(
+  receipt,
+  expiresAt = "2099-08-04T00:00:00.000Z",
+) {
+  const prepared = `{
+  "state": "prepared",
+  "expiresAt": "${expiresAt}",
+  "receipt": "${receipt}"
+}`;
+  const confirmable = `{
+  "receipt": "${receipt}",
+  "state": "confirmable",
+  "expiresAt": "${expiresAt}"
+}`;
+  window.sessionStorage.setItem(PARTNER_RELEASE_RECOVERY_KEY, prepared);
+  window.sessionStorage.setItem(PARTNER_RELEASE_CONFIRMABLE_KEY, confirmable);
+  return { confirmable, prepared };
+}
+
 afterEach(cleanup);
 
 const mocks = vi.hoisted(() => ({
   authCallback: null,
+  deferInitialAuth: false,
   initialAuthUser: null,
   beginPartnerRelease: vi.fn(),
   cancelPartnerRelease: vi.fn(),
@@ -66,7 +86,7 @@ vi.mock("firebase/auth", () => ({
   deleteUser: mocks.deleteUser,
   onAuthStateChanged: vi.fn((_auth, callback) => {
     mocks.authCallback = callback;
-    callback(mocks.initialAuthUser);
+    if (!mocks.deferInitialAuth) callback(mocks.initialAuthUser);
     return vi.fn();
   }),
   reauthenticateWithCredential: mocks.reauthenticateWithCredential,
@@ -229,6 +249,34 @@ async function openReturningSponsoredSettings(overrides = {}) {
   await user.click(screen.getByRole("button", { name: /^Delete account/i }));
   await user.type(screen.getByLabelText("Current password"), "delete-password");
   return { returningProfile, returningUser, user };
+}
+
+async function switchToPublicAccount(uid) {
+  const currentUser = {
+    uid,
+    email: `${uid}@example.com`,
+    getIdToken: vi.fn(async () => `${uid}-token`),
+  };
+  mocks.getDoc.mockResolvedValue(
+    profileSnapshot(learnerProfile({ email: currentUser.email })),
+  );
+  mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+  await act(async () => {
+    await mocks.authCallback(currentUser);
+  });
+  expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
+  return currentUser;
+}
+
+async function startStoredPartnerConfirmation(receipt, confirmation) {
+  window.history.replaceState(null, "", "/");
+  storeConfirmablePartnerRecovery(receipt);
+  mocks.confirmPartnerRelease.mockReturnValue(confirmation.promise);
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(mocks.confirmPartnerRelease).toHaveBeenCalledTimes(1));
+  return user;
 }
 
 describe("partner landing and calm errors", () => {
@@ -646,6 +694,7 @@ describe("sponsored signup orchestration", () => {
     );
     window.history.replaceState(null, "", `/#partner=${TOKEN}`);
     window.sessionStorage.clear();
+    mocks.deferInitialAuth = false;
     mocks.initialAuthUser = null;
     mocks.beginPartnerRelease.mockReset();
     mocks.cancelPartnerRelease.mockReset();
@@ -1789,6 +1838,76 @@ describe("sponsored signup orchestration", () => {
     expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
   });
 
+  test("does not authorize stored recovery after startup timeout until Firebase explicitly reports signed out", async () => {
+    const receipt = "4".repeat(43);
+    let authStartupTimeout = null;
+    window.setTimeout.mockImplementation((handler, delay, ...args) => {
+      if (delay === 2500) {
+        authStartupTimeout = handler;
+        return 2500;
+      }
+      return scheduleTimeout(handler, delay === 3000 ? 0 : delay, ...args);
+    });
+    window.history.replaceState(null, "", "/");
+    storeConfirmablePartnerRecovery(receipt);
+    mocks.deferInitialAuth = true;
+    mocks.confirmPartnerRelease.mockResolvedValue({
+      released: true,
+      idempotent: true,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(authStartupTimeout).toEqual(expect.any(Function));
+    await act(async () => {
+      authStartupTimeout();
+      await new Promise((resolve) => scheduleTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole("progressbar", { name: "Starting Everwise" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(mocks.confirmPartnerRelease).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await mocks.authCallback(null);
+    });
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(mocks.confirmPartnerRelease).toHaveBeenCalledWith({ receipt });
+    expect(await screen.findByRole("button", { name: "Get Started" })).toBeVisible();
+  });
+
+  test("lets a delayed authenticated callback win after startup timeout without old receipt work", async () => {
+    const receipt = "5".repeat(43);
+    let authStartupTimeout = null;
+    window.setTimeout.mockImplementation((handler, delay, ...args) => {
+      if (delay === 2500) {
+        authStartupTimeout = handler;
+        return 2500;
+      }
+      return scheduleTimeout(handler, delay === 3000 ? 0 : delay, ...args);
+    });
+    window.history.replaceState(null, "", "/");
+    storeConfirmablePartnerRecovery(receipt);
+    mocks.deferInitialAuth = true;
+    render(<App />);
+
+    expect(authStartupTimeout).toEqual(expect.any(Function));
+    await act(async () => {
+      authStartupTimeout();
+      await new Promise((resolve) => scheduleTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole("progressbar", { name: "Starting Everwise" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    await switchToPublicAccount("authenticated-after-timeout");
+
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    expect(mocks.confirmPartnerRelease).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).not.toBeNull();
+  });
+
   test("a recovered receipt never replaces a newer user present at startup", async () => {
     const receipt = "u".repeat(43);
     const currentUser = {
@@ -1898,6 +2017,122 @@ describe("sponsored signup orchestration", () => {
     expect(await screen.findByRole("heading", { name: "Home screen" })).toBeVisible();
     expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).not.toBeNull();
     expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+  });
+
+  test("old semantic confirmation cannot clear byte-exact newer recovery", async () => {
+    const oldReceipt = "6".repeat(43);
+    const newerReceipt = "7".repeat(43);
+    const confirmation = deferred();
+    const user = await startStoredPartnerConfirmation(oldReceipt, confirmation);
+    await switchToPublicAccount("newer-after-semantic-success");
+    const newer = storeByteExactConfirmablePartnerRecovery(newerReceipt);
+
+    await act(async () => {
+      confirmation.resolve({ released: true, idempotent: true });
+      await confirmation.promise;
+    });
+
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).toBe(
+      newer.prepared,
+    );
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_CONFIRMABLE_KEY)).toBe(
+      newer.confirmable,
+    );
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+  });
+
+  test("old invalid-receipt terminalization cannot overwrite byte-exact newer recovery", async () => {
+    const oldReceipt = "8".repeat(43);
+    const newerReceipt = "9".repeat(43);
+    const confirmation = deferred();
+    const user = await startStoredPartnerConfirmation(oldReceipt, confirmation);
+    await switchToPublicAccount("newer-after-invalid-receipt");
+    const newer = storeByteExactConfirmablePartnerRecovery(newerReceipt);
+
+    await act(async () => {
+      confirmation.reject(new PartnerAccessError("INVALID_RECEIPT", 400));
+      await confirmation.promise.catch(() => {});
+    });
+
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).toBe(
+      newer.prepared,
+    );
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_CONFIRMABLE_KEY)).toBe(
+      newer.confirmable,
+    );
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+  });
+
+  test.each([
+    ["transient rejection", "reject"],
+    ["nonsemantic response", "nonsemantic"],
+  ])("old %s leaves byte-exact newer recovery and account untouched", async (_label, outcome) => {
+    const oldReceipt = outcome === "reject" ? "A".repeat(43) : "B".repeat(43);
+    const newerReceipt = outcome === "reject" ? "C".repeat(43) : "D".repeat(43);
+    const confirmation = deferred();
+    const user = await startStoredPartnerConfirmation(oldReceipt, confirmation);
+    await switchToPublicAccount(`newer-after-${outcome}`);
+    const newer = storeByteExactConfirmablePartnerRecovery(newerReceipt);
+
+    await act(async () => {
+      if (outcome === "reject") {
+        confirmation.reject(new Error("confirmation unavailable"));
+      } else {
+        confirmation.resolve({ released: false });
+      }
+      await confirmation.promise.catch(() => {});
+    });
+
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).toBe(
+      newer.prepared,
+    );
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_CONFIRMABLE_KEY)).toBe(
+      newer.confirmable,
+    );
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+  });
+
+  test("old cleanup failure cannot terminalize byte-exact newer recovery", async () => {
+    const oldReceipt = "E".repeat(43);
+    const newerReceipt = "F".repeat(43);
+    const confirmation = deferred();
+    const realRemoveItem = Storage.prototype.removeItem;
+    let newerInstalled = false;
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function removeItem(key) {
+      if (newerInstalled && key === PARTNER_RELEASE_CONFIRMABLE_KEY) {
+        throw new Error("newer confirmation marker is not removable");
+      }
+      return realRemoveItem.call(this, key);
+    });
+    const user = await startStoredPartnerConfirmation(oldReceipt, confirmation);
+    await switchToPublicAccount("newer-after-cleanup-failure");
+    const newer = storeByteExactConfirmablePartnerRecovery(newerReceipt);
+    newerInstalled = true;
+
+    await act(async () => {
+      confirmation.resolve({ released: true, idempotent: true });
+      await confirmation.promise;
+    });
+
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_RECOVERY_KEY)).toBe(
+      newer.prepared,
+    );
+    expect(window.sessionStorage.getItem(PARTNER_RELEASE_CONFIRMABLE_KEY)).toBe(
+      newer.confirmable,
+    );
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByText(/Finishing account deletion/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
   });
 
   test("ignores and clears corrupted release recovery storage safely", async () => {
