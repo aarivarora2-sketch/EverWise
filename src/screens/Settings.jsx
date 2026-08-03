@@ -5,16 +5,17 @@ import { openLegalPage } from "../config/legalLinks";
 
 const SUPPORT_EMAIL = "everwisedigitalliteracy@gmail.com";
 
-function Row({ label, value, onClick, hint }) {
+function Row({ label, value, onClick, hint, disabled = false }) {
   const interactive = typeof onClick === "function";
   const Comp = interactive ? "button" : "div";
   return (
     <Comp
       type={interactive ? "button" : undefined}
       onClick={onClick}
+      disabled={interactive ? disabled : undefined}
       className={`responsive-split flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 text-left shadow-card ${
         interactive
-          ? "transition-colors hover:bg-cream-deep active:bg-cream-deep"
+          ? "transition-colors hover:bg-cream-deep active:bg-cream-deep disabled:cursor-not-allowed disabled:opacity-60"
           : ""
       }`}
     >
@@ -37,23 +38,47 @@ function Row({ label, value, onClick, hint }) {
   );
 }
 
-export function PartnerReleaseRecovery({ busy = false, onRetry }) {
+export function PartnerReleaseRecovery({ busy = false, terminal = false, onRetry }) {
   return (
     <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
       <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center text-center">
         <h1 className="page-title">Finishing account deletion</h1>
         <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
-          Your account has been deleted, but we still need to finish releasing
-          its sponsored place. Please retry so another learner can use it.
+          {terminal
+            ? "We cannot safely retry the sponsored-place release. Please contact support so we can reconcile it without risking your information."
+            : "Your account has been deleted, but we still need to finish releasing its sponsored place. Please retry so another learner can use it."}
         </p>
-        <button
-          type="button"
-          className="btn-primary mt-8"
-          onClick={onRetry}
-          disabled={busy}
-        >
-          {busy ? "Retrying…" : "Retry"}
-        </button>
+        {terminal ? (
+          <a className="btn-primary mt-8" href={`mailto:${SUPPORT_EMAIL}`}>
+            Contact support
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary mt-8"
+            onClick={onRetry}
+            disabled={busy}
+          >
+            {busy ? "Retrying…" : "Retry"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function PartnerDeletionReconciliation() {
+  return (
+    <div className="onboarding-focus flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-7 pt-8">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center text-center">
+        <h1 className="page-title">Account deletion needs help</h1>
+        <p className="mt-4 text-lg leading-relaxed text-ink-soft" role="status">
+          We could not safely restore your saved profile after account deletion
+          stopped. Please contact support before trying again.
+        </p>
+        <a className="btn-primary mt-8" href={`mailto:${SUPPORT_EMAIL}`}>
+          Contact support
+        </a>
       </div>
     </div>
   );
@@ -130,6 +155,7 @@ export default function Settings({
         <button
           type="button"
           onClick={onBack}
+          disabled={busy}
           aria-label="Back to home"
           className="rounded-full p-1.5 text-ink-soft transition-colors hover:bg-cream-deep lg:hidden"
         >
@@ -179,7 +205,7 @@ export default function Settings({
         <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
           Account
         </p>
-        <Row label="Log out" onClick={onLogOut} />
+        <Row label="Log out" onClick={onLogOut} disabled={busy} />
         <Row
           label="Reset password"
           hint="Send a secure reset link to your email"

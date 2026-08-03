@@ -26,6 +26,8 @@ export function authErrorMessage(error) {
 export function accountDeletionErrorMessage(error) {
   const code = error?.code || "";
   switch (code) {
+    case "partner/release-preparation-failed":
+      return "We could not safely prepare account deletion. Your account and progress are still here. Please try again.";
     case "auth/invalid-credential":
     case "auth/wrong-password":
       return "That password isn't right. Please try again.";

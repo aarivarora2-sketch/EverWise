@@ -51,7 +51,10 @@ import PersonalPlan from "./screens/PersonalPlan";
 import LogIn from "./screens/LogIn";
 import Loading from "./screens/Loading";
 import Home from "./screens/Home";
-import Settings, { PartnerReleaseRecovery } from "./screens/Settings";
+import Settings, {
+  PartnerDeletionReconciliation,
+  PartnerReleaseRecovery,
+} from "./screens/Settings";
 import Paywall from "./screens/Paywall";
 import LessonPath from "./screens/LessonPath";
 import LessonPlayer from "./screens/LessonPlayer";
@@ -107,21 +110,40 @@ function getSavedTextSize() {
 function clearStoredPartnerRelease() {
   try {
     window.sessionStorage.removeItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY);
+    return (
+      window.sessionStorage.getItem(PARTNER_RELEASE_RECEIPT_STORAGE_KEY) ===
+      null
+    );
   } catch {
-    // In-memory recovery still works when session storage is unavailable.
+    return false;
   }
 }
 
-function validPartnerReleaseRecovery(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+function partnerReleaseRecoveryStatus(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { valid: false, expired: false };
+  }
   const keys = Object.keys(value);
   if (
     keys.some((key) => key !== "receipt" && key !== "expiresAt") ||
     !PARTNER_RELEASE_RECEIPT_PATTERN.test(value.receipt)
   ) {
-    return false;
+    return { valid: false, expired: false };
   }
-  return value.expiresAt === undefined || typeof value.expiresAt === "string";
+  if (value.expiresAt === undefined) {
+    return { valid: true, expired: false };
+  }
+  if (typeof value.expiresAt !== "string") {
+    return { valid: false, expired: false };
+  }
+  const expiresAtMs = Date.parse(value.expiresAt);
+  if (
+    !Number.isFinite(expiresAtMs) ||
+    new Date(expiresAtMs).toISOString() !== value.expiresAt
+  ) {
+    return { valid: false, expired: false };
+  }
+  return { valid: true, expired: expiresAtMs <= Date.now() };
 }
 
 function readStoredPartnerRelease() {
@@ -131,7 +153,10 @@ function readStoredPartnerRelease() {
     );
     if (!serialized) return null;
     const recovery = JSON.parse(serialized);
-    if (validPartnerReleaseRecovery(recovery)) return recovery;
+    const status = partnerReleaseRecoveryStatus(recovery);
+    if (status.valid) {
+      return status.expired ? { ...recovery, terminal: "expired" } : recovery;
+    }
     clearStoredPartnerRelease();
   } catch {
     // A blocked or corrupted store must not prevent the signed-out experience.
@@ -141,18 +166,29 @@ function readStoredPartnerRelease() {
 
 function storePartnerRelease(recovery) {
   try {
+    const serialized = JSON.stringify({
+      receipt: recovery.receipt,
+      ...(typeof recovery.expiresAt === "string"
+        ? { expiresAt: recovery.expiresAt }
+        : {}),
+    });
     window.sessionStorage.setItem(
       PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
-      JSON.stringify({
-        receipt: recovery.receipt,
-        ...(typeof recovery.expiresAt === "string"
-          ? { expiresAt: recovery.expiresAt }
-          : {}),
-      }),
+      serialized,
     );
+    const verified = window.sessionStorage.getItem(
+      PARTNER_RELEASE_RECEIPT_STORAGE_KEY,
+    );
+    if (verified !== serialized) return false;
+    const status = partnerReleaseRecoveryStatus(JSON.parse(verified));
+    return status.valid && !status.expired;
   } catch {
-    // The current in-memory Retry remains available for this visit.
+    return false;
   }
+}
+
+function partnerReleaseWasConfirmed(result) {
+  return result?.released === true;
 }
 
 function capturePartnerFragment() {
@@ -184,6 +220,21 @@ class StalePartnerOperationError extends Error {
   constructor() {
     super("This sponsored access operation is no longer current.");
     this.name = "StalePartnerOperationError";
+  }
+}
+
+class StaleAccountDeletionError extends Error {
+  constructor() {
+    super("This account deletion is no longer current.");
+    this.name = "StaleAccountDeletionError";
+  }
+}
+
+class PartnerReleasePreparationError extends Error {
+  constructor() {
+    super("Sponsored account deletion could not be prepared safely.");
+    this.name = "PartnerReleasePreparationError";
+    this.code = "partner/release-preparation-failed";
   }
 }
 
@@ -254,6 +305,7 @@ export default function App() {
   const currentAuthUidRef = useRef(null);
   const operationIdRef = useRef(0);
   const activeOperationRef = useRef(null);
+  const accountDeletionBusyRef = useRef(false);
   const partnerFragmentRef = useRef(partnerFragment);
   const partnerRecoveryRef = useRef(null);
 
@@ -318,6 +370,49 @@ export default function App() {
         authGenerationRef.current === operation.authGeneration &&
         currentAuthUidRef.current === operation.uid,
     );
+
+  const beginAccountDeletionOperation = (expectedUid) => {
+    if (
+      !expectedUid ||
+      currentAuthUidRef.current !== expectedUid ||
+      accountDeletionBusyRef.current
+    ) {
+      return null;
+    }
+    const operation = {
+      id: operationIdRef.current + 1,
+      authGeneration: authGenerationRef.current,
+      uid: expectedUid,
+      kind: "account-deletion",
+    };
+    operationIdRef.current = operation.id;
+    activeOperationRef.current = operation;
+    accountDeletionBusyRef.current = true;
+    return operation;
+  };
+
+  const accountDeletionOperationIsCurrent = (operation) =>
+    Boolean(
+      operation &&
+        operationIdRef.current === operation.id &&
+        activeOperationRef.current?.id === operation.id &&
+        activeOperationRef.current?.kind === "account-deletion" &&
+        authGenerationRef.current === operation.authGeneration &&
+        currentAuthUidRef.current === operation.uid,
+    );
+
+  const requireCurrentAccountDeletion = (operation) => {
+    if (!accountDeletionOperationIsCurrent(operation)) {
+      throw new StaleAccountDeletionError();
+    }
+  };
+
+  const finishAccountDeletionOperation = (operation) => {
+    if (activeOperationRef.current?.id === operation?.id) {
+      activeOperationRef.current = null;
+    }
+    accountDeletionBusyRef.current = false;
+  };
 
   useEffect(() => {
     if (partnerFragment?.kind !== "learner" || !partnerFragment.token) {
@@ -1140,6 +1235,7 @@ export default function App() {
   };
 
   const logOut = async () => {
+    if (accountDeletionBusyRef.current) return;
     operationIdRef.current += 1;
     activeOperationRef.current = null;
     try {
@@ -1258,15 +1354,38 @@ export default function App() {
   };
 
   const retryPartnerReleaseConfirmation = async () => {
-    if (!pendingPartnerRelease || releaseConfirmationBusy) return;
+    if (
+      !pendingPartnerRelease ||
+      pendingPartnerRelease.terminal ||
+      releaseConfirmationBusy
+    ) {
+      return;
+    }
+    const recovery = {
+      receipt: pendingPartnerRelease.receipt,
+      ...(pendingPartnerRelease.expiresAt
+        ? { expiresAt: pendingPartnerRelease.expiresAt }
+        : {}),
+    };
+    const recoveryStatus = partnerReleaseRecoveryStatus(recovery);
+    if (!recoveryStatus.valid || recoveryStatus.expired) {
+      setPendingPartnerRelease({ ...recovery, terminal: "expired" });
+      return;
+    }
     setReleaseConfirmationBusy(true);
     try {
-      await confirmPartnerRelease({ receipt: pendingPartnerRelease.receipt });
-      clearStoredPartnerRelease();
+      const result = await confirmPartnerRelease({ receipt: recovery.receipt });
+      if (!partnerReleaseWasConfirmed(result)) return;
+      if (!clearStoredPartnerRelease()) {
+        setPendingPartnerRelease({ ...recovery, terminal: "storage" });
+        return;
+      }
       setPendingPartnerRelease(null);
       finishDeletedAccountLocally();
-    } catch {
-      // The receipt remains available for another idempotent Retry.
+    } catch (error) {
+      if (error?.code === "INVALID_RECEIPT") {
+        setPendingPartnerRelease({ ...recovery, terminal: "invalid" });
+      }
     } finally {
       setReleaseConfirmationBusy(false);
     }
@@ -1307,50 +1426,106 @@ export default function App() {
       throw new Error("Please enter your current password.");
     }
 
+    const expectedUser = user;
+    const expectedUid = user.uid;
+    const cachedProfile = profile;
+    const operation = beginAccountDeletionOperation(expectedUid);
+    if (!operation || !cachedProfile) {
+      throw new Error("We could not safely prepare account deletion. Please try again.");
+    }
+
     let idToken = null;
     let receipt = null;
     let releaseRecovery = null;
+    let profileDeleted = false;
+    let firebaseDeleted = false;
     try {
-      const credential = EmailAuthProvider.credential(user.email, currentPassword);
-      await reauthenticateWithCredential(user, credential);
-      idToken = await user.getIdToken(true);
+      requireCurrentAccountDeletion(operation);
+      const credential = EmailAuthProvider.credential(
+        expectedUser.email,
+        currentPassword,
+      );
+      await reauthenticateWithCredential(expectedUser, credential);
+      requireCurrentAccountDeletion(operation);
+      idToken = await expectedUser.getIdToken(true);
+      requireCurrentAccountDeletion(operation);
       const intent = await beginPartnerRelease({ idToken });
-      if (!validPartnerReleaseRecovery(intent)) {
-        throw new Error("Invalid partner release response.");
+      if (PARTNER_RELEASE_RECEIPT_PATTERN.test(intent?.receipt)) {
+        receipt = intent.receipt;
       }
-      receipt = intent.receipt;
+      const intentStatus = partnerReleaseRecoveryStatus(intent);
+      if (!intentStatus.valid || intentStatus.expired) {
+        throw new PartnerReleasePreparationError();
+      }
       releaseRecovery = {
         receipt,
         ...(typeof intent.expiresAt === "string"
           ? { expiresAt: intent.expiresAt }
           : {}),
       };
-      await deleteDoc(doc(db, "users", user.uid));
-      await deleteUser(user);
+      requireCurrentAccountDeletion(operation);
+      if (!storePartnerRelease(releaseRecovery)) {
+        throw new PartnerReleasePreparationError();
+      }
+      requireCurrentAccountDeletion(operation);
+      await deleteDoc(doc(db, "users", expectedUid));
+      profileDeleted = true;
+      requireCurrentAccountDeletion(operation);
+      await deleteUser(expectedUser);
+      firebaseDeleted = true;
     } catch (err) {
-      if (receipt && idToken) {
+      let releaseCancelled = !receipt;
+      let profileRestored = !profileDeleted;
+      if (!firebaseDeleted && receipt && idToken) {
         try {
-          await cancelPartnerRelease({ idToken, receipt });
+          const cancellation = await cancelPartnerRelease({ idToken, receipt });
+          releaseCancelled = cancellation?.cancelled === true;
         } catch {
-          // The pending server release automatically normalizes if cancellation
-          // is temporarily unavailable; the authenticated account stays active.
+          releaseCancelled = false;
+        }
+        if (profileDeleted) {
+          try {
+            await setDoc(doc(db, "users", expectedUid), cachedProfile);
+            profileRestored = true;
+          } catch {
+            profileRestored = false;
+          }
         }
       }
+      const recoveryCleared = receipt ? clearStoredPartnerRelease() : true;
+      const operationIsCurrent = accountDeletionOperationIsCurrent(operation);
+      finishAccountDeletionOperation(operation);
+      if (
+        operationIsCurrent &&
+        (!releaseCancelled || !profileRestored || !recoveryCleared)
+      ) {
+        updatePartnerRecovery({ kind: "deletion-reconciliation" });
+        setScreen("partner-error");
+        throw new Error(
+          "Account deletion stopped and needs support reconciliation.",
+        );
+      }
+      if (err instanceof StaleAccountDeletionError) throw err;
       throw new Error(accountDeletionErrorMessage(err));
     }
 
-    // Firebase authentication is gone at this point. Persist only the receipt
-    // and its expiry so confirmation can recover without a bearer token.
+    finishAccountDeletionOperation(operation);
+    // Firebase authentication is gone at this point. The already-verified
+    // receipt remains durable until semantic confirmation succeeds.
     setPendingPartnerRelease(releaseRecovery);
-    storePartnerRelease(releaseRecovery);
     finishDeletedAccountLocally();
     try {
-      await confirmPartnerRelease({ receipt });
-      clearStoredPartnerRelease();
+      const result = await confirmPartnerRelease({ receipt });
+      if (!partnerReleaseWasConfirmed(result)) return;
+      if (!clearStoredPartnerRelease()) {
+        setPendingPartnerRelease({ ...releaseRecovery, terminal: "storage" });
+        return;
+      }
       setPendingPartnerRelease(null);
-    } catch {
-      // Do not report success: the receipt stays private and Retry remains
-      // available even though Firebase authentication no longer exists.
+    } catch (error) {
+      if (error?.code === "INVALID_RECEIPT") {
+        setPendingPartnerRelease({ ...releaseRecovery, terminal: "invalid" });
+      }
     }
   };
 
@@ -1470,8 +1645,17 @@ export default function App() {
       <AppShell screen="partner-error">
         <PartnerReleaseRecovery
           busy={releaseConfirmationBusy}
+          terminal={Boolean(pendingPartnerRelease.terminal)}
           onRetry={retryPartnerReleaseConfirmation}
         />
+      </AppShell>
+    );
+  }
+
+  if (partnerRecovery?.kind === "deletion-reconciliation") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerDeletionReconciliation />
       </AppShell>
     );
   }
