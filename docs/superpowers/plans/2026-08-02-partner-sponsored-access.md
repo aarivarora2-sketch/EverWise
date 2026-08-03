@@ -558,7 +558,7 @@ Parse explicit flags without adding a dependency. Generate tokens inside the sto
 
 - partner ID: lowercase letters, numbers, and hyphens, 3–50 characters;
 - name: 2–100 characters;
-- seat limit: integer 1–5000;
+- seat limit: exactly `500`; reject every other value so provisioning cannot diverge from the purchased 500-account contract;
 - same-origin logo path beginning with `/partners/` or `null`;
 - accent: six-digit hex passing the app's contrast validator.
 
