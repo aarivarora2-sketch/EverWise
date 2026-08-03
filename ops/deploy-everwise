@@ -81,7 +81,7 @@ configure_runtime() {
 
 unsafe_archive_entry() {
   local archive_entry="$1"
-  local trimmed component normalized_component basename normalized_basename
+  local trimmed component normalized_component
 
   [[ -z "$archive_entry" ]] && return 0
   [[ "$archive_entry" == /* ]] && return 0
@@ -95,15 +95,12 @@ unsafe_archive_entry() {
     [[ "$component" == .* ]] && return 0
     normalized_component="$(printf '%s' "$component" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
     [[ "$normalized_component" == "node_modules" ]] && return 0
+    case "$normalized_component" in
+      .env|.env.*|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|partners.json|partners.json.*|partner[-_]data*|partner[-_]store*|private*|*credential*|*secret*|*private*key*|*api*key*|*access*key*|key|keys|key[-_.]*|keys[-_.]*|id_rsa|id_ed25519)
+        return 0
+        ;;
+    esac
   done
-
-  basename="${trimmed##*/}"
-  normalized_basename="$(printf '%s' "$basename" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-  case "$normalized_basename" in
-    .env|.env.*|*.pem|*.key|partners.json|partners.json.*|*credential*|*secret*|*private*key*|*api*key*|*access*key*|id_rsa|id_ed25519)
-      return 0
-      ;;
-  esac
 
   case "$archive_entry" in
     server.mjs|server/|scripts/|scripts/manage-partners.mjs|dist/|dist/*)

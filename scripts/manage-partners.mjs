@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createPartnerStore } from "../server/partnerStore.mjs";
-import { resolve } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_STORE_PATH = "/var/lib/everwise/partners.json";
@@ -37,6 +38,48 @@ class CliError extends Error {}
 
 function fail(message) {
   throw new CliError(message);
+}
+
+function canonicalizeExistingPath(filePath) {
+  let currentPath = filePath;
+  const missingComponents = [];
+  while (true) {
+    try {
+      return join(realpathSync(currentPath), ...missingComponents);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        fail("The partner store path is unavailable.");
+      }
+      const parentPath = dirname(currentPath);
+      if (parentPath === currentPath) {
+        fail("The partner store path is unavailable.");
+      }
+      missingComponents.unshift(basename(currentPath));
+      currentPath = parentPath;
+    }
+  }
+}
+
+export function canonicalPartnerStorePath(filePath) {
+  if (typeof filePath !== "string" || filePath.length === 0) {
+    fail("The partner store path is unavailable.");
+  }
+  const absolutePath = resolve(filePath);
+  try {
+    const file = lstatSync(absolutePath);
+    if (file.isSymbolicLink() || !file.isFile()) {
+      fail("The partner store path must resolve to a regular non-symlink file.");
+    }
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    if (error.code !== "ENOENT") {
+      fail("The partner store path is unavailable.");
+    }
+  }
+  return join(
+    canonicalizeExistingPath(dirname(absolutePath)),
+    basename(absolutePath),
+  );
 }
 
 function parseArguments(argv) {
@@ -166,7 +209,9 @@ export function prepareProductionIdentity(
     setuid = process.setuid?.bind(process),
   } = {},
 ) {
-  if (resolve(filePath) !== DEFAULT_STORE_PATH || getuid?.() !== 0) return false;
+  const canonicalFilePath = canonicalPartnerStorePath(filePath);
+  const canonicalDefaultPath = canonicalPartnerStorePath(DEFAULT_STORE_PATH);
+  if (canonicalFilePath !== canonicalDefaultPath || getuid?.() !== 0) return false;
   if (!setgroups || !setgid || !setuid) {
     fail("The production partner store requires the www-data service account.");
   }
@@ -178,7 +223,7 @@ export function prepareProductionIdentity(
 
 async function run(argv) {
   const { command, options } = parseArguments(argv);
-  const filePath = resolve(
+  const filePath = canonicalPartnerStorePath(
     process.env.EVERWISE_PARTNER_STORE_PATH || DEFAULT_STORE_PATH,
   );
   prepareProductionIdentity(filePath);

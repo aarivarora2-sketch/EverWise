@@ -43,29 +43,39 @@ let temporaryFileCounter = 0;
 const LOCK_HELPER_SOURCE = String.raw`
 use strict;
 use warnings;
-use Fcntl qw(:DEFAULT :flock);
+use Fcntl qw(:flock);
 
-sysopen(my $lock_file, $ARGV[0], O_CREAT | O_RDWR, 0600)
-  or die "lock open failed\n";
-flock($lock_file, LOCK_EX)
+flock(STDIN, LOCK_EX)
   or die "lock acquisition failed\n";
 $| = 1;
 print "LOCKED\n";
-while (sysread(STDIN, my $buffer, 4096)) {}
 `;
 
 function storeError(code, message) {
   return new PartnerStoreError(code, message);
 }
 
-function acquireInterprocessMutationLock(filePath) {
+async function acquireInterprocessMutationLock(filePath) {
+  let lockHandle;
+  try {
+    lockHandle = await open(`${filePath}.lock`, "a+", 0o600);
+  } catch {
+    throw storeError("STORE_LOCK_FAILED", "The partner store lock could not open.");
+  }
+
+  let lockHandleOpen = true;
+  const closeLockHandle = async () => {
+    if (!lockHandleOpen) return;
+    lockHandleOpen = false;
+    await lockHandle.close();
+  };
+
   return new Promise((resolve, reject) => {
-    const helper = spawn(
-      "/usr/bin/perl",
-      ["-e", LOCK_HELPER_SOURCE, `${filePath}.lock`],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    const helper = spawn("/usr/bin/perl", ["-e", LOCK_HELPER_SOURCE], {
+      stdio: [lockHandle.fd, "pipe", "pipe"],
+    });
     let ready = false;
+    let settled = false;
     let stdout = "";
     let stderr = "";
 
@@ -75,45 +85,37 @@ function acquireInterprocessMutationLock(filePath) {
       stderr = `${stderr}${chunk}`.slice(-1000);
     });
 
-    const exitResult = new Promise((exitResolve) => {
-      helper.once("exit", (code, signal) => exitResolve({ code, signal }));
-    });
-
     helper.once("error", () => {
-      reject(storeError("STORE_LOCK_FAILED", "The partner store lock could not start."));
+      if (settled) return;
+      settled = true;
+      closeLockHandle().then(
+        () => reject(storeError(
+          "STORE_LOCK_FAILED",
+          "The partner store lock could not start.",
+        )),
+        reject,
+      );
     });
     helper.stdout.on("data", (chunk) => {
-      if (ready) return;
       stdout += chunk;
-      if (!stdout.includes("\n")) return;
-      if (stdout !== "LOCKED\n") {
-        helper.stdin.end();
-        reject(storeError("STORE_LOCK_FAILED", "The partner store lock failed."));
+      ready = stdout === "LOCKED\n";
+    });
+    helper.once("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0 && signal === null && ready) {
+        resolve(closeLockHandle);
         return;
       }
-      ready = true;
-      resolve(async () => {
-        if (helper.exitCode === null && helper.signalCode === null) {
-          helper.stdin.end();
-        }
-        const { code, signal } = await exitResult;
-        if (code !== 0 || signal !== null) {
-          throw storeError(
-            "STORE_LOCK_FAILED",
-            stderr ? "The partner store lock ended unexpectedly." : "The partner store lock failed.",
-          );
-        }
-      });
-    });
-    exitResult.then(({ code, signal }) => {
-      if (!ready) {
-        reject(storeError(
+      closeLockHandle().then(
+        () => reject(storeError(
           "STORE_LOCK_FAILED",
-          code !== 0 || signal !== null
-            ? "The partner store lock failed."
-            : "The partner store lock ended before acquisition.",
-        ));
-      }
+          stderr
+            ? "The partner store lock ended unexpectedly."
+            : "The partner store lock failed.",
+        )),
+        reject,
+      );
     });
   });
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   access,
   chmod as fsChmod,
@@ -129,6 +129,17 @@ async function waitForPath(path, timeoutMs = 5000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(`Timed out waiting for ${path}`);
+}
+
+function directChildProcessIds(pid) {
+  const result = spawnSync("pgrep", ["-P", String(pid), "."], {
+    encoding: "utf8",
+  });
+  assert.ok([0, 1].includes(result.status), result.stderr);
+  return result.stdout
+    .split("\n")
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter(Number.isInteger);
 }
 
 test("createPartner persists schema v1 and returns one-time 32-byte tokens", async (t) => {
@@ -301,6 +312,73 @@ test("API and CLI processes serialize claim and rotation without losing either m
   );
 });
 
+test("writer retains its lock after the acquisition helper exits or is killed", async (t) => {
+  const { directory, filePath, store } = await setupStore(t, {
+    testOnlyAllowCustomSeatLimits: false,
+  });
+  const created = await createPilot(store);
+  const markerPath = join(directory, "writer-after-acquisition.marker");
+  const claimSource = `
+    const { rename, writeFile } = await import("node:fs/promises");
+    const { createPartnerStore } = await import(${JSON.stringify(partnerStoreUrl)});
+    let delayed = false;
+    const store = createPartnerStore({
+      filePath: ${JSON.stringify(filePath)},
+      testOnlyFileOperations: {
+        rename: async (...args) => {
+          if (!delayed) {
+            delayed = true;
+            await writeFile(${JSON.stringify(markerPath)}, "ready");
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+          return rename(...args);
+        },
+      },
+    });
+    await store.claimSeat({
+      uid: "uid-after-acquisition-helper",
+      inviteToken: ${JSON.stringify(created.inviteToken)},
+      researchConsent: false,
+    });
+  `;
+  const claimChild = spawnModule(claimSource);
+  const claimFinished = childResult(claimChild);
+  t.after(() => {
+    if (claimChild.exitCode === null) claimChild.kill("SIGKILL");
+  });
+
+  await waitForPath(markerPath);
+  const acquisitionHelperPids = directChildProcessIds(claimChild.pid);
+  for (const helperPid of acquisitionHelperPids) process.kill(helperPid, "SIGKILL");
+
+  const cliChild = spawn(
+    process.execPath,
+    [managePartnersPath, "rotate-invite", "--id", "pilot"],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, EVERWISE_PARTNER_STORE_PATH: filePath },
+    },
+  );
+  const [claimResult, cliResult] = await Promise.all([
+    claimFinished,
+    childResult(cliChild),
+  ]);
+  assert.equal(cliResult.code, 0, cliResult.stderr);
+  const rotatedToken = cliResult.stdout.match(/#partner=([A-Za-z0-9_-]{43})/)?.[1];
+  assert.ok(rotatedToken, cliResult.stdout);
+  assert.equal(
+    (await store.previewInvite({ inviteToken: rotatedToken })).partnerId,
+    "pilot",
+  );
+  assert.equal((await store.listPartners())[0].claimedCount, 1);
+  assert.equal(claimResult.code, 0, claimResult.stderr);
+  assert.equal(
+    acquisitionHelperPids.length,
+    0,
+    "the acquisition helper must exit before the writer enters persistence",
+  );
+});
+
 test("interprocess mutation lock is released by the kernel after a writer crash", async (t) => {
   const { directory, filePath, store } = await setupStore(t, {
     testOnlyAllowCustomSeatLimits: false,
@@ -315,7 +393,7 @@ test("interprocess mutation lock is released by the kernel after a writer crash"
       testOnlyFileOperations: {
         rename: async (...args) => {
           await writeFile(${JSON.stringify(markerPath)}, "ready");
-          await new Promise(() => {});
+          await new Promise((resolve) => setTimeout(resolve, 60_000));
           return rename(...args);
         },
       },

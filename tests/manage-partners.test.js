@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -368,4 +368,40 @@ test("production CLI drops root privileges to the partner-store service account"
     ["gid", "www-data"],
     ["uid", "www-data"],
   ]);
+});
+
+test("production identity resolves directory symlink aliases and rejects final symlinks", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-partner-path-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const directoryAlias = join(directory, "lib-alias");
+  await symlink("/var/lib", directoryAlias, "dir");
+  const storeAlias = join(directoryAlias, "everwise", "partners.json");
+  const module = await import("../scripts/manage-partners.mjs");
+  assert.equal(typeof module.canonicalPartnerStorePath, "function");
+  assert.equal(
+    module.canonicalPartnerStorePath(storeAlias),
+    join(await realpath("/var/lib"), "everwise", "partners.json"),
+  );
+
+  const calls = [];
+  assert.equal(module.prepareProductionIdentity(storeAlias, {
+    getuid: () => 0,
+    setgroups: (value) => calls.push(["groups", value]),
+    setgid: (value) => calls.push(["gid", value]),
+    setuid: (value) => calls.push(["uid", value]),
+  }), true);
+  assert.deepEqual(calls, [
+    ["groups", []],
+    ["gid", "www-data"],
+    ["uid", "www-data"],
+  ]);
+
+  const targetPath = join(directory, "real-partners.json");
+  const fileAlias = join(directory, "partners-link.json");
+  await writeFile(targetPath, "{}\n", { mode: 0o600 });
+  await symlink(targetPath, fileAlias);
+  assert.throws(
+    () => module.canonicalPartnerStorePath(fileAlias),
+    /regular non-symlink file/,
+  );
 });
