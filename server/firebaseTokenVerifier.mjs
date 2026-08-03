@@ -328,7 +328,7 @@ export function createFirebaseTokenVerifier({
 
   async function verifyIdToken(token) {
     const parsed = parseToken(token);
-    const identity = validateClaims(
+    validateClaims(
       parsed.claims,
       projectId,
       Math.floor(currentTimeMilliseconds(now) / 1000),
@@ -351,7 +351,11 @@ export function createFirebaseTokenVerifier({
       throw invalidToken();
     }
     if (!signatureIsValid) throw invalidToken();
-    return identity;
+    return validateClaims(
+      parsed.claims,
+      projectId,
+      Math.floor(currentTimeMilliseconds(now) / 1000),
+    );
   }
 
   return { verifyIdToken };

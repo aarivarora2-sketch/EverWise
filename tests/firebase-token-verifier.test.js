@@ -139,6 +139,23 @@ test("rejects wrong issuer, wrong audience, and invalid token times", async () =
   }
 });
 
+test("rejects a token that expires while certificates are being fetched", async () => {
+  let currentTime = START;
+  const verifier = createFirebaseTokenVerifier({
+    projectId: PROJECT_ID,
+    fetchImpl: async () => {
+      currentTime += 2_000;
+      return certificateResponse();
+    },
+    now: () => new Date(currentTime),
+  });
+  const token = createToken({
+    claims: validClaims({ exp: START_SECONDS + 1 }),
+  });
+
+  await expectRejected(verifier, token);
+});
+
 test("rejects blank and overlong Firebase subjects", async () => {
   for (const sub of ["", "   ", "u".repeat(129)]) {
     const { verifier } = setupVerifier();
