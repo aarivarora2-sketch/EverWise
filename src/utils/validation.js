@@ -1,18 +1,18 @@
-// Everwise signs people in with a username, not an email address — we never
-// send mail, so asking for an inbox was friction with no payoff. Firebase Auth
-// still requires an email-shaped credential, so each username is mapped to a
-// synthetic address on this reserved domain. It is never delivered to.
+// Public Everwise accounts use memorable usernames. Firebase Auth still
+// requires an email-shaped credential, so usernames are mapped to this
+// reserved, non-deliverable domain. Sponsored accounts keep real email login
+// so partner learners can use password recovery.
 export const USERNAME_AUTH_DOMAIN = "accounts.everwise.app";
-
 export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 30;
+const RESERVED_SPONSORED_USERNAME_PATTERN = /^everwise(?:00[1-9]|0[1-9]\d|[1-4]\d{2}|500)$/;
+const PROVISIONED_SPONSORED_AUTH_EMAIL_PATTERN =
+  /^ewp-[a-f0-9]{48}@accounts\.everwise\.app$/;
 
 export function normalizeUsername(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-// Letters, numbers, dots, underscores and hyphens. Must start and end with a
-// letter or number so nothing ambiguous ends up in the synthetic address.
 export function isValidUsername(value) {
   const username = normalizeUsername(value);
   if (
@@ -21,15 +21,22 @@ export function isValidUsername(value) {
   ) {
     return false;
   }
+  if (isReservedSponsoredUsername(username)) return false;
   return /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/.test(username);
 }
 
-// Turns a username into the credential Firebase Auth actually stores.
+export function isReservedSponsoredUsername(value) {
+  return RESERVED_SPONSORED_USERNAME_PATTERN.test(normalizeUsername(value));
+}
+
+export function isProvisionedSponsoredAuthEmail(value) {
+  return PROVISIONED_SPONSORED_AUTH_EMAIL_PATTERN.test(normalizeEmail(value));
+}
+
 export function usernameToAuthEmail(value) {
   return `${normalizeUsername(value)}@${USERNAME_AUTH_DOMAIN}`;
 }
 
-// Recovers the display username from a stored auth email.
 export function authEmailToUsername(value) {
   const email = String(value ?? "");
   const suffix = `@${USERNAME_AUTH_DOMAIN}`;
@@ -37,7 +44,14 @@ export function authEmailToUsername(value) {
 }
 
 export function normalizeEmail(value) {
-  return value.trim().toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export function loginIdentifierToAuthEmail(value) {
+  const identifier = String(value ?? "").trim();
+  return identifier.includes("@")
+    ? normalizeEmail(identifier)
+    : usernameToAuthEmail(identifier);
 }
 
 export function isValidEmail(value) {

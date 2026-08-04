@@ -4,9 +4,11 @@ import {
   StarIcon,
 } from "../components/Icons";
 import AddToHomeScreenBanner from "../components/AddToHomeScreenBanner";
+import { PartnerLogo } from "../components/PartnerBrand.jsx";
 import TextSizeControl from "../components/TextSizeControl";
 
 export default function Home({
+  partner = null,
   name,
   scamsCaught = 0,
   badgesEarned = 0,
@@ -18,8 +20,8 @@ export default function Home({
   onOpenSettings,
   onOpenScamChecker,
 }) {
+  const partnerName = partner?.name?.trim();
   const firstName = name ? name.trim().split(" ")[0] : "";
-
   const textSizeControl = (
     <TextSizeControl
       textSize={textSize}
@@ -44,9 +46,22 @@ export default function Home({
               aria-hidden="true"
               className="h-9 w-9 object-contain"
             />
-            <p className="font-sans text-xl font-semibold tracking-tight text-ink">
-              Everwise
-            </p>
+            <div>
+              <p className="font-sans text-xl font-semibold tracking-tight text-ink">
+                Everwise
+              </p>
+              {partnerName ? (
+                <div className="home-partner-lockup">
+                  <PartnerLogo
+                    partner={partner}
+                    className="home-partner-logo"
+                  />
+                  <p className="home-partner-branding">
+                    Access provided by {partnerName}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
           <button
             type="button"
@@ -79,9 +94,7 @@ export default function Home({
           {textSizeControl}
         </div>
 
-        {/* Desktop page header — a real dashboard greeting, not a phone
-            title bar. The text-size control lives in the sidebar here, so it
-            is not repeated inline. */}
+        {/* Desktop page header — text size remains available in the sidebar. */}
         <div className="hidden items-start justify-between gap-6 lg:flex">
           <div>
             <p className="font-sans text-6xl font-bold tracking-tight text-ink">
@@ -101,7 +114,6 @@ export default function Home({
               <li>Revisit any of it anytime from the menu on the left.</li>
             </ul>
           </div>
-          {textSizeControl}
         </div>
 
         <div className="home-dashboard mt-5 flex min-h-0 flex-1 flex-col justify-between gap-4 pb-1 lg:mt-12 lg:pb-0">

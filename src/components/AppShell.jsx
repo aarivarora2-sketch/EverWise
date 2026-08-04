@@ -6,6 +6,7 @@ import {
   ShieldIcon,
 } from "./Icons";
 import { primaryNavigationState } from "../utils/responsiveNavigation.js";
+import { PartnerLogo } from "./PartnerBrand.jsx";
 import TextSizeControl from "./TextSizeControl";
 import CourseProgressCard from "./CourseProgressCard";
 
@@ -21,6 +22,8 @@ export default function AppShell({
   children,
   screen = "loading",
   isAuthenticated = false,
+  partner = null,
+  navigationDisabled = false,
   onHome,
   onCourse,
   onScamChecker,
@@ -39,6 +42,7 @@ export default function AppShell({
     settings: onSettings,
   };
   const showNavigation = navigation.length > 0;
+  const partnerName = partner?.name?.trim();
 
   return (
     <div className={`app-viewport app-screen-${screen}`}>
@@ -56,7 +60,18 @@ export default function AppShell({
                 aria-hidden="true"
                 className="app-navigation-logo"
               />
-              <span>Everwise</span>
+              <strong className="app-navigation-brand-name">Everwise</strong>
+              {partnerName ? (
+                <div className="app-navigation-partner-lockup">
+                  <PartnerLogo
+                    partner={partner}
+                    className="app-navigation-partner-logo"
+                  />
+                  <small className="app-navigation-partner">
+                    Access provided by {partnerName}
+                  </small>
+                </div>
+              ) : null}
             </div>
             <div className="app-navigation-items">
               {navigation.map((item) => {
@@ -66,6 +81,7 @@ export default function AppShell({
                     key={item.id}
                     type="button"
                     onClick={handlers[item.id]}
+                    disabled={navigationDisabled}
                     aria-current={item.active ? "page" : undefined}
                     className={`app-navigation-item ${
                       item.active ? "is-active" : ""
@@ -76,10 +92,6 @@ export default function AppShell({
                   </button>
                 );
               })}
-
-              {/* Text size sits directly under the nav links — in the reading
-                  path, not tucked into a corner — so it is reachable from
-                  every screen, not just Home. */}
               {onTextSizeChange ? (
                 <div className="app-navigation-textsize">
                   <span className="app-navigation-textsize-label">

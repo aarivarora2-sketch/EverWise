@@ -54,17 +54,25 @@
   <main>
     <a class="home-link" href="/EverWise/">← Back to Everwise</a>
     <h1>Everwise Privacy Policy</h1>
-    <p class="updated">Last updated: July 27, 2026</p>
+    <p class="updated">Last updated: August 3, 2026</p>
 
     <p>This policy describes what information Everwise ("we," "us") collects, why, and how you can control it. Everwise is a digital literacy and scam-awareness app for adults, offered on the Apple App Store.</p>
 
     <h2>Information we collect</h2>
-    <p><strong>Account information.</strong> When you create an account, we collect your name, email address, and password. Your password is handled by Firebase Authentication (Google) and is never stored by us in plain text or visible to us.</p>
+    <p><strong>Account information.</strong> We collect your name and the account credential needed to sign you in. We collect a personal email address only when you join through a sponsored invitation that asks for it. For ordinary username accounts and pre-provisioned fixed username accounts, Everwise creates a synthetic internal email address used only to operate Firebase Authentication; a learner with a fixed username is not asked for a personal email. For ordinary learner accounts, Firebase Authentication (Google) handles your password, and it is not visible to Everwise. For the 500 pre-provisioned sponsored learners, an operator-generated pre-provisioned roster contains plaintext usernames and passwords only for approved private distribution. This roster stays outside GitHub, cloud-synced storage, and cloud deployment artifacts, with owner-only local access. These pre-provisioned credentials are not temporary, and learners are not forced to change them.</p>
     <p><strong>Onboarding answers.</strong> During setup, we ask a few questions about your goals and comfort with technology so lessons can be tailored to you. These answers are stored with your account.</p>
     <p><strong>Progress data.</strong> We store which lessons, challenges, and exams you've completed, badges you've earned, and your subscription status, so your progress is saved across sessions.</p>
     <p><strong>Scam Checker messages.</strong> When you paste a message into the Scam Checker, the message text is sent to our AI provider (OpenAI) solely to generate an assessment. We do not save the message text in our own database, and we ask OpenAI not to retain it for model training. We can't control how long OpenAI's infrastructure briefly retains data for abuse-monitoring purposes under their own policies — avoid pasting passwords, account numbers, or other highly sensitive information into the checker.</p>
     <p><strong>Read-aloud audio.</strong> When you use the "read aloud" feature, the on-screen text is sent to our text-to-speech provider (ElevenLabs) to generate audio, which is returned to your device. We do not store this audio.</p>
     <p><strong>Subscription and billing.</strong> Subscriptions are purchased and managed through Apple's In-App Purchase system. We never see or store your payment card details — Apple handles billing directly, and we only receive confirmation of your subscription status.</p>
+
+    <h2>Sponsored access</h2>
+    <p>A community organization may sponsor your Everwise access so you can use the app without paying. The organization can see the number of sponsored places in use and available, along with the status of its invitation link. It does not receive your name, email address, account ID, individual profile, lesson progress, or individual assessment answers.</p>
+
+    <h2>Optional research</h2>
+    <p>Invitation-based sponsored signup includes a separate, optional research consent question asking whether you want to share a minimized, pseudonymized copy of selected onboarding answers for research. This copy is internally linked to your account by a pseudonymous code only so we can delete it with your account and include it in aggregate reporting. Choosing “No” does not affect your sponsored access or your personal learning plan.</p>
+    <p>Pre-provisioned fixed username learners are not asked for research consent during setup. Their onboarding answers are used for their personal learning experience and are not copied into research data or included in partner research totals. A separate explicit consent flow would be required before that could change.</p>
+    <p>When at least five people have chosen “Yes,” partners receive aggregate group totals only, never individual answers. Smaller groups are not shown. We do not sell your assessment answers or use them for advertising.</p>
 
     <h2>Information we do not collect</h2>
     <p>We do not use advertising, third-party analytics, or tracking SDKs of any kind. We do not access your contacts, photos, camera, or location. We do not sell your personal information to anyone, for any reason.</p>
@@ -80,10 +88,10 @@
     <p>We do not share your data with anyone else, including for marketing purposes.</p>
 
     <h2>How long we keep information</h2>
-    <p>We keep your account and progress data as long as your account is active. If you delete your account (available anytime in Settings), your account record and progress data are permanently deleted. Scam Checker messages and read-aloud text are not retained by us in the first place.</p>
+    <p>We keep your account and progress data as long as your account is active. If you delete your account (available anytime in Settings), your account record, progress data, and any optional research copy linked to it are permanently deleted. Scam Checker messages and read-aloud text are not retained by us in the first place.</p>
 
     <h2>Your choices and rights</h2>
-    <p>You can review and correct your account information from within the app. You can delete your account and all associated data at any time from Settings → Delete account. You can also reach us at <a href="mailto:everwisedigitalliteracy@gmail.com">everwisedigitalliteracy@gmail.com</a> to request access to, correction of, or deletion of your data.</p>
+    <p>You can review and correct your account information from within the app. You can delete your account and all associated sponsored-access and research data at any time from Settings → Delete account. You can also reach us at <a href="mailto:everwisedigitalliteracy@gmail.com">everwisedigitalliteracy@gmail.com</a> to request access to, correction of, or deletion of your data.</p>
     <p>Depending on where you live, you may have additional rights under laws such as the California Consumer Privacy Act (CCPA) or similar state privacy laws, including the right to know what personal information we hold and to request its deletion. Contact us at the email above to exercise these rights.</p>
 
     <h2>Children's privacy</h2>

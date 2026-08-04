@@ -12,7 +12,9 @@ dist
 dist-ssr
 .derived-data
 .superpowers/
+.worktrees/
 *.local
+everwise-sponsored-accounts*.csv
 
 # Editor directories and files
 .vscode/*

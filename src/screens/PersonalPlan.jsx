@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Check, ShieldCheck, Sparkles } from "lucide-react";
 
 function getPlan(profile) {
@@ -49,7 +49,7 @@ function getPlan(profile) {
   };
 }
 
-export default function PersonalPlan({ profile, onContinue }) {
+export default function PersonalPlan({ profile, sponsored = false, onContinue }) {
   const [ready, setReady] = useState(false);
   const plan = useMemo(() => getPlan(profile), [profile]);
 
@@ -140,7 +140,7 @@ export default function PersonalPlan({ profile, onContinue }) {
 
       <div className="mt-auto pt-7">
         <button type="button" className="btn-primary" onClick={onContinue}>
-          See my plan options
+          {sponsored ? "Start learning" : "See my plan options"}
         </button>
       </div>
     </div>

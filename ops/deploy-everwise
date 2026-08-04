@@ -1,0 +1,459 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_path="/etc/everwise/everwise.env"
+readonly MAX_COMPRESSED_UPLOAD_BYTES=$((16 * 1024 * 1024))
+readonly MAX_ARCHIVE_ENTRIES=4096
+readonly MAX_INDIVIDUAL_ENTRY_BYTES=$((8 * 1024 * 1024))
+readonly MAX_TOTAL_EXPANDED_BYTES=$((64 * 1024 * 1024))
+
+health_is_healthy() {
+  local require_partner_health="${1:-false}"
+  local health
+
+  systemctl is-active --quiet everwise-api.service || return 1
+  for _attempt in {1..20}; do
+    health="$(curl -fsS --max-time 5 http://127.0.0.1:8787/healthz || true)"
+    if grep -q '"readAloudConfigured":true' <<<"$health" &&
+       grep -q '"scamCheckerConfigured":true' <<<"$health" &&
+       { [[ "$require_partner_health" != "true" ]] ||
+         { grep -q '"partnerAccessConfigured":true' <<<"$health" &&
+           grep -q '"partnerStoreHealthy":true' <<<"$health"; }; }; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
+}
+
+runtime_is_healthy() {
+  health_is_healthy false
+}
+
+release_is_healthy() {
+  health_is_healthy true
+}
+
+verify_helper() {
+  local expected_sha="$1"
+  local actual_sha
+
+  actual_sha="$(sha256sum "$0")"
+  actual_sha="${actual_sha%% *}"
+  if [[ "$actual_sha" != "$expected_sha" ]]; then
+    echo "Installed EverWise deployment helper does not match this release." >&2
+    exit 1
+  fi
+  echo "EverWise deployment helper matches this release."
+  exit 0
+}
+
+configure_runtime() {
+  local incoming_path backup_path=""
+  local -a runtime_lines
+
+  install -d -o root -g www-data -m 750 /etc/everwise
+  incoming_path="$(mktemp /etc/everwise/everwise.env.incoming.XXXXXX)"
+
+  cleanup_runtime_files() {
+    rm -f "$incoming_path"
+    if [[ -n "$backup_path" ]]; then
+      rm -f "$backup_path"
+    fi
+  }
+  trap cleanup_runtime_files EXIT
+
+  chmod 600 "$incoming_path"
+  cat > "$incoming_path"
+  mapfile -t runtime_lines < "$incoming_path"
+
+  if [[ "${#runtime_lines[@]}" -ne 8 ]] ||
+     [[ ! "${runtime_lines[0]}" =~ ^OPENAI_API_KEY=[A-Za-z0-9._-]{20,}$ ]] ||
+     [[ ! "${runtime_lines[1]}" =~ ^ELEVENLABS_API_KEY=[A-Za-z0-9._-]{20,}$ ]] ||
+     [[ ! "${runtime_lines[2]}" =~ ^ELEVENLABS_VOICE_ID=[A-Za-z0-9_-]{10,}$ ]] ||
+     [[ ! "${runtime_lines[3]}" =~ ^STRIPE_SECRET_KEY=sk_(live|test)_[A-Za-z0-9._-]+$ ]] ||
+     [[ ! "${runtime_lines[4]}" =~ ^STRIPE_WEBHOOK_SECRET=whsec_[A-Za-z0-9._-]{20,}$ ]] ||
+     [[ ! "${runtime_lines[5]}" =~ ^STRIPE_MONTHLY_PRICE_ID=price_[A-Za-z0-9_]+$ ]] ||
+     [[ ! "${runtime_lines[6]}" =~ ^STRIPE_ANNUAL_PRICE_ID=price_[A-Za-z0-9_]+$ ]] ||
+     [[ ! "${runtime_lines[7]}" =~ ^EVERWISE_PUBLIC_APP_ORIGIN=https://[A-Za-z0-9._:/-]+$ ]]; then
+    echo "Invalid EverWise runtime configuration." >&2
+    exit 1
+  fi
+
+  if [[ -f "$runtime_path" ]]; then
+    backup_path="$(mktemp /etc/everwise/everwise.env.backup.XXXXXX)"
+    cp -p "$runtime_path" "$backup_path"
+  fi
+
+  install -o root -g www-data -m 640 "$incoming_path" "$runtime_path"
+  if systemctl restart everwise-api.service && runtime_is_healthy; then
+    echo "EverWise runtime configuration updated successfully."
+    exit 0
+  fi
+
+  if [[ -n "$backup_path" ]]; then
+    install -o root -g www-data -m 640 "$backup_path" "$runtime_path"
+  else
+    rm -f "$runtime_path"
+  fi
+  systemctl restart everwise-api.service || true
+  echo "EverWise runtime configuration failed; the prior configuration was restored." >&2
+  exit 1
+}
+
+unsafe_archive_entry() {
+  local archive_entry="$1"
+  local trimmed component normalized_component
+
+  [[ -z "$archive_entry" ]] && return 0
+  [[ "$archive_entry" == /* ]] && return 0
+  [[ "$archive_entry" == *\\* ]] && return 0
+  [[ "$archive_entry" == *//* ]] && return 0
+
+  trimmed="${archive_entry%/}"
+  IFS='/' read -r -a components <<<"$trimmed"
+  for component in "${components[@]}"; do
+    [[ -z "$component" || "$component" == "." || "$component" == ".." ]] && return 0
+    [[ "$component" == .* ]] && return 0
+    normalized_component="$(printf '%s' "$component" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+    [[ "$normalized_component" == "node_modules" ]] && return 0
+    case "$normalized_component" in
+      .env|.env.*|*.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|partners.json|partners.json.*|partner[-_]data*|partner[-_]store*|private*|*credential*|*secret*|*private*key*|*api*key*|*access*key*|key|keys|key[-_.]*|keys[-_.]*|id_rsa|id_ed25519)
+        return 0
+        ;;
+    esac
+  done
+
+  case "$archive_entry" in
+    server.mjs|server/|scripts/|scripts/manage-partners.mjs|dist/|dist/*)
+      return 1
+      ;;
+    server/*.mjs)
+      [[ "${archive_entry#server/}" == */* ]] && return 0
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+validate_archive_bounds() {
+  local archive_path="$1"
+  local compressed_bytes node_path
+
+  compressed_bytes="$(wc -c < "$archive_path")"
+  if [[ ! "$compressed_bytes" =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]] ||
+     (( compressed_bytes > MAX_COMPRESSED_UPLOAD_BYTES )); then
+    echo "Release archive exceeds the compressed upload limit." >&2
+    return 1
+  fi
+
+  node_path="/usr/local/bin/node"
+  if [[ ! -x "$node_path" ]]; then
+    node_path="$(command -v node)"
+  fi
+
+  "$node_path" --input-type=module - "$archive_path" \
+    "$MAX_ARCHIVE_ENTRIES" \
+    "$MAX_INDIVIDUAL_ENTRY_BYTES" \
+    "$MAX_TOTAL_EXPANDED_BYTES" <<'NODE'
+import { createReadStream } from "node:fs";
+import { createGunzip } from "node:zlib";
+
+const [archivePath, entryLimitText, entrySizeLimitText, totalSizeLimitText] =
+  process.argv.slice(2);
+const entryLimit = Number(entryLimitText);
+const entrySizeLimit = Number(entrySizeLimitText);
+const totalSizeLimit = Number(totalSizeLimitText);
+const streamSizeLimit = totalSizeLimit + entryLimit * 1024 + 1024;
+
+function invalidArchive() {
+  throw new Error("Release archive exceeds safe extraction bounds.");
+}
+
+function parseOctalSize(field) {
+  if (field[0] & 0x80) invalidArchive();
+  for (const byte of field) {
+    const isOctal = byte >= 0x30 && byte <= 0x37;
+    if (!isOctal && byte !== 0 && byte !== 0x20) invalidArchive();
+  }
+  const text = field.toString("ascii").replaceAll("\0", " ").trim();
+  if (!/^[0-7]+$/.test(text)) invalidArchive();
+  let value = 0n;
+  for (const digit of text) value = value * 8n + BigInt(digit);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) invalidArchive();
+  return Number(value);
+}
+
+let pending = Buffer.alloc(0);
+let paddedPayloadBytes = 0;
+let entries = 0;
+let expandedBytes = 0;
+let tarStreamBytes = 0;
+let zeroBlocks = 0;
+let reachedEnd = false;
+
+function consume(chunk) {
+  tarStreamBytes += chunk.length;
+  if (tarStreamBytes > streamSizeLimit) invalidArchive();
+  pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+
+  while (pending.length > 0) {
+    if (paddedPayloadBytes > 0) {
+      const consumed = Math.min(paddedPayloadBytes, pending.length);
+      pending = pending.subarray(consumed);
+      paddedPayloadBytes -= consumed;
+      if (paddedPayloadBytes > 0) return;
+      continue;
+    }
+    if (pending.length < 512) return;
+
+    const header = pending.subarray(0, 512);
+    pending = pending.subarray(512);
+    const zero = header.every((byte) => byte === 0);
+    if (zero) {
+      zeroBlocks += 1;
+      if (zeroBlocks >= 2) reachedEnd = true;
+      continue;
+    }
+    if (reachedEnd) invalidArchive();
+    zeroBlocks = 0;
+
+    entries += 1;
+    if (entries > entryLimit) invalidArchive();
+    const type = header[156];
+    if (type !== 0 && type !== 0x30 && type !== 0x35) invalidArchive();
+    const size = parseOctalSize(header.subarray(124, 136));
+    if (type === 0x35 && size !== 0) invalidArchive();
+    if (size > entrySizeLimit) invalidArchive();
+    expandedBytes += size;
+    if (expandedBytes > totalSizeLimit) invalidArchive();
+    paddedPayloadBytes = Math.ceil(size / 512) * 512;
+  }
+}
+
+const input = createReadStream(archivePath);
+const gunzip = createGunzip();
+input.pipe(gunzip);
+try {
+  for await (const chunk of gunzip) consume(chunk);
+  if (
+    paddedPayloadBytes !== 0 ||
+    pending.length !== 0 ||
+    zeroBlocks < 2 ||
+    !reachedEnd
+  ) {
+    invalidArchive();
+  }
+} catch {
+  input.destroy();
+  gunzip.destroy();
+  console.error("Release archive exceeds safe extraction bounds.");
+  process.exitCode = 1;
+}
+NODE
+}
+
+validate_release_archive() {
+  local archive_path="$1"
+  local archive_entry listing
+  local saw_server=false saw_server_directory=false saw_script=false saw_index=false
+
+  validate_archive_bounds "$archive_path"
+  tar -tzf "$archive_path" >/dev/null
+
+  while IFS= read -r archive_entry; do
+    if unsafe_archive_entry "$archive_entry"; then
+      echo "Unsafe or unexpected file in release archive." >&2
+      return 1
+    fi
+    case "$archive_entry" in
+      server.mjs) saw_server=true ;;
+      server/) saw_server_directory=true ;;
+      scripts/manage-partners.mjs) saw_script=true ;;
+      dist/index.html) saw_index=true ;;
+    esac
+  done < <(tar -tzf "$archive_path")
+
+  while IFS= read -r listing; do
+    case "${listing:0:1}" in
+      -|d) ;;
+      *)
+        echo "Release archives may contain only regular files and directories." >&2
+        return 1
+        ;;
+    esac
+  done < <(LC_ALL=C tar -tvzf "$archive_path")
+
+  if [[ "$saw_server" != "true" ||
+        "$saw_server_directory" != "true" ||
+        "$saw_script" != "true" ||
+        "$saw_index" != "true" ]]; then
+    echo "The release archive is incomplete." >&2
+    return 1
+  fi
+}
+
+restore_release() {
+  local previous_release="$1"
+  if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+    ln -sfn "$previous_release" /var/www/everwise-current.next
+    mv -Tf /var/www/everwise-current.next /var/www/everwise-current
+    systemctl restart everwise-api.service || true
+  fi
+}
+
+validate_release_tree() {
+  local tree_path="$1"
+
+  test -f "$tree_path/dist/index.html"
+  test -f "$tree_path/server.mjs"
+  test -d "$tree_path/server"
+  test -f "$tree_path/scripts/manage-partners.mjs"
+  /usr/local/bin/node --check "$tree_path/server.mjs"
+  while IFS= read -r -d '' module_path; do
+    /usr/local/bin/node --check "$module_path"
+  done < <(find "$tree_path/server" -maxdepth 1 -type f -name '*.mjs' -print0)
+  /usr/local/bin/node --check "$tree_path/scripts/manage-partners.mjs"
+}
+
+ensure_partner_store() {
+  local bootstrap_path
+
+  install -d -o www-data -g www-data -m 750 /var/lib/everwise
+  if [[ -e /var/lib/everwise/partners.json ]]; then
+    test -f /var/lib/everwise/partners.json
+    test ! -L /var/lib/everwise/partners.json
+    test "$(stat -c '%U:%G:%a' /var/lib/everwise/partners.json)" = "www-data:www-data:600"
+    return 0
+  fi
+
+  bootstrap_path="$(mktemp /var/lib/everwise/partners.json.bootstrap.XXXXXX)"
+  if ! printf '%s\n' '{"version":1,"partners":{},"confirmedReceipts":{}}' > "$bootstrap_path" ||
+     ! chown www-data:www-data "$bootstrap_path" ||
+     ! chmod 600 "$bootstrap_path"; then
+    rm -f "$bootstrap_path"
+    return 1
+  fi
+
+  if ! ln "$bootstrap_path" /var/lib/everwise/partners.json; then
+    test -f /var/lib/everwise/partners.json
+    test ! -L /var/lib/everwise/partners.json
+  fi
+  rm -f "$bootstrap_path"
+  test "$(stat -c '%U:%G:%a' /var/lib/everwise/partners.json)" = "www-data:www-data:600"
+}
+
+deploy_release() {
+  local release_sha="$1"
+  local archive_path staging_path release_root release_path previous_release
+  local reuse_existing_release=false
+
+  archive_path="$(mktemp /var/tmp/everwise-release.XXXXXX.tgz)"
+  staging_path="$(mktemp -d /var/tmp/everwise-release.XXXXXX)"
+
+  cleanup_release_files() {
+    rm -f "$archive_path"
+    if [[ -d "$staging_path" ]]; then
+      rm -rf "$staging_path"
+    fi
+  }
+  trap cleanup_release_files EXIT
+
+  head -c "$((MAX_COMPRESSED_UPLOAD_BYTES + 1))" > "$archive_path"
+  validate_release_archive "$archive_path"
+
+  tar -xzf "$archive_path" \
+    --no-same-owner \
+    --no-same-permissions \
+    -C "$staging_path"
+
+  validate_release_tree "$staging_path"
+
+  test ! -e /var/lib/everwise/partners.json || test -f /var/lib/everwise/partners.json
+  ensure_partner_store
+
+  release_root="/var/www/everwise-releases"
+  release_path="$release_root/$release_sha"
+  install -d -m 755 "$release_root"
+  previous_release="$(readlink -f /var/www/everwise-current || true)"
+
+  if [[ -e "$release_path" ]]; then
+    test -d "$release_path"
+    test ! -L "$release_path"
+    validate_release_tree "$release_path"
+    reuse_existing_release=true
+  else
+    chown -R root:root "$staging_path"
+    find "$staging_path" -type d -exec chmod 755 {} +
+    find "$staging_path" -type f -exec chmod 644 {} +
+    chmod 755 "$staging_path/scripts/manage-partners.mjs"
+    mv -Tn "$staging_path" "$release_path"
+    test ! -e "$staging_path"
+  fi
+
+  if [[ "$previous_release" == "$release_path" ]] &&
+     [[ "$reuse_existing_release" == "true" ]]; then
+    test "$(readlink -f /var/www/everwise-current)" = "$release_path"
+  else
+    ln -sfn "$release_path" /var/www/everwise-current.next
+    mv -Tf /var/www/everwise-current.next /var/www/everwise-current
+  fi
+
+  if ! systemctl restart everwise-api.service || ! release_is_healthy; then
+    restore_release "$previous_release"
+    echo "EverWise API health check failed; the prior release was restored." >&2
+    exit 1
+  fi
+
+  if ! nginx -t || ! systemctl reload nginx; then
+    restore_release "$previous_release"
+    echo "EverWise Nginx validation failed; the prior release was restored." >&2
+    exit 1
+  fi
+
+  echo "EverWise release $release_sha deployed successfully."
+}
+
+main() {
+  local release_sha
+
+  exec 9>/run/lock/everwise-deploy.lock
+  flock -n 9 || {
+    echo "Another EverWise deployment is already running." >&2
+    exit 1
+  }
+
+  case "${SSH_ORIGINAL_COMMAND:-}" in
+    configure-runtime)
+      configure_runtime
+      ;;
+    verify-runtime)
+      if runtime_is_healthy; then
+        echo "EverWise runtime configuration is healthy."
+        exit 0
+      fi
+      echo "EverWise runtime configuration is not healthy." >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^verify-helper\ ([0-9a-f]{64})$ ]]; then
+    verify_helper "${BASH_REMATCH[1]}"
+  fi
+
+  if [[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^deploy\ ([0-9a-f]{40})$ ]]; then
+    release_sha="${BASH_REMATCH[1]}"
+  else
+    echo "This key can only deploy or verify validated EverWise configuration and releases." >&2
+    exit 1
+  fi
+
+  deploy_release "$release_sha"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

@@ -28,11 +28,14 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Validate and build
         run: |
           node --check server.mjs
+          find server -maxdepth 1 -type f -name '*.mjs' -print0 | xargs -0 -n1 node --check
+          node --check scripts/manage-partners.mjs
+          npm test
           npm run lint
           npm run build
 
@@ -46,15 +49,36 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/everwise_deploy ~/.ssh/known_hosts
 
+      - name: Verify installed deployment helper
+        run: |
+          helper_sha="$(sha256sum ops/deploy-everwise)"
+          helper_sha="${helper_sha%% *}"
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "verify-helper $helper_sha"
+
       - name: Configure production API credentials
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_MONTHLY_PRICE_ID: ${{ vars.STRIPE_MONTHLY_PRICE_ID }}
+          STRIPE_ANNUAL_PRICE_ID: ${{ vars.STRIPE_ANNUAL_PRICE_ID }}
+          EVERWISE_PUBLIC_APP_ORIGIN: ${{ vars.EVERWISE_PUBLIC_APP_ORIGIN }}
         run: |
           test -n "$OPENAI_API_KEY"
           test -n "$ELEVENLABS_API_KEY"
           test -n "$ELEVENLABS_VOICE_ID"
+          test -n "$STRIPE_SECRET_KEY"
+          test -n "$STRIPE_WEBHOOK_SECRET"
+          test -n "$STRIPE_MONTHLY_PRICE_ID"
+          test -n "$STRIPE_ANNUAL_PRICE_ID"
+          test -n "$EVERWISE_PUBLIC_APP_ORIGIN"
 
           credentials_file="$(mktemp)"
           trap 'rm -f "$credentials_file"' EXIT
@@ -63,6 +87,11 @@ jobs:
             printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
             printf 'ELEVENLABS_API_KEY=%s\n' "$ELEVENLABS_API_KEY"
             printf 'ELEVENLABS_VOICE_ID=%s\n' "$ELEVENLABS_VOICE_ID"
+            printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+            printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$STRIPE_WEBHOOK_SECRET"
+            printf 'STRIPE_MONTHLY_PRICE_ID=%s\n' "$STRIPE_MONTHLY_PRICE_ID"
+            printf 'STRIPE_ANNUAL_PRICE_ID=%s\n' "$STRIPE_ANNUAL_PRICE_ID"
+            printf 'EVERWISE_PUBLIC_APP_ORIGIN=%s\n' "$EVERWISE_PUBLIC_APP_ORIGIN"
           } > "$credentials_file"
 
           ssh \
@@ -75,13 +104,20 @@ jobs:
 
       - name: Deploy production release
         run: |
-          tar -czf - dist server.mjs |
-            ssh \
-              -i ~/.ssh/everwise_deploy \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              root@143.198.64.226 \
-              "deploy ${GITHUB_SHA}"
+          release_archive="$(mktemp)"
+          trap 'rm -f "$release_archive"' EXIT
+          tar -czf "$release_archive" dist server.mjs server scripts/manage-partners.mjs
+          bash -c 'source "$1"; validate_release_archive "$2"' \
+            validate-archive \
+            ops/deploy-everwise \
+            "$release_archive"
+          ssh \
+            -i ~/.ssh/everwise_deploy \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@143.198.64.226 \
+            "deploy ${GITHUB_SHA}" \
+            < "$release_archive"
 
       - name: Verify production API configuration
         run: |
@@ -91,3 +127,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             root@143.198.64.226 \
             verify-runtime
+
+          health="$(curl -fsS --retry 4 --retry-delay 1 --max-time 10 https://everwise.dexio-games.com/healthz)"
+          grep -q '"partnerAccessConfigured":true' <<<"$health"
+          grep -q '"partnerStoreHealthy":true' <<<"$health"

@@ -6,6 +6,18 @@ const workflow = readFileSync(
   new URL("../.github/workflows/deploy-digitalocean.yml", import.meta.url),
   "utf8",
 );
+const pagesWorkflow = readFileSync(
+  new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
+  "utf8",
+);
+
+test("deployment workflows install reproducibly and test before publishing", () => {
+  for (const candidate of [workflow, pagesWorkflow]) {
+    assert.match(candidate, /run: npm ci --no-audit --no-fund/);
+    assert.match(candidate, /npm test/);
+    assert.doesNotMatch(candidate, /run: npm install\b/);
+  }
+});
 
 test("DigitalOcean deployment provisions API credentials from GitHub", () => {
   assert.match(
@@ -20,6 +32,26 @@ test("DigitalOcean deployment provisions API credentials from GitHub", () => {
     workflow,
     /ELEVENLABS_VOICE_ID: \$\{\{ vars\.ELEVENLABS_VOICE_ID \}\}/,
   );
+  assert.match(
+    workflow,
+    /STRIPE_SECRET_KEY: \$\{\{ secrets\.STRIPE_SECRET_KEY \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_WEBHOOK_SECRET: \$\{\{ secrets\.STRIPE_WEBHOOK_SECRET \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_MONTHLY_PRICE_ID: \$\{\{ vars\.STRIPE_MONTHLY_PRICE_ID \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_ANNUAL_PRICE_ID: \$\{\{ vars\.STRIPE_ANNUAL_PRICE_ID \}\}/,
+  );
+  assert.match(
+    workflow,
+    /EVERWISE_PUBLIC_APP_ORIGIN: \$\{\{ vars\.EVERWISE_PUBLIC_APP_ORIGIN \}\}/,
+  );
   assert.match(workflow, /configure-runtime/);
   assert.match(workflow, /< "\$credentials_file"/);
   assert.doesNotMatch(workflow, /\bscp\b/);
@@ -29,4 +61,52 @@ test("DigitalOcean deployment verifies both API integrations through the restric
   assert.match(workflow, /verify-runtime/);
   assert.doesNotMatch(workflow, /systemctl restart everwise-api\.service/);
   assert.doesNotMatch(workflow, /root@143\.198\.64\.226\s+\\\s+"set -eu/);
+});
+
+test("DigitalOcean deployment archives only the built app and reviewed partner server tooling", () => {
+  assert.match(
+    workflow,
+    /tar -czf "\$release_archive" dist server\.mjs server scripts\/manage-partners\.mjs/,
+  );
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*\bscripts\b(?!\/manage-partners\.mjs)/);
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*(?:\.env|node_modules|partners\.json)/);
+});
+
+test("DigitalOcean deployment checks partner configuration and store health after release", () => {
+  assert.match(workflow, /"partnerAccessConfigured":true/);
+  assert.match(workflow, /"partnerStoreHealthy":true/);
+  assert.match(workflow, /https:\/\/everwise\.dexio-games\.com\/healthz/);
+});
+
+test("DigitalOcean deployment preflights the built archive with the versioned allowlist", () => {
+  assert.match(workflow, /release_archive="\$\(mktemp\)"/);
+  assert.match(workflow, /validate_release_archive/);
+  assert.match(workflow, /ops\/deploy-everwise/);
+  assert.match(workflow, /< "\$release_archive"/);
+  assert.doesNotMatch(workflow, /tar -czf -[^\n]*\|\s*\n\s*ssh/);
+});
+
+test("DigitalOcean deployment refuses to run with an outdated remote helper", () => {
+  assert.match(workflow, /sha256sum ops\/deploy-everwise/);
+  assert.match(workflow, /verify-helper \$helper_sha/);
+});
+
+test("partner token verification targets the company Firebase project", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(server, /FIREBASE_PROJECT_ID[\s\S]*games-caf0e/);
+  assert.match(
+    server,
+    /createFirebaseTokenVerifier\(\{\s*projectId:\s*FIREBASE_PROJECT_ID,?\s*\}\)/,
+  );
+  assert.doesNotMatch(server, /everwise-46cf0/);
+});
+
+test("GitHub Pages uses the production API and the server allows only its exact origin", () => {
+  const server = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(
+    pagesWorkflow,
+    /VITE_EVERWISE_API_URL:\s*https:\/\/everwise\.dexio-games\.com/,
+  );
+  assert.match(server, /https:\/\/aarivarora2-sketch\.github\.io/);
+  assert.match(server, /request\.headers\.origin === githubPagesOrigin/);
 });

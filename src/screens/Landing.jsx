@@ -1,3 +1,6 @@
+import React from "react";
+import PartnerBrand from "../components/PartnerBrand";
+
 function Step({ n, name, children }) {
   return (
     <li className="flex items-center gap-3">
@@ -11,22 +14,26 @@ function Step({ n, name, children }) {
   );
 }
 
-export default function Landing({ onGetStarted, onLogIn }) {
+export default function Landing({ partner = null, onGetStarted, onLogIn }) {
   return (
     <div className="landing-screen flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-7 pb-0 pt-5">
       <div className="landing-layout flex min-h-full flex-1 flex-col">
         <section className="landing-intro animate-fade-up">
-          <div className="flex items-center gap-3">
-            <img
-              src="/everwise-logo-192.png"
-              alt=""
-              aria-hidden="true"
-              className="h-10 w-10 object-contain"
-            />
-            <p className="font-sans text-3xl font-bold tracking-tight text-ink">
-              Everwise
-            </p>
-          </div>
+          {partner ? (
+            <PartnerBrand partner={partner} />
+          ) : (
+            <div className="flex items-center gap-3">
+              <img
+                src="/everwise-logo-192.png"
+                alt=""
+                aria-hidden="true"
+                className="h-10 w-10 object-contain"
+              />
+              <p className="font-sans text-3xl font-bold tracking-tight text-ink">
+                Everwise
+              </p>
+            </div>
+          )}
 
           <h1 className="page-title mt-4">
             Learn to spot scams, one lesson a day.
@@ -35,6 +42,11 @@ export default function Landing({ onGetStarted, onLogIn }) {
             Short, friendly lessons that help you use the internet with
             confidence. One lesson at a time.
           </p>
+          {partner ? (
+            <p className="mt-4 rounded-2xl bg-sage/10 px-5 py-4 text-lg font-bold leading-relaxed text-ink">
+              Your access is provided free by {partner.name}.
+            </p>
+          ) : null}
         </section>
 
         <section className="landing-guide mt-5 flex flex-1 flex-col">
