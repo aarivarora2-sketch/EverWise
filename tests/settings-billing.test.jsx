@@ -46,6 +46,34 @@ function renderSettings(overrides = {}) {
 afterEach(cleanup);
 
 describe("provider-aware Settings billing", () => {
+  test("preserves a plain string partner name in the supported legacy sponsored branch", () => {
+    renderSettings({
+      billing: undefined,
+      sponsored: true,
+      partner: { name: "Community Partner" },
+    });
+
+    expect(screen.getByText("Full access provided by Community Partner")).toBeVisible();
+  });
+
+  test.each([
+    ["throwing name getter", () => Object.defineProperty({}, "name", { enumerable: true, get() { throw new Error("private legacy detail"); } })],
+    ["throwing Proxy", () => new Proxy({ name: "Unsafe Partner" }, { getOwnPropertyDescriptor() { throw new Error("private proxy detail"); } })],
+    ["custom prototype", () => Object.assign(Object.create({ unsafe: true }), { name: "Unsafe Partner" })],
+    ["non-string name", () => ({ name: { private: true } })],
+  ])("normalizes a legacy sponsored %s to trusted fallback copy", (_label, makePartner) => {
+    expect(() => {
+      renderSettings({
+        billing: undefined,
+        sponsored: true,
+        partner: makePartner(),
+      });
+    }).not.toThrow();
+
+    expect(screen.getByText("Full access provided by your community partner")).toBeVisible();
+    expect(document.body).not.toHaveTextContent(/Unsafe Partner|private legacy detail|private proxy detail/);
+  });
+
   test("shows active partner-provided access without any payment action", () => {
     renderSettings({
       billing: billing({
@@ -127,6 +155,20 @@ describe("provider-aware Settings billing", () => {
     ).toBeVisible();
     expect(document.body).not.toHaveTextContent("Trial ends August 11, 2026.");
   });
+
+  test.each(["canceled", "incomplete", "incomplete_expired", "past_due", "paused", "unpaid"])(
+    "does not promise continuing access for a scheduled cancellation in %s status",
+    (status) => {
+      renderSettings({
+        billing: billing({ status, cancelAtPeriodEnd: true }),
+      });
+
+      expect(
+        screen.getByText("Cancellation scheduled for September 3, 2026 at 12:00 AM UTC."),
+      ).toBeVisible();
+      expect(document.body).not.toHaveTextContent(/access continues/i);
+    },
+  );
 
   test("offers View plans when the learner has no subscription", async () => {
     const user = userEvent.setup();

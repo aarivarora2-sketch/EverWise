@@ -49,6 +49,8 @@ const WEB_STATUSES = new Set([
   "trialing",
   "unpaid",
 ]);
+const ACCESS_GRANTING_STATUSES = new Set(["active", "trialing"]);
+const DEFAULT_PARTNER_NAME = "your community partner";
 const BILLING_KEYS = [
   "provider",
   "status",
@@ -137,13 +139,34 @@ function formatCancellationInstant(value, locale, timeZone) {
   }).format(new Date(value));
 }
 
+function trustedLegacyPartnerName(partner) {
+  try {
+    if (
+      !partner ||
+      typeof partner !== "object" ||
+      Array.isArray(partner) ||
+      Object.getPrototypeOf(partner) !== Object.prototype
+    ) {
+      return DEFAULT_PARTNER_NAME;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(partner, "name");
+    if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string") {
+      return DEFAULT_PARTNER_NAME;
+    }
+    const name = descriptor.value.trim();
+    return name || DEFAULT_PARTNER_NAME;
+  } catch {
+    return DEFAULT_PARTNER_NAME;
+  }
+}
+
 function normalizeBillingViewModel(billing, legacy) {
   if (billing === undefined) {
     if (legacy.sponsored) {
       return {
         provider: "sponsor",
         status: "active",
-        partnerName: legacy.partner?.name || "your community partner",
+        partnerName: trustedLegacyPartnerName(legacy.partner),
         busy: false,
       };
     }
@@ -526,9 +549,17 @@ export default function Settings({
               <p className="mt-2 text-lg font-semibold text-ink">
                 {billingView.plan === "monthly" ? "Monthly plan" : "Annual plan"}
               </p>
-              {billingView.cancelAtPeriodEnd ? (
+              {billingView.cancelAtPeriodEnd && ACCESS_GRANTING_STATUSES.has(billingView.status) ? (
                 <p className="mt-1 text-lg text-ink-soft">
                   Cancellation scheduled — access continues until {formatCancellationInstant(
+                    billingView.currentPeriodEndsAt,
+                    billingLocale,
+                    billingTimeZone,
+                  )}.
+                </p>
+              ) : billingView.cancelAtPeriodEnd ? (
+                <p className="mt-1 text-lg text-ink-soft">
+                  Cancellation scheduled for {formatCancellationInstant(
                     billingView.currentPeriodEndsAt,
                     billingLocale,
                     billingTimeZone,
