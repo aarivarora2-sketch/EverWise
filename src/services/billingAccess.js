@@ -262,7 +262,45 @@ const hasNoStore = (value) =>
     .map((directive) => directive.trim().toLowerCase())
     .includes("no-store");
 
-const parseResponse = async (response, abortRequest, requestAlreadyTerminated) => {
+const createRequestTermination = (controller) => {
+  let claimed = false;
+
+  const abortClaimedRequest = () => {
+    try {
+      controller.abort();
+    } catch {
+      // Abort failure cannot expose provider details or release the claim.
+    }
+  };
+
+  return Object.freeze({
+    abort() {
+      if (claimed) return false;
+      claimed = true;
+      abortClaimedRequest();
+      return true;
+    },
+    async cancel(cancellation, owner) {
+      if (claimed) return false;
+      claimed = true;
+      let pending;
+      try {
+        pending = Reflect.apply(cancellation, owner, []);
+      } catch {
+        abortClaimedRequest();
+        return true;
+      }
+      try {
+        await pending;
+      } catch {
+        // An invoked cancellation keeps ownership even when it later rejects.
+      }
+      return true;
+    },
+  });
+};
+
+const parseResponse = async (response, termination) => {
   let body;
   let bodyCancel;
   let reader;
@@ -272,28 +310,18 @@ const parseResponse = async (response, abortRequest, requestAlreadyTerminated) =
   let readerAcquired = false;
   let released = false;
   let streamComplete = false;
-  let terminationAttempted = false;
   const chunks = [];
   let totalBytes = 0;
 
   const terminate = async () => {
-    if (streamComplete || terminationAttempted || requestAlreadyTerminated()) return;
-    terminationAttempted = true;
+    if (streamComplete) return;
     const cancellation = readerAcquired ? readerCancel : bodyCancel;
     const owner = readerAcquired ? reader : body;
     if (typeof cancellation === "function") {
-      try {
-        await Reflect.apply(cancellation, owner, []);
-      } catch {
-        // One failed cancellation remains the sole termination attempt.
-      }
+      await termination.cancel(cancellation, owner);
       return;
     }
-    try {
-      abortRequest();
-    } catch {
-      // Abort failure cannot replace the safe billing error.
-    }
+    termination.abort();
   };
 
   const release = () => {
@@ -441,20 +469,11 @@ const billingRequest = async ({
   if (!dependencies) throw unavailable();
   const token = await authenticatedToken(user);
   const controller = new AbortController();
-  let abortAttempted = false;
-  const abortRequest = () => {
-    if (abortAttempted) return;
-    abortAttempted = true;
-    try {
-      controller.abort();
-    } catch {
-      // Abort failure cannot expose provider details or trigger a second attempt.
-    }
-  };
+  const termination = createRequestTermination(controller);
   let timeoutId = null;
   try {
     timeoutId = dependencies.setTimeoutImpl(
-      abortRequest,
+      termination.abort,
       BILLING_REQUEST_TIMEOUT_MS,
     );
     const endpoint = await resolveApiEndpoint(path, dependencies.apiEndpointImpl);
@@ -468,11 +487,7 @@ const billingRequest = async ({
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    const parsed = await parseResponse(
-      response,
-      abortRequest,
-      () => abortAttempted,
-    );
+    const parsed = await parseResponse(response, termination);
     if (!parsed) throw unavailable();
     if (!parsed.ok) throw normalizedApiError(parsed);
     if (parsed.status !== 200) throw unavailable();

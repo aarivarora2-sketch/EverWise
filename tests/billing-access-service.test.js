@@ -100,6 +100,7 @@ function controlledBody({
   reads = [],
   bodyCancelError = null,
   readerCancelError = null,
+  readerCancelImpl = null,
   releaseError = null,
   readerCancelGetterError = null,
 } = {}) {
@@ -135,9 +136,11 @@ function controlledBody({
           throw new Error("private repeated reader cancel getter");
         }
         if (readerCancelGetterError) throw readerCancelGetterError;
-        return async () => {
+        return () => {
           counts.readerCancelCalls += 1;
-          if (readerCancelError) throw readerCancelError;
+          if (readerCancelImpl) return readerCancelImpl();
+          if (readerCancelError) return Promise.reject(readerCancelError);
+          return Promise.resolve();
         };
       },
     },
@@ -164,9 +167,10 @@ function controlledBody({
         if (counts.bodyCancelReads > 1) {
           throw new Error("private repeated body cancel getter");
         }
-        return async () => {
+        return () => {
           counts.bodyCancelCalls += 1;
-          if (bodyCancelError) throw bodyCancelError;
+          if (bodyCancelError) return Promise.reject(bodyCancelError);
+          return Promise.resolve();
         };
       },
     },
@@ -828,6 +832,37 @@ test("an unsafe reader cancellation getter falls back to one abort and still rel
   assert.deepEqual(cleared, [73]);
 });
 
+test("a synchronous cancel invocation failure falls back to one claimed abort", async () => {
+  const { body, counts } = controlledBody({
+    reads: [{ done: false, value: "private chunk" }],
+    readerCancelImpl: () => {
+      throw new Error("private synchronous cancellation failure");
+    },
+  });
+  let abortEvents = 0;
+  const cleared = [];
+  await rejection(() =>
+    fetchBillingPlans(
+      user(),
+      clientOptions(
+        async (_url, options) => {
+          options.signal.addEventListener("abort", () => {
+            abortEvents += 1;
+          });
+          return controlledResponse(body);
+        },
+        {
+          setTimeoutImpl: () => 82,
+          clearTimeoutImpl: (timer) => cleared.push(timer),
+        },
+      ),
+    ));
+  assert.equal(counts.readerCancelCalls, 1);
+  assert.equal(abortEvents, 1);
+  assert.equal(counts.releaseCalls, 1);
+  assert.deepEqual(cleared, [82]);
+});
+
 test("a throwing abort fallback preserves the safe error and timer cleanup", async () => {
   const OriginalAbortController = globalThis.AbortController;
   let abortCalls = 0;
@@ -1012,6 +1047,59 @@ test("a response returned after timeout is not terminated a second time", async 
   assert.equal(counts.readerCancelCalls, 0);
   assert.equal(counts.releaseCalls, 1);
   assert.deepEqual(cleared, [81]);
+});
+
+test("parser-first pending cancellation owns termination before timeout fires", async () => {
+  let cancellationStartedResolve;
+  const cancellationStarted = new Promise((resolve) => {
+    cancellationStartedResolve = resolve;
+  });
+  let cancellationResolve;
+  const cancellationPending = new Promise((resolve) => {
+    cancellationResolve = resolve;
+  });
+  const { body, counts } = controlledBody({
+    reads: [{ done: false, value: "private chunk" }],
+    readerCancelImpl: () => {
+      cancellationStartedResolve();
+      return cancellationPending;
+    },
+  });
+  let timeoutCallback;
+  let abortEvents = 0;
+  const cleared = [];
+  const request = fetchBillingPlans(
+    user(),
+    clientOptions(
+      async (_url, options) => {
+        options.signal.addEventListener("abort", () => {
+          abortEvents += 1;
+        });
+        return controlledResponse(body);
+      },
+      {
+        setTimeoutImpl: (callback) => {
+          timeoutCallback = callback;
+          return 83;
+        },
+        clearTimeoutImpl: (timer) => cleared.push(timer),
+      },
+    ),
+  );
+
+  await cancellationStarted;
+  assert.equal(counts.readerCancelCalls, 1);
+  assert.equal(counts.releaseCalls, 0);
+  timeoutCallback();
+  const abortEventsWhilePending = abortEvents;
+  cancellationResolve();
+  await rejection(() => request);
+
+  assert.equal(abortEventsWhilePending, 0);
+  assert.equal(abortEvents, 0);
+  assert.equal(counts.readerCancelCalls, 1);
+  assert.equal(counts.releaseCalls, 1);
+  assert.deepEqual(cleared, [83]);
 });
 
 test("billing requests abort at the exported timeout and always clear their timer", async () => {
