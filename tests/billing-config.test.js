@@ -45,10 +45,21 @@ test("a complete configuration normalizes one HTTPS application origin", () => {
   assert.equal(config.configured, true);
   assert.equal(config.appOrigin, "https://app.everwise.example:8443");
   assert.equal(config.webhookSecret, COMPLETE_TEST_ENV.STRIPE_WEBHOOK_SECRET);
-  assert.equal(config.plans, BILLING_PLANS);
   assert.equal("secretKey" in config, false);
   assert.equal(JSON.stringify(config).includes("sk_test_sensitive"), false);
-  assert.equal(JSON.stringify(config).includes("price_test_"), false);
+});
+
+test("enabled configuration binds immutable internal Price IDs to both logical plans", () => {
+  const config = loadBillingConfig(COMPLETE_TEST_ENV);
+
+  assert.deepEqual(config.plans, {
+    monthly: { ...BILLING_PLANS.monthly, priceId: "price_test_monthly" },
+    annual: { ...BILLING_PLANS.annual, priceId: "price_test_annual" },
+  });
+  assert.notEqual(config.plans, BILLING_PLANS);
+  assert.equal(Object.isFrozen(config.plans), true);
+  assert.equal(Object.isFrozen(config.plans.monthly), true);
+  assert.equal(Object.isFrozen(config.plans.annual), true);
 });
 
 test("entirely missing or blank Stripe settings leave billing disabled", () => {

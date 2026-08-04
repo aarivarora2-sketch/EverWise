@@ -5,7 +5,27 @@ import { BILLING_PLANS } from "./billingConfig.mjs";
 const STRIPE_API_VERSION = "2026-02-25.clover";
 const CHECKOUT_HOST = "checkout.stripe.com";
 const PORTAL_HOST = "billing.stripe.com";
+const MAX_SUBSCRIPTION_PAGES = 20;
 const BLOCKING_STATUSES = new Set(["trialing", "active", "incomplete", "past_due"]);
+const WEBHOOK_EVENT_TYPES = new Set([
+  "checkout.session.completed",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.trial_will_end",
+  "invoice.paid",
+  "invoice.payment_failed",
+]);
+const SUBSCRIPTION_STATUSES = new Set([
+  "trialing",
+  "active",
+  "past_due",
+  "unpaid",
+  "incomplete",
+  "incomplete_expired",
+  "paused",
+  "canceled",
+]);
 
 class BillingGatewayError extends Error {
   constructor(code, message) {
@@ -152,6 +172,125 @@ const normalizeSubscription = (subscription) => {
   };
 };
 
+const invalidWebhookEvent = () =>
+  gatewayError("BILLING_WEBHOOK_EVENT_INVALID", "Billing webhook event is invalid.");
+
+const webhookId = (value, prefix) => {
+  const id = typeof value === "string" ? value : value?.id;
+  return typeof id === "string" && id.startsWith(prefix) && /^[A-Za-z0-9_]+$/u.test(id)
+    ? id
+    : null;
+};
+
+const webhookFirebaseUid = (...metadataCandidates) => {
+  const value = metadataCandidates
+    .map((metadata) => metadata?.firebase_uid)
+    .find((candidate) => candidate !== undefined && candidate !== null);
+  if (value === undefined) return null;
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.length > 128 ||
+    hasControlCharacter(value)
+  ) {
+    throw invalidWebhookEvent();
+  }
+  return value;
+};
+
+const normalizeWebhookObject = (type, object) => {
+  if (!object || typeof object !== "object" || Array.isArray(object)) {
+    throw invalidWebhookEvent();
+  }
+
+  let kind;
+  let id;
+  let status;
+  let customerId;
+  let subscriptionId;
+  let priceId = null;
+  let firebaseUid;
+
+  if (type === "checkout.session.completed") {
+    kind = "checkout.session";
+    id = webhookId(object.id, "cs_");
+    status = object.status === "complete" ? object.status : null;
+    customerId = webhookId(object.customer, "cus_");
+    subscriptionId = webhookId(object.subscription, "sub_");
+    firebaseUid = webhookFirebaseUid(object.metadata);
+  } else if (type.startsWith("customer.subscription.")) {
+    kind = "subscription";
+    id = webhookId(object.id, "sub_");
+    status = SUBSCRIPTION_STATUSES.has(object.status) ? object.status : null;
+    customerId = webhookId(object.customer, "cus_");
+    subscriptionId = id;
+    priceId = webhookId(object.items?.data?.[0]?.price, "price_");
+    firebaseUid = webhookFirebaseUid(object.metadata);
+  } else {
+    kind = "invoice";
+    id = webhookId(object.id, "in_");
+    const allowedStatuses =
+      type === "invoice.paid" ? new Set(["paid"]) : new Set(["open", "uncollectible"]);
+    status = allowedStatuses.has(object.status) ? object.status : null;
+    customerId = webhookId(object.customer, "cus_");
+    subscriptionId = webhookId(
+      object.subscription ?? object.parent?.subscription_details?.subscription,
+      "sub_",
+    );
+    const firstLine = object.lines?.data?.[0];
+    priceId = webhookId(
+      firstLine?.price ?? firstLine?.pricing?.price_details?.price,
+      "price_",
+    );
+    firebaseUid = webhookFirebaseUid(
+      object.metadata,
+      object.parent?.subscription_details?.metadata,
+    );
+  }
+
+  if (
+    object.object !== kind ||
+    !id ||
+    !status ||
+    !customerId ||
+    !subscriptionId ||
+    (kind === "subscription" && !priceId)
+  ) {
+    throw invalidWebhookEvent();
+  }
+
+  return {
+    kind,
+    id,
+    status,
+    customerId,
+    subscriptionId,
+    priceId,
+    metadata: { firebaseUid },
+  };
+};
+
+const normalizeWebhookEvent = (event) => {
+  if (
+    !event ||
+    event.object !== "event" ||
+    !webhookId(event.id, "evt_") ||
+    !WEBHOOK_EVENT_TYPES.has(event.type) ||
+    !Number.isSafeInteger(event.created) ||
+    event.created < 0 ||
+    typeof event.livemode !== "boolean"
+  ) {
+    throw invalidWebhookEvent();
+  }
+  return {
+    id: event.id,
+    type: event.type,
+    created: event.created,
+    livemode: event.livemode,
+    object: normalizeWebhookObject(event.type, event.data?.object),
+  };
+};
+
 const escapeSearchValue = (value) => value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 
 const validatePlanConfig = (plans) => {
@@ -236,9 +375,8 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
     });
   };
 
-  const findOrCreateCustomer = async ({ uid, storedCustomerId, operationAttempt } = {}) => {
+  const findOrCreateCustomer = async ({ uid, storedCustomerId } = {}) => {
     const normalizedUid = requireUid(uid);
-    const attempt = requireAttempt(operationAttempt);
 
     return runProviderRequest(async () => {
       if (storedCustomerId) {
@@ -252,20 +390,33 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
 
       const search = await stripe.customers.search({
         query: `metadata['firebase_uid']:'${escapeSearchValue(normalizedUid)}'`,
-        limit: 1,
+        limit: 100,
       });
-      const existing = search.data[0];
+      if (!Array.isArray(search.data) || typeof search.has_more !== "boolean") {
+        throw providerFailure();
+      }
+      const exactMatches = search.data.filter(
+        (customer) => !customer.deleted && customer.metadata?.firebase_uid === normalizedUid,
+      );
+      if (exactMatches.length !== search.data.length) throw providerFailure();
+      if (exactMatches.length > 1 || search.has_more) {
+        throw gatewayError(
+          "BILLING_CUSTOMER_DUPLICATE",
+          "Multiple billing customers exist for this learner.",
+        );
+      }
+      const existing = exactMatches[0];
       if (existing) {
-        if (existing.metadata?.firebase_uid !== normalizedUid) {
-          throw gatewayError("BILLING_CUSTOMER_MISMATCH", "Billing customer identity does not match.");
-        }
         return { id: existing.id };
       }
 
       const customer = await stripe.customers.create(
         { metadata: { firebase_uid: normalizedUid } },
-        { idempotencyKey: `customer:${normalizedUid}:${attempt}` },
+        { idempotencyKey: `customer:${normalizedUid}` },
       );
+      if (customer.deleted || customer.metadata?.firebase_uid !== normalizedUid) {
+        throw gatewayError("BILLING_CUSTOMER_MISMATCH", "Billing customer identity does not match.");
+      }
       return { id: customer.id };
     });
   };
@@ -310,6 +461,12 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
         },
         { idempotencyKey: `checkout:${normalizedUid}:${attempt}` },
       );
+      if (session.status !== "open") {
+        throw gatewayError(
+          "BILLING_CHECKOUT_NOT_OPEN",
+          "Billing Checkout Session is not open.",
+        );
+      }
       return {
         id: requiredText(session.id, "Checkout Session ID"),
         url: requireHostedUrl(session.url, CHECKOUT_HOST, "Checkout"),
@@ -340,14 +497,41 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
   const listBlockingSubscriptions = async ({ customerId } = {}) => {
     const normalizedCustomerId = requireStripeId(customerId, "cus_", "Customer ID");
     return runProviderRequest(async () => {
-      const subscriptions = await stripe.subscriptions.list({
-        customer: normalizedCustomerId,
-        status: "all",
-        limit: 100,
-      });
-      return subscriptions.data
-        .filter((subscription) => BLOCKING_STATUSES.has(subscription.status))
-        .map(normalizeSubscription);
+      const blocking = [];
+      const seenCursors = new Set();
+      let startingAfter;
+
+      for (let pageNumber = 0; pageNumber < MAX_SUBSCRIPTION_PAGES; pageNumber += 1) {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: normalizedCustomerId,
+          status: "all",
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+        if (!Array.isArray(subscriptions.data) || typeof subscriptions.has_more !== "boolean") {
+          throw providerFailure();
+        }
+        blocking.push(
+          ...subscriptions.data
+            .filter((subscription) => BLOCKING_STATUSES.has(subscription.status))
+            .map(normalizeSubscription),
+        );
+        if (!subscriptions.has_more) return blocking;
+
+        const nextCursor = subscriptions.data.at(-1)?.id;
+        if (
+          !nextCursor ||
+          typeof nextCursor !== "string" ||
+          seenCursors.has(nextCursor) ||
+          nextCursor === startingAfter
+        ) {
+          throw providerFailure();
+        }
+        seenCursors.add(nextCursor);
+        startingAfter = nextCursor;
+      }
+
+      throw providerFailure();
     });
   };
 
@@ -382,14 +566,16 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
   };
 
   const constructWebhookEvent = (rawBody, signature, webhookSecret) => {
+    let event;
     try {
-      return stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
     } catch {
       throw gatewayError(
         "BILLING_WEBHOOK_SIGNATURE_INVALID",
         "Billing webhook signature verification failed.",
       );
     }
+    return normalizeWebhookEvent(event);
   };
 
   return Object.freeze({

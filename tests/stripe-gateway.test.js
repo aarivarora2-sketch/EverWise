@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 
-import { BILLING_PLANS } from "../server/billingConfig.mjs";
+import { BILLING_PLANS, loadBillingConfig } from "../server/billingConfig.mjs";
 import { createStripeGateway } from "../server/stripeGateway.mjs";
 
 const SECRET_KEY = "sk_test_gateway_secret_do_not_expose";
@@ -100,6 +101,19 @@ const createVerifiedGateway = async (extraResponses = []) => {
   return { gateway, fake, verifiedPlans };
 };
 
+const constructSignedWebhook = (gateway, event) => {
+  const payload = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const digest = createHmac("sha256", WEBHOOK_SECRET)
+    .update(`${timestamp}.${payload}`)
+    .digest("hex");
+  return gateway.constructWebhookEvent(
+    Buffer.from(payload),
+    `t=${timestamp},v1=${digest}`,
+    WEBHOOK_SECRET,
+  );
+};
+
 test("verifyPlans uses the pinned API version and returns normalized verified plans", async () => {
   const { fake, verifiedPlans } = await createVerifiedGateway();
 
@@ -139,6 +153,27 @@ test("verifyPlans accepts the exact plan key set regardless of insertion order",
   };
 
   assert.deepEqual(Object.keys(await gateway.verifyPlans(reorderedPlans)), ["monthly", "annual"]);
+});
+
+test("loaded billing configuration composes directly with Price verification", async () => {
+  const fake = createFakeFetch([
+    { body: priceResponse("monthly") },
+    { body: priceResponse("annual") },
+  ]);
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+  const config = loadBillingConfig({
+    STRIPE_SECRET_KEY: SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    STRIPE_MONTHLY_PRICE_ID: "price_test_monthly",
+    STRIPE_ANNUAL_PRICE_ID: "price_test_annual",
+    EVERWISE_PUBLIC_APP_ORIGIN: APP_ORIGIN,
+  });
+
+  const verified = await gateway.verifyPlans(config.plans);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(verified).map(([key, plan]) => [key, plan.priceId])),
+    { monthly: "price_test_monthly", annual: "price_test_annual" },
+  );
 });
 
 test("verifyPlans rejects every unsafe Price mutation", async () => {
@@ -226,7 +261,7 @@ test("customer lookup searches Firebase UID metadata and does not create a dupli
   );
   assert.equal(fake.calls.length, 1);
   assert.equal(requestParameters(fake.calls[0]).get("query"), "metadata['firebase_uid']:'firebase-uid-123'");
-  assert.equal(requestParameters(fake.calls[0]).get("limit"), "1");
+  assert.equal(requestParameters(fake.calls[0]).get("limit"), "100");
 });
 
 test("customer lookup creates at most one customer with UID metadata and deterministic idempotency", async () => {
@@ -264,8 +299,114 @@ test("customer lookup creates at most one customer with UID metadata and determi
   assert.equal(requestParameters(fake.calls[1]).has("email"), false);
   assert.equal(
     requestHeader(fake.calls[1], "idempotency-key"),
-    "customer:firebase-uid-123:attempt-3",
+    "customer:firebase-uid-123",
   );
+});
+
+test("concurrent first-time customer calls converge on one UID-stable Stripe customer", async () => {
+  let searchCount = 0;
+  let releaseSearches;
+  const bothSearchesStarted = new Promise((resolve) => {
+    releaseSearches = resolve;
+  });
+  const idempotentCustomers = new Map();
+  const creationKeys = [];
+
+  const fetchImpl = async (url, init = {}) => {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.pathname === "/v1/customers/search") {
+      searchCount += 1;
+      if (searchCount === 2) releaseSearches();
+      await bothSearchesStarted;
+      return new Response(
+        JSON.stringify({
+          object: "search_result",
+          data: [],
+          has_more: false,
+          next_page: null,
+          url: "/v1/customers/search",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    assert.equal(parsedUrl.pathname, "/v1/customers");
+    assert.equal(init.method, "POST");
+    const key = requestHeader({ init }, "idempotency-key");
+    creationKeys.push(key);
+    if (!idempotentCustomers.has(key)) idempotentCustomers.set(key, "cus_race_stable");
+    return new Response(
+      JSON.stringify({
+        id: idempotentCustomers.get(key),
+        object: "customer",
+        email: null,
+        livemode: false,
+        metadata: { firebase_uid: "firebase-uid-123" },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl });
+
+  const customers = await Promise.all([
+    gateway.findOrCreateCustomer({
+      uid: "firebase-uid-123",
+      operationAttempt: "concurrent-a",
+    }),
+    gateway.findOrCreateCustomer({
+      uid: "firebase-uid-123",
+      operationAttempt: "concurrent-b",
+    }),
+  ]);
+
+  assert.deepEqual(customers, [{ id: "cus_race_stable" }, { id: "cus_race_stable" }]);
+  assert.deepEqual(creationKeys, ["customer:firebase-uid-123", "customer:firebase-uid-123"]);
+  assert.equal(idempotentCustomers.size, 1);
+});
+
+test("customer lookup rejects an already-duplicated Firebase UID instead of choosing one", async () => {
+  const fake = createFakeFetch([
+    {
+      body: {
+        object: "search_result",
+        data: [
+          {
+            id: "cus_duplicate_a",
+            object: "customer",
+            email: CUSTOMER_EMAIL,
+            livemode: false,
+            metadata: { firebase_uid: "firebase-uid-123" },
+          },
+          {
+            id: "cus_duplicate_b",
+            object: "customer",
+            email: "other-private@example.com",
+            livemode: false,
+            metadata: { firebase_uid: "firebase-uid-123" },
+          },
+        ],
+        has_more: false,
+        next_page: null,
+        url: "/v1/customers/search",
+      },
+    },
+  ]);
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+
+  await assert.rejects(
+    gateway.findOrCreateCustomer({
+      uid: "firebase-uid-123",
+      operationAttempt: "attempt-duplicate",
+    }),
+    (error) => {
+      assert.equal(error.code, "BILLING_CUSTOMER_DUPLICATE");
+      assert.match(error.message, /multiple billing customers/i);
+      assert.equal(error.message.includes(CUSTOMER_EMAIL), false);
+      return true;
+    },
+  );
+  assert.equal(requestParameters(fake.calls[0]).get("limit"), "100");
+  assert.equal(fake.calls.length, 1);
 });
 
 test("Checkout uses only a verified server plan, server URLs, UID metadata, and eligible trial", async () => {
@@ -391,6 +532,54 @@ test("Checkout refuses unverified plans and non-Stripe hosted URLs", async () =>
   );
 });
 
+test("Checkout returns only an open Session URL and uses a fresh attempt after terminal Sessions", async () => {
+  const session = (id, status) => ({
+    id,
+    object: "checkout.session",
+    mode: "subscription",
+    livemode: false,
+    ...(status === undefined ? {} : { status }),
+    url: `https://checkout.stripe.com/c/pay/${id}`,
+  });
+  const { gateway, fake } = await createVerifiedGateway([
+    { body: session("cs_test_complete", "complete") },
+    { body: session("cs_test_expired", "expired") },
+    { body: session("cs_test_missing_status", undefined) },
+    { body: session("cs_test_fresh", "open") },
+  ]);
+  const create = (operationAttempt) =>
+    gateway.createCheckoutSession({
+      uid: "firebase-uid-123",
+      customerId: "cus_learner",
+      planKey: "monthly",
+      appOrigin: APP_ORIGIN,
+      trialEligible: false,
+      operationAttempt,
+    });
+
+  for (const attempt of ["terminal-complete", "terminal-expired", "terminal-missing"]) {
+    await assert.rejects(create(attempt), (error) => {
+      assert.equal(error.code, "BILLING_CHECKOUT_NOT_OPEN");
+      assert.match(error.message, /not open/i);
+      assert.equal(error.message.includes("checkout.stripe.com"), false);
+      return true;
+    });
+  }
+  assert.deepEqual(await create("fresh-open"), {
+    id: "cs_test_fresh",
+    url: "https://checkout.stripe.com/c/pay/cs_test_fresh",
+  });
+  assert.deepEqual(
+    fake.calls.slice(2).map((call) => requestHeader(call, "idempotency-key")),
+    [
+      "checkout:firebase-uid-123:terminal-complete",
+      "checkout:firebase-uid-123:terminal-expired",
+      "checkout:firebase-uid-123:terminal-missing",
+      "checkout:firebase-uid-123:fresh-open",
+    ],
+  );
+});
+
 test("Portal uses only the configured origin and accepts only Stripe's billing host", async () => {
   const fake = createFakeFetch([
     {
@@ -484,6 +673,83 @@ test("listBlockingSubscriptions returns only the four blocking statuses as norma
   assert.equal(requestParameters(fake.calls[0]).get("status"), "all");
 });
 
+test("listBlockingSubscriptions follows Stripe pagination and returns later blocking records", async () => {
+  const fake = createFakeFetch([
+    {
+      body: {
+        object: "list",
+        data: [subscriptionResponse("sub_page_1", "canceled")],
+        has_more: true,
+        url: "/v1/subscriptions",
+      },
+    },
+    {
+      body: {
+        object: "list",
+        data: [subscriptionResponse("sub_page_2", "past_due")],
+        has_more: false,
+        url: "/v1/subscriptions",
+      },
+    },
+  ]);
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+
+  assert.deepEqual(await gateway.listBlockingSubscriptions({ customerId: "cus_learner" }), [
+    {
+      id: "sub_page_2",
+      customerId: "cus_learner",
+      status: "past_due",
+      priceId: "price_test_monthly",
+      livemode: false,
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: 1_800_000_000,
+      trialEnd: null,
+    },
+  ]);
+  assert.equal(fake.calls.length, 2);
+  assert.equal(requestParameters(fake.calls[1]).get("starting_after"), "sub_page_1");
+});
+
+test("listBlockingSubscriptions rejects empty and repeated non-progress pages", async () => {
+  const malformedPageSequences = [
+    [
+      {
+        object: "list",
+        data: [],
+        has_more: true,
+        url: "/v1/subscriptions",
+      },
+    ],
+    [
+      {
+        object: "list",
+        data: [subscriptionResponse("sub_repeated_cursor", "active")],
+        has_more: true,
+        url: "/v1/subscriptions",
+      },
+      {
+        object: "list",
+        data: [subscriptionResponse("sub_repeated_cursor", "active")],
+        has_more: true,
+        url: "/v1/subscriptions",
+      },
+    ],
+  ];
+
+  for (const pages of malformedPageSequences) {
+    const fake = createFakeFetch(pages.map((body) => ({ body })));
+    const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+    await assert.rejects(
+      gateway.listBlockingSubscriptions({ customerId: "cus_learner" }),
+      (error) => {
+        assert.equal(error.code, "BILLING_PROVIDER_ERROR");
+        assert.match(error.message, /provider request failed/i);
+        return true;
+      },
+    );
+  }
+});
+
 test("subscription retrieval and cancellation expose normalized records only", async () => {
   const fake = createFakeFetch([
     { body: subscriptionResponse("sub_retrieve", "active") },
@@ -522,6 +788,213 @@ test("subscription retrieval and cancellation expose normalized records only", a
   assert.equal(requestParameters(fake.calls[1]).get("prorate"), "false");
   assert.equal(requestParameters(fake.calls[1]).get("invoice_now"), "false");
   assert.equal(requestHeader(fake.calls[1], "idempotency-key"), "cancel:firebase-uid-123:attempt-10");
+});
+
+test("webhook construction returns only minimal normalized records for planned event families", () => {
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: async () => {} });
+  const privateProviderText = `private ${CUSTOMER_EMAIL} https://checkout.stripe.com/private`;
+  const subscriptionObject = (status) => ({
+    id: "sub_webhook",
+    object: "subscription",
+    status,
+    customer: "cus_learner",
+    metadata: { firebase_uid: "firebase-uid-123", arbitrary: privateProviderText },
+    items: {
+      object: "list",
+      data: [{ id: "si_webhook", price: { id: "price_test_monthly" } }],
+      has_more: false,
+      url: "/v1/subscription_items",
+    },
+    latest_invoice: { description: privateProviderText },
+  });
+  const cases = [
+    {
+      type: "checkout.session.completed",
+      object: {
+        id: "cs_test_webhook",
+        object: "checkout.session",
+        status: "complete",
+        customer: "cus_learner",
+        subscription: "sub_checkout",
+        metadata: { firebase_uid: "firebase-uid-123", arbitrary: privateProviderText },
+        customer_details: { email: CUSTOMER_EMAIL },
+        url: "https://checkout.stripe.com/private",
+      },
+      expectedObject: {
+        kind: "checkout.session",
+        id: "cs_test_webhook",
+        status: "complete",
+        customerId: "cus_learner",
+        subscriptionId: "sub_checkout",
+        priceId: null,
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    },
+    {
+      type: "customer.subscription.created",
+      object: subscriptionObject("trialing"),
+      expectedObject: {
+        kind: "subscription",
+        id: "sub_webhook",
+        status: "trialing",
+        customerId: "cus_learner",
+        subscriptionId: "sub_webhook",
+        priceId: "price_test_monthly",
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    },
+    {
+      type: "customer.subscription.updated",
+      object: subscriptionObject("active"),
+      expectedObject: {
+        kind: "subscription",
+        id: "sub_webhook",
+        status: "active",
+        customerId: "cus_learner",
+        subscriptionId: "sub_webhook",
+        priceId: "price_test_monthly",
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    },
+    {
+      type: "customer.subscription.deleted",
+      object: subscriptionObject("canceled"),
+      expectedObject: {
+        kind: "subscription",
+        id: "sub_webhook",
+        status: "canceled",
+        customerId: "cus_learner",
+        subscriptionId: "sub_webhook",
+        priceId: "price_test_monthly",
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    },
+    {
+      type: "customer.subscription.trial_will_end",
+      object: subscriptionObject("trialing"),
+      expectedObject: {
+        kind: "subscription",
+        id: "sub_webhook",
+        status: "trialing",
+        customerId: "cus_learner",
+        subscriptionId: "sub_webhook",
+        priceId: "price_test_monthly",
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    },
+    ...["invoice.paid", "invoice.payment_failed"].map((type) => ({
+      type,
+      object: {
+        id: type === "invoice.paid" ? "in_paid" : "in_failed",
+        object: "invoice",
+        status: type === "invoice.paid" ? "paid" : "open",
+        customer: "cus_learner",
+        subscription: "sub_invoice",
+        metadata: { firebase_uid: "firebase-uid-123", arbitrary: privateProviderText },
+        customer_email: CUSTOMER_EMAIL,
+        description: privateProviderText,
+        lines: {
+          object: "list",
+          data: [{ id: "il_webhook", price: { id: "price_test_annual" } }],
+          has_more: false,
+          url: "/v1/invoices/in_webhook/lines",
+        },
+      },
+      expectedObject: {
+        kind: "invoice",
+        id: type === "invoice.paid" ? "in_paid" : "in_failed",
+        status: type === "invoice.paid" ? "paid" : "open",
+        customerId: "cus_learner",
+        subscriptionId: "sub_invoice",
+        priceId: "price_test_annual",
+        metadata: { firebaseUid: "firebase-uid-123" },
+      },
+    })),
+  ];
+
+  for (const [index, fixture] of cases.entries()) {
+    const normalized = constructSignedWebhook(gateway, {
+      id: `evt_webhook_${index}`,
+      object: "event",
+      type: fixture.type,
+      created: 1_800_000_000 + index,
+      livemode: false,
+      data: {
+        object: fixture.object,
+        previous_attributes: { arbitrary: privateProviderText },
+      },
+      request: { id: privateProviderText },
+    });
+    assert.deepEqual(normalized, {
+      id: `evt_webhook_${index}`,
+      type: fixture.type,
+      created: 1_800_000_000 + index,
+      livemode: false,
+      object: fixture.expectedObject,
+    });
+    const serialized = JSON.stringify(normalized);
+    assert.equal(serialized.includes(CUSTOMER_EMAIL), false);
+    assert.equal(serialized.includes(privateProviderText), false);
+    assert.equal(serialized.includes("checkout.stripe.com"), false);
+    assert.equal(serialized.includes("previous_attributes"), false);
+  }
+});
+
+test("webhook construction rejects unsupported types and malformed lifecycle objects", () => {
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: async () => {} });
+  const malformedEvents = [
+    {
+      id: "evt_unsupported",
+      object: "event",
+      type: "charge.succeeded",
+      created: 1_800_000_000,
+      livemode: false,
+      data: { object: { id: "ch_private", object: "charge" } },
+    },
+    {
+      id: "not_an_event",
+      object: "event",
+      type: "checkout.session.completed",
+      created: 1_800_000_000,
+      livemode: false,
+      data: { object: { id: "cs_test_bad", object: "checkout.session" } },
+    },
+    {
+      id: "evt_missing_subscription",
+      object: "event",
+      type: "invoice.paid",
+      created: 1_800_000_000,
+      livemode: false,
+      data: {
+        object: {
+          id: "in_missing_subscription",
+          object: "invoice",
+          status: "paid",
+          customer: "cus_learner",
+        },
+      },
+    },
+    {
+      id: "evt_wrong_object",
+      object: "event",
+      type: "customer.subscription.updated",
+      created: 1_800_000_000,
+      livemode: false,
+      data: { object: { id: "cs_test_wrong", object: "checkout.session" } },
+    },
+  ];
+
+  for (const event of malformedEvents) {
+    assert.throws(
+      () => constructSignedWebhook(gateway, event),
+      (error) => {
+        assert.equal(error.code, "BILLING_WEBHOOK_EVENT_INVALID");
+        assert.match(error.message, /event is invalid/i);
+        assert.equal(error.message.includes(JSON.stringify(event)), false);
+        return true;
+      },
+    );
+  }
 });
 
 test("Stripe failures and webhook signature failures are always redacted", async () => {

@@ -98,10 +98,21 @@ export const loadBillingConfig = (env = {}) => {
     }
   }
 
+  const plans = Object.freeze({
+    monthly: Object.freeze({
+      ...BILLING_PLANS.monthly,
+      priceId: values.STRIPE_MONTHLY_PRICE_ID,
+    }),
+    annual: Object.freeze({
+      ...BILLING_PLANS.annual,
+      priceId: values.STRIPE_ANNUAL_PRICE_ID,
+    }),
+  });
+
   return {
     configured: true,
     appOrigin: normalizeAppOrigin(values.EVERWISE_PUBLIC_APP_ORIGIN),
     webhookSecret: values.STRIPE_WEBHOOK_SECRET,
-    plans: BILLING_PLANS,
+    plans,
   };
 };
