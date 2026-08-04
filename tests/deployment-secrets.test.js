@@ -32,6 +32,26 @@ test("DigitalOcean deployment provisions API credentials from GitHub", () => {
     workflow,
     /ELEVENLABS_VOICE_ID: \$\{\{ vars\.ELEVENLABS_VOICE_ID \}\}/,
   );
+  assert.match(
+    workflow,
+    /STRIPE_SECRET_KEY: \$\{\{ secrets\.STRIPE_SECRET_KEY \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_WEBHOOK_SECRET: \$\{\{ secrets\.STRIPE_WEBHOOK_SECRET \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_MONTHLY_PRICE_ID: \$\{\{ vars\.STRIPE_MONTHLY_PRICE_ID \}\}/,
+  );
+  assert.match(
+    workflow,
+    /STRIPE_ANNUAL_PRICE_ID: \$\{\{ vars\.STRIPE_ANNUAL_PRICE_ID \}\}/,
+  );
+  assert.match(
+    workflow,
+    /EVERWISE_PUBLIC_APP_ORIGIN: \$\{\{ vars\.EVERWISE_PUBLIC_APP_ORIGIN \}\}/,
+  );
   assert.match(workflow, /configure-runtime/);
   assert.match(workflow, /< "\$credentials_file"/);
   assert.doesNotMatch(workflow, /\bscp\b/);

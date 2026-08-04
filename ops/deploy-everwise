@@ -68,10 +68,15 @@ configure_runtime() {
   cat > "$incoming_path"
   mapfile -t runtime_lines < "$incoming_path"
 
-  if [[ "${#runtime_lines[@]}" -ne 3 ]] ||
+  if [[ "${#runtime_lines[@]}" -ne 8 ]] ||
      [[ ! "${runtime_lines[0]}" =~ ^OPENAI_API_KEY=[A-Za-z0-9._-]{20,}$ ]] ||
      [[ ! "${runtime_lines[1]}" =~ ^ELEVENLABS_API_KEY=[A-Za-z0-9._-]{20,}$ ]] ||
-     [[ ! "${runtime_lines[2]}" =~ ^ELEVENLABS_VOICE_ID=[A-Za-z0-9_-]{10,}$ ]]; then
+     [[ ! "${runtime_lines[2]}" =~ ^ELEVENLABS_VOICE_ID=[A-Za-z0-9_-]{10,}$ ]] ||
+     [[ ! "${runtime_lines[3]}" =~ ^STRIPE_SECRET_KEY=sk_(live|test)_[A-Za-z0-9._-]+$ ]] ||
+     [[ ! "${runtime_lines[4]}" =~ ^STRIPE_WEBHOOK_SECRET=whsec_[A-Za-z0-9._-]{20,}$ ]] ||
+     [[ ! "${runtime_lines[5]}" =~ ^STRIPE_MONTHLY_PRICE_ID=price_[A-Za-z0-9_]+$ ]] ||
+     [[ ! "${runtime_lines[6]}" =~ ^STRIPE_ANNUAL_PRICE_ID=price_[A-Za-z0-9_]+$ ]] ||
+     [[ ! "${runtime_lines[7]}" =~ ^EVERWISE_PUBLIC_APP_ORIGIN=https://[A-Za-z0-9._:/-]+$ ]]; then
     echo "Invalid EverWise runtime configuration." >&2
     exit 1
   fi

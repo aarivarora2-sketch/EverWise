@@ -65,10 +65,20 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_MONTHLY_PRICE_ID: ${{ vars.STRIPE_MONTHLY_PRICE_ID }}
+          STRIPE_ANNUAL_PRICE_ID: ${{ vars.STRIPE_ANNUAL_PRICE_ID }}
+          EVERWISE_PUBLIC_APP_ORIGIN: ${{ vars.EVERWISE_PUBLIC_APP_ORIGIN }}
         run: |
           test -n "$OPENAI_API_KEY"
           test -n "$ELEVENLABS_API_KEY"
           test -n "$ELEVENLABS_VOICE_ID"
+          test -n "$STRIPE_SECRET_KEY"
+          test -n "$STRIPE_WEBHOOK_SECRET"
+          test -n "$STRIPE_MONTHLY_PRICE_ID"
+          test -n "$STRIPE_ANNUAL_PRICE_ID"
+          test -n "$EVERWISE_PUBLIC_APP_ORIGIN"
 
           credentials_file="$(mktemp)"
           trap 'rm -f "$credentials_file"' EXIT
@@ -77,6 +87,11 @@ jobs:
             printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
             printf 'ELEVENLABS_API_KEY=%s\n' "$ELEVENLABS_API_KEY"
             printf 'ELEVENLABS_VOICE_ID=%s\n' "$ELEVENLABS_VOICE_ID"
+            printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+            printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$STRIPE_WEBHOOK_SECRET"
+            printf 'STRIPE_MONTHLY_PRICE_ID=%s\n' "$STRIPE_MONTHLY_PRICE_ID"
+            printf 'STRIPE_ANNUAL_PRICE_ID=%s\n' "$STRIPE_ANNUAL_PRICE_ID"
+            printf 'EVERWISE_PUBLIC_APP_ORIGIN=%s\n' "$EVERWISE_PUBLIC_APP_ORIGIN"
           } > "$credentials_file"
 
           ssh \
