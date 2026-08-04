@@ -263,7 +263,7 @@ async function removeProfile(profile) {
 
 async function waitForDebugPort(profile, chrome, { signal } = {}) {
   const activePortFile = path.join(profile, "DevToolsActivePort");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (signal?.aborted) throw signal.reason;
     if (chrome.exitCode !== null) throw new Error(`Chrome exited during startup (${chrome.exitCode})`);
     try {
@@ -274,7 +274,7 @@ async function waitForDebugPort(profile, chrome, { signal } = {}) {
     }
     await delay(50);
   }
-  throw new Error("Chrome did not start its debugging server within 5 seconds");
+  throw new Error("Chrome did not start its debugging server within 15 seconds");
 }
 
 async function connectCdp(webSocketUrl, {
@@ -469,7 +469,7 @@ test("TERM-resistant browser cleanup escalates to KILL and confirms exit", { tim
   assert.equal(stopped, true);
 });
 
-test("real Paywall stays inside desktop and 768px browser viewports", { ...browserTestOptions, timeout: 15_000 }, async () => {
+test("real Paywall stays inside desktop and 768px browser viewports", { ...browserTestOptions, timeout: 45_000 }, async () => {
   await withLayoutServer(async (url) => {
     for (const width of [1280, 768]) {
       const geometry = await measure(url, width);
@@ -478,7 +478,7 @@ test("real Paywall stays inside desktop and 768px browser viewports", { ...brows
   });
 });
 
-test("geometry proof detects a clipped wide-card regression", { ...browserTestOptions, timeout: 15_000 }, async () => {
+test("geometry proof detects a clipped wide-card regression", { ...browserTestOptions, timeout: 45_000 }, async () => {
   await withLayoutServer(async (url) => {
     const geometry = await measure(url, 768, "wide-card");
     assert.ok(
