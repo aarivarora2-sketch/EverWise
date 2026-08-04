@@ -51,7 +51,7 @@ const DIRECT_WEB_OFFER = {
   unitAmount: 6000,
   interval: "year",
   trialDays: 0,
-  name: "One Year Access",
+  name: "Full Year Access",
 };
 
 const fixedText = {
@@ -429,7 +429,8 @@ export default function Paywall({
   }
 
   if (
-    (!native && (!billingAvailable && !hasDirectCheckout)) ||
+    (!native && !hasDirectCheckout && !offers) ||
+    (!native && !billingAvailable && !hasDirectCheckout) ||
     (native && !purchasesAvailable)
   ) {
     return (
@@ -445,13 +446,20 @@ export default function Paywall({
   }
 
   const offerList = offers ? Object.values(offers) : [];
-  const selectedOffer = offers[selectedPlan];
   const hasOnlyDirectOffer = offers.annual && !offers.monthly;
+  const selectedOfferKey =
+    offers && Object.hasOwn(offers, selectedPlan)
+      ? selectedPlan
+      : offerList[0]?.key;
+  const selectedOffer = selectedOfferKey && offers ? offers[selectedOfferKey] : null;
+  const selectedKey = selectedOfferKey || "annual";
   const ctaLabel = native
     ? selectedPlan === "annual" ? "Start your free trial" : "Continue with monthly"
     : hasOnlyDirectOffer
-      ? "Start 60 dollars per year"
-      : `Start ${selectedOffer.trialDays}-day free trial`;
+      ? "Pay 60 dollars for one year"
+      : selectedOffer
+        ? `Start ${selectedOffer.trialDays}-day free trial`
+        : "Retry";
 
   return (
     <div data-testid="browser-paywall" className="release-paywall relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#F8F5EF] px-5 pb-0 pt-4">
@@ -480,10 +488,10 @@ export default function Paywall({
                   disabled={busy}
                   native={native}
                   offer={offer}
-                  selected={selectedPlan === offer.key}
+                  selected={selectedKey === offer.key}
                   onSelect={setSelectedPlan}
                   storeProducts={storeProducts}
-                  tabIndex={selectedPlan === offer.key ? 0 : -1}
+                  tabIndex={selectedKey === offer.key ? 0 : -1}
                 />
               ))}
             </div>
@@ -510,9 +518,9 @@ export default function Paywall({
                   : "$14.99 billed monthly. Renews automatically unless you cancel."}
               </p>
             ) : (
-              <p className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink" style={fixedText.reassurance}>
+            <p className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink" style={fixedText.reassurance}>
                 {hasOnlyDirectOffer
-                  ? "60 dollars per year. No free trial. Full access for 365 days."
+                  ? "60 dollars for one year. No free trial. Does not auto-renew. Full access for 365 days."
                   : "Your payment method is collected now. Billing starts automatically after your trial unless you cancel."}
               </p>
             )}

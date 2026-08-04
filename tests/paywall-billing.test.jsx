@@ -196,6 +196,27 @@ describe("browser Stripe paywall", () => {
     expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
   });
 
+  test("shows only one direct annual offer when a checkout URL is provided", () => {
+    renderWebPaywall({
+      checkoutUrl: "https://buy.stripe.com/fZu5kE7BJfR63DI3kacfK02",
+      billingPlans: VERIFIED_PLANS,
+    });
+
+    expect(screen.getByRole("radio", { name: /Full Year Access/i })).toBeVisible();
+    expect(screen.queryByRole("radio", { name: /Monthly/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("7 days free, then $60/year unless canceled."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("60 dollars for one year of access, no trial required.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Pay 60 dollars for one year" })).toBeVisible();
+    expect(
+      screen.getByText(
+        "60 dollars for one year. No free trial. Does not auto-renew. Full access for 365 days.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Restore/i })).not.toBeInTheDocument();
+  });
+
   test("uses one roving tab stop with wrapped Arrow, Home, and End navigation", async () => {
     const user = userEvent.setup();
     renderWebPaywall();

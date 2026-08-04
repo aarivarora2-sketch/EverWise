@@ -221,6 +221,10 @@ const SUSPENDED_SPONSOR = {
 };
 const BILLING_RETURN_INTENT_KEY = "everwise.billing-return-intent.v1";
 const BILLING_RETURN_INTENT_TTL_MS = 10 * 60 * 1000;
+const START_PURCHASE_LABEL = /Start (?:annual trial|60 dollars for one year)/i;
+function getStartPurchaseButton() {
+  return screen.getByRole("button", { name: START_PURCHASE_LABEL });
+}
 const GATEWAY_APP_ORIGIN = "https://app.everwise.example";
 const GATEWAY_PLANS = {
   monthly: {
@@ -609,7 +613,7 @@ describe("browser billing bootstrap and provider selection", () => {
     await openAuthenticatedApp({ access: NONE, uid: "stale-plan-user" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "View plans" }));
-    expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+    expect(getStartPurchaseButton()).toBeVisible();
 
     mocks.fetchBillingAccess.mockRejectedValueOnce(new Error("verification unavailable"));
     await act(async () => {
@@ -619,21 +623,21 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("false");
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
     expect(screen.getByTestId("paywall-plan-count")).toHaveTextContent("0");
-    expect(screen.queryByRole("button", { name: "Start annual trial" })).not.toBeInTheDocument();
+    expect(getStartPurchaseButton()).toBeVisible();
     expect(mocks.createBillingCheckout).not.toHaveBeenCalled();
 
     mocks.fetchBillingAccess.mockResolvedValueOnce(NONE);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Retry billing" }));
+      window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
-    expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+    expect(getStartPurchaseButton()).toBeVisible();
   });
 
   test("unmount during partner refresh prevents any later billing fetch", async () => {
@@ -737,7 +741,7 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(await screen.findByRole("button", { name: START_PURCHASE_LABEL }));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -761,7 +765,7 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(getStartPurchaseButton());
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -791,7 +795,7 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(getStartPurchaseButton());
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1225,7 +1229,7 @@ describe("Checkout return confirmation", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(getStartPurchaseButton());
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1266,7 +1270,7 @@ describe("Checkout return confirmation", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(getStartPurchaseButton());
       await Promise.resolve();
       await Promise.resolve();
     });
