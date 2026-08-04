@@ -90,11 +90,18 @@ import {
 import {
   getCurrentEntitlement,
   getSubscriptionProducts,
-  nativePurchasesAvailable,
   planForProduct,
   purchaseSubscription,
   restoreSubscriptions,
 } from "./services/purchases";
+import {
+  createBillingCheckout,
+  createBillingPortal,
+  fetchBillingAccess,
+  fetchBillingPlans,
+} from "./services/billingAccess.js";
+import BillingConfirmation from "./screens/BillingConfirmation.jsx";
+import BillingAccessError from "./screens/BillingAccessError.jsx";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
 const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
@@ -102,6 +109,7 @@ const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
 const PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY =
   "everwise-partner-release-confirmable";
 const PARTNER_ACCESS_REFRESH_INTERVAL_MS = 60_000;
+const BILLING_CONFIRMATION_DELAYS_MS = [0, 1_000, 2_000, 3_000, 5_000, 8_000];
 const PARTNER_RELEASE_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PARTNER_RECONCILIATION_REASONS = new Set([
   "cancellation",
@@ -141,6 +149,41 @@ function getSavedTextSize() {
     return LEGACY_TEXT_SIZES[saved] || "size-2";
   } catch {
     return "size-2";
+  }
+}
+
+function consumeBillingReturnMarker() {
+  try {
+    const currentUrl = new URL(
+      `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`,
+      globalThis.location.origin,
+    );
+    const values = currentUrl.searchParams.getAll("billing");
+    if (values.length === 0) return null;
+    currentUrl.searchParams.delete("billing");
+    const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    globalThis.history.replaceState(globalThis.history.state, "", nextUrl);
+    return values.length === 1 && (values[0] === "success" || values[0] === "cancel")
+      ? values[0]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidatedHostedUrl(value, hostname) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === hostname &&
+      !url.port &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -697,6 +740,10 @@ async function normalizeSubscription(uid, data) {
 }
 
 function LearnerApp({ initialPartnerFragment }) {
+  const [platform] = useState(() =>
+    Capacitor.isNativePlatform() ? "native" : "web",
+  );
+  const [billingReturn, setBillingReturn] = useState(consumeBillingReturnMarker);
   const [pendingPartnerRelease, setPendingPartnerRelease] = useState(
     readStoredPartnerRelease,
   );
@@ -727,6 +774,13 @@ function LearnerApp({ initialPartnerFragment }) {
   const [activeChallenge, setActiveChallenge] = useState(null);
   const [textSize, setTextSize] = useState(getSavedTextSize);
   const [storeProducts, setStoreProducts] = useState([]);
+  const [billingOwnerUid, setBillingOwnerUid] = useState(null);
+  const [billingStatus, setBillingStatus] = useState("unavailable");
+  const [billingAccess, setBillingAccess] = useState(null);
+  const [billingPlans, setBillingPlans] = useState([]);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingRecovery, setBillingRecovery] = useState(null);
+  const [billingPollAttempt, setBillingPollAttempt] = useState(0);
   const authGenerationRef = useRef(0);
   const authSettledRef = useRef(false);
   const currentAuthUidRef = useRef(null);
@@ -739,11 +793,25 @@ function LearnerApp({ initialPartnerFragment }) {
   const partnerRecoveryRef = useRef(null);
   const partnerAccessRefreshIdRef = useRef(0);
   const refreshAuthoritativePartnerAccessRef = useRef(null);
+  const billingBootstrapIdRef = useRef(0);
+  const billingPollIdRef = useRef(0);
+  const billingReturnOwnerUidRef = useRef(null);
+  const billingHadFullAccessRef = useRef(false);
+  const pendingProtectedNavigationRef = useRef(null);
   const protectedContentStateRef = useRef({
     screen: "landing",
     itemId: null,
     completedIds: [],
   });
+
+  useEffect(() => {
+    const handleBillingReturn = () => {
+      const marker = consumeBillingReturnMarker();
+      if (marker) setBillingReturn(marker);
+    };
+    window.addEventListener("popstate", handleBillingReturn);
+    return () => window.removeEventListener("popstate", handleBillingReturn);
+  }, []);
 
   const updatePartnerFragment = (next) => {
     partnerFragmentRef.current = next;
@@ -931,7 +999,7 @@ function LearnerApp({ initialPartnerFragment }) {
       });
     }
 
-    if (nativePurchasesAvailable()) {
+    if (platform === "native") {
       getSubscriptionProducts()
         .then(setStoreProducts)
         .catch((error) => {
@@ -943,7 +1011,7 @@ function LearnerApp({ initialPartnerFragment }) {
           }
         });
     }
-  }, []);
+  }, [platform]);
 
   useEffect(() => {
     document.documentElement.dataset.textSize = textSize;
@@ -976,7 +1044,7 @@ function LearnerApp({ initialPartnerFragment }) {
   }, [screen]);
 
   useEffect(() => {
-    if (!user || !nativePurchasesAvailable()) return undefined;
+    if (!user || platform !== "native") return undefined;
 
     let cancelled = false;
     getCurrentEntitlement()
@@ -1001,7 +1069,7 @@ function LearnerApp({ initialPartnerFragment }) {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [platform, user]);
 
   useEffect(() => {
     let receivedInitialAuthState = false;
@@ -1019,8 +1087,24 @@ function LearnerApp({ initialPartnerFragment }) {
       authGenerationRef.current = generation;
       authSettledRef.current = false;
       currentAuthUidRef.current = u?.uid || null;
+      if (
+        billingReturnOwnerUidRef.current &&
+        billingReturnOwnerUidRef.current !== (u?.uid || null)
+      ) {
+        billingReturnOwnerUidRef.current = null;
+        setBillingReturn(null);
+      }
+      billingBootstrapIdRef.current += 1;
+      billingPollIdRef.current += 1;
       setUser(u);
       setAuthChecked(false);
+      setBillingOwnerUid(u?.uid || null);
+      billingHadFullAccessRef.current = false;
+      setBillingStatus("unavailable");
+      setBillingAccess(null);
+      setBillingPlans([]);
+      setBillingBusy(false);
+      setBillingRecovery(null);
 
       const activeOperation = activeOperationRef.current;
       const normalizedUserEmail = u?.email?.trim().toLowerCase() || null;
@@ -1291,11 +1375,89 @@ function LearnerApp({ initialPartnerFragment }) {
       partnerStatus === "active" &&
       partnerOwnerUid === user.uid,
   );
+  const ownedBillingStatus =
+    user?.uid && billingOwnerUid === user.uid ? billingStatus : "unavailable";
   const access = resolveFullAccess({
     sponsoredStatus: sponsoredActive ? "active" : "none",
-    subscriptionStatus,
+    billingStatus: ownedBillingStatus,
+    nativeSubscriptionStatus: subscriptionStatus,
+    platform,
     developmentBypass: subscriptionBypassEnabled,
   });
+
+  useEffect(() => {
+    if (
+      platform !== "web" ||
+      !authChecked ||
+      !authSettledRef.current ||
+      !user?.uid ||
+      !profile
+    ) {
+      return undefined;
+    }
+    if (sponsoredActive) {
+      setBillingOwnerUid(user.uid);
+      setBillingStatus("unavailable");
+      setBillingAccess(null);
+      setBillingPlans([]);
+      setBillingBusy(false);
+      return undefined;
+    }
+
+    const uid = user.uid;
+    const generation = authGenerationRef.current;
+    const requestId = billingBootstrapIdRef.current + 1;
+    billingBootstrapIdRef.current = requestId;
+    let cancelled = false;
+    setBillingOwnerUid(uid);
+    setBillingBusy(true);
+    Promise.all([fetchBillingPlans(user), fetchBillingAccess(user)])
+      .then(([plansResult, accessResult]) => {
+        if (
+          cancelled ||
+          requestId !== billingBootstrapIdRef.current ||
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== uid
+        ) {
+          return;
+        }
+        setBillingPlans(plansResult.plans);
+        setBillingAccess(accessResult);
+        setBillingStatus(accessResult.status);
+        if (accessResult.access === "full") billingHadFullAccessRef.current = true;
+        setBillingRecovery((current) =>
+          current?.kind === "temporary" ? null : current,
+        );
+      })
+      .catch(() => {
+        if (
+          cancelled ||
+          requestId !== billingBootstrapIdRef.current ||
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== uid
+        ) {
+          return;
+        }
+        setBillingPlans([]);
+        setBillingAccess(null);
+        setBillingStatus("unavailable");
+        setBillingRecovery({ kind: "temporary" });
+      })
+      .finally(() => {
+        if (
+          !cancelled &&
+          requestId === billingBootstrapIdRef.current &&
+          generation === authGenerationRef.current &&
+          currentAuthUidRef.current === uid
+        ) {
+          setBillingBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authChecked, platform, profile, sponsoredActive, user]);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -2051,9 +2213,17 @@ function LearnerApp({ initialPartnerFragment }) {
     try {
       await signOut(auth);
       authGenerationRef.current += 1;
+      billingBootstrapIdRef.current += 1;
+      billingPollIdRef.current += 1;
       currentAuthUidRef.current = null;
       setUser(null);
       setProfile(null);
+      setBillingOwnerUid(null);
+      setBillingStatus("unavailable");
+      setBillingAccess(null);
+      setBillingPlans([]);
+      setBillingBusy(false);
+      setBillingRecovery(null);
       setPartnerOwnerUid(null);
       setPartner(null);
       setPartnerStatus("idle");
@@ -2073,70 +2243,27 @@ function LearnerApp({ initialPartnerFragment }) {
     }
   };
 
-  const refreshAuthoritativePartnerAccess = async () => {
+  const refreshAuthoritativePartnerAccess = async ({ routeCurrent = true } = {}) => {
     const refreshUser = user;
-    if (
-      !refreshUser?.uid ||
-      partnerOwnerUid !== refreshUser.uid ||
-      partnerStatus !== "active"
-    ) {
-      return { status: partnerStatus === "active" ? "active" : "none" };
-    }
+    if (!refreshUser?.uid) return null;
     const generation = authGenerationRef.current;
     const refreshId = partnerAccessRefreshIdRef.current + 1;
     partnerAccessRefreshIdRef.current = refreshId;
+    const isCurrent = () =>
+      refreshId === partnerAccessRefreshIdRef.current &&
+      generation === authGenerationRef.current &&
+      currentAuthUidRef.current === refreshUser.uid;
+    let authoritativeAccess;
     try {
-      const authoritativeAccess = await fetchAuthoritativePartnerAccess(refreshUser);
-      if (
-        refreshId !== partnerAccessRefreshIdRef.current ||
-        generation !== authGenerationRef.current ||
-        currentAuthUidRef.current !== refreshUser.uid
-      ) {
-        return null;
-      }
-      const currentAccess = resolveFullAccess({
-        sponsoredStatus:
-          authoritativeAccess.status === "active" ? "active" : "none",
-        subscriptionStatus,
-        developmentBypass: subscriptionBypassEnabled,
-      });
-      const currentProtectedContent = protectedContentStateRef.current;
-      const exitProtectedContent = shouldExitProtectedContent({
-        screen: currentProtectedContent.screen,
-        itemId: currentProtectedContent.itemId,
-        completedIds: currentProtectedContent.completedIds,
-        fullAccess: currentAccess,
-      });
-      if (authoritativeAccess.status === "active") {
-        setPartnerOwnerUid(refreshUser.uid);
-        setPartner(
-          authoritativeAccess.branding || { name: authoritativeAccess.name },
-        );
-        setPartnerStatus("active");
-        updatePartnerRecovery(null);
-      } else if (authoritativeAccess.status === "suspended") {
-        setPartnerOwnerUid(refreshUser.uid);
-        setPartner(
-          authoritativeAccess.branding || { name: authoritativeAccess.name },
-        );
-        setPartnerStatus("suspended");
-        updatePartnerRecovery(null);
-        if (exitProtectedContent) setScreen("partner-error");
-      } else {
-        clearAuthoritativePartner();
-        updatePartnerRecovery(null);
-        if (exitProtectedContent) {
-          setPaywallVariant("subscribe");
-          setScreen("paywall");
-        }
-      }
-      return authoritativeAccess;
+      authoritativeAccess = await fetchAuthoritativePartnerAccess(refreshUser);
     } catch {
-      if (
-        refreshId === partnerAccessRefreshIdRef.current &&
-        generation === authGenerationRef.current &&
-        currentAuthUidRef.current === refreshUser.uid
-      ) {
+      if (!isCurrent()) return null;
+      const mirroredPartner =
+        partnerOwnerUid === refreshUser.uid &&
+        (partnerStatus === "active" ||
+          profile?.accessSource === "partner" ||
+          typeof profile?.partnerId === "string");
+      if (mirroredPartner) {
         setPartnerStatus("unavailable");
         updatePartnerRecovery({
           kind: "returning-access",
@@ -2145,15 +2272,103 @@ function LearnerApp({ initialPartnerFragment }) {
           busy: false,
         });
         setScreen("partner-error");
+        return null;
       }
-      return null;
+      authoritativeAccess = { status: "none" };
     }
+    if (!isCurrent()) return null;
+    if (!authoritativeAccess || typeof authoritativeAccess.status !== "string") {
+      authoritativeAccess = { status: "none" };
+    }
+
+    let nextBillingStatus = "unavailable";
+    let nextBillingAccess = null;
+    let billingUnavailable = false;
+    const billingWasPreviouslyFull = billingHadFullAccessRef.current;
+
+    if (authoritativeAccess.status === "active") {
+      setPartnerOwnerUid(refreshUser.uid);
+      setPartner(
+        authoritativeAccess.branding || { name: authoritativeAccess.name },
+      );
+      setPartnerStatus("active");
+      updatePartnerRecovery(null);
+    } else if (authoritativeAccess.status === "suspended") {
+      setPartnerOwnerUid(refreshUser.uid);
+      setPartner(
+        authoritativeAccess.branding || { name: authoritativeAccess.name },
+      );
+      setPartnerStatus("suspended");
+      updatePartnerRecovery(null);
+    } else {
+      clearAuthoritativePartner();
+      updatePartnerRecovery(null);
+      if (platform === "web") {
+        setBillingBusy(true);
+        try {
+          nextBillingAccess = await fetchBillingAccess(refreshUser);
+          if (!isCurrent()) return null;
+          nextBillingStatus = nextBillingAccess.status;
+          setBillingOwnerUid(refreshUser.uid);
+          setBillingAccess(nextBillingAccess);
+          setBillingStatus(nextBillingStatus);
+          if (nextBillingAccess.access === "full") {
+            billingHadFullAccessRef.current = true;
+          }
+          setBillingRecovery(null);
+        } catch {
+          if (!isCurrent()) return null;
+          billingUnavailable = true;
+          setBillingOwnerUid(refreshUser.uid);
+          setBillingAccess(null);
+          setBillingStatus("unavailable");
+          setBillingRecovery({ kind: "temporary" });
+        } finally {
+          if (isCurrent()) setBillingBusy(false);
+        }
+      }
+    }
+
+    if (!isCurrent()) return null;
+    const currentAccess = resolveFullAccess({
+      sponsoredStatus:
+        authoritativeAccess.status === "active" ? "active" : "none",
+      billingStatus: nextBillingStatus,
+      nativeSubscriptionStatus: subscriptionStatus,
+      platform,
+      developmentBypass: subscriptionBypassEnabled,
+    });
+    const currentProtectedContent = protectedContentStateRef.current;
+    const exitProtectedContent = shouldExitProtectedContent({
+      screen: currentProtectedContent.screen,
+      itemId: currentProtectedContent.itemId,
+      completedIds: currentProtectedContent.completedIds,
+      fullAccess: currentAccess,
+    });
+    if (routeCurrent && exitProtectedContent) {
+      if (authoritativeAccess.status === "suspended") {
+        setScreen("partner-error");
+      } else if (billingUnavailable && billingWasPreviouslyFull) {
+        setScreen("billing-error");
+      } else {
+        setPaywallVariant("subscribe");
+        setScreen("paywall");
+      }
+    }
+    return {
+      partnerStatus: authoritativeAccess.status,
+      billingStatus: nextBillingStatus,
+      billingAccess: nextBillingAccess,
+      billingUnavailable,
+      billingWasPreviouslyFull,
+      fullAccess: currentAccess,
+    };
   };
   refreshAuthoritativePartnerAccessRef.current =
     refreshAuthoritativePartnerAccess;
 
   useEffect(() => {
-    if (!sponsoredActive) return undefined;
+    if (!authChecked || !user?.uid || !profile) return undefined;
     const refresh = () => {
       void refreshAuthoritativePartnerAccessRef.current?.();
     };
@@ -2171,73 +2386,182 @@ function LearnerApp({ initialPartnerFragment }) {
       document.removeEventListener("visibilitychange", resume);
       window.clearInterval(intervalId);
     };
-  }, [sponsoredActive]);
+  }, [authChecked, platform, profile, sponsoredActive, user?.uid]);
 
-  const routeSuspendedProtectedEntry = ({
-    contentScreen,
-    itemId,
-    currentAccess,
-  }) => {
-    if (
-      !shouldExitProtectedContent({
-        screen: contentScreen,
-        itemId,
-        completedIds: completedLessons,
-        fullAccess: currentAccess,
-      })
-    ) {
-      return false;
+  useEffect(() => {
+    if (!billingReturn || !authChecked || !authSettledRef.current) {
+      return undefined;
     }
-    setScreen("partner-error");
-    return true;
+    if (!user?.uid || !profile) return undefined;
+
+    if (billingReturn === "cancel") {
+      setBillingRecovery({
+        kind: "cancel",
+        message: "Checkout was canceled. Your access has not changed.",
+      });
+      setPaywallVariant("subscribe");
+      setScreen("paywall");
+      setBillingReturn(null);
+      return undefined;
+    }
+
+    if (sponsoredActive) {
+      setBillingRecovery(null);
+      setBillingReturn(null);
+      setScreen("home");
+      return undefined;
+    }
+    if (platform !== "web") {
+      setBillingRecovery({ kind: "temporary" });
+      setScreen("billing-error");
+      setBillingReturn(null);
+      return undefined;
+    }
+
+    const uid = user.uid;
+    const generation = authGenerationRef.current;
+    const pollId = billingPollIdRef.current + 1;
+    billingPollIdRef.current = pollId;
+    billingReturnOwnerUidRef.current = uid;
+    let cancelled = false;
+    let timerId = null;
+    const current = () =>
+      !cancelled &&
+      pollId === billingPollIdRef.current &&
+      generation === authGenerationRef.current &&
+      currentAuthUidRef.current === uid;
+    const wait = (delay) =>
+      new Promise((resolve) => {
+        timerId = window.setTimeout(resolve, delay);
+      });
+    const openPendingOrHome = () => {
+      const pending = pendingProtectedNavigationRef.current;
+      if (
+        !pending ||
+        pending.uid !== uid ||
+        pending.generation !== generation
+      ) {
+        setScreen("home");
+        return;
+      }
+      pendingProtectedNavigationRef.current = null;
+      if (pending.screen === "lesson") {
+        setActiveExam(null);
+        setActiveChallenge(null);
+        setActiveIndex(pending.index);
+      } else if (pending.screen === "challenge") {
+        setActiveExam(null);
+        setActiveChallenge(pending.item);
+      } else if (pending.screen === "exam") {
+        setActiveChallenge(null);
+        setActiveExam(pending.item);
+      }
+      setScreen(pending.screen);
+    };
+
+    setBillingRecovery({ kind: "confirmation", phase: "checking" });
+    setScreen("billing-confirmation");
+    void (async () => {
+      let latestAccess = null;
+      for (const delay of BILLING_CONFIRMATION_DELAYS_MS) {
+        if (delay > 0) await wait(delay);
+        if (!current()) return;
+        const refreshed = await refreshAuthoritativePartnerAccessRef.current?.({
+          routeCurrent: false,
+        });
+        if (!current()) return;
+        latestAccess = refreshed?.billingAccess || latestAccess;
+        if (refreshed?.fullAccess) {
+          setBillingRecovery(null);
+          setBillingReturn(null);
+          billingReturnOwnerUidRef.current = null;
+          openPendingOrHome();
+          return;
+        }
+      }
+      if (!current()) return;
+      setBillingRecovery({
+        kind: "confirmation",
+        phase: "timeout",
+        canManage: latestAccess?.canManage === true,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
+  }, [
+    authChecked,
+    billingPollAttempt,
+    billingReturn,
+    platform,
+    profile,
+    sponsoredActive,
+    user?.uid,
+  ]);
+
+  const rememberPendingProtectedNavigation = (pending) => {
+    if (!user?.uid) return;
+    pendingProtectedNavigationRef.current = {
+      ...pending,
+      uid: user.uid,
+      generation: authGenerationRef.current,
+    };
+  };
+
+  const routeDeniedProtectedEntry = (pending, refreshed) => {
+    rememberPendingProtectedNavigation(pending);
+    if (refreshed?.partnerStatus === "suspended") {
+      setScreen("partner-error");
+    } else if (
+      refreshed?.billingUnavailable &&
+      refreshed?.billingWasPreviouslyFull
+    ) {
+      setScreen("billing-error");
+    } else {
+      setPaywallVariant("subscribe");
+      setScreen("paywall");
+    }
   };
 
   const startLesson = async (index) => {
     const lesson = lessonsByOrder[index];
     const done = lesson && completedLessons.includes(lesson.id);
     let currentAccess = access;
-    if (!done && sponsoredActive) {
-      const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed) return;
-      currentAccess = resolveFullAccess({
-        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
-        subscriptionStatus,
-        developmentBypass: subscriptionBypassEnabled,
-      });
-      if (
-        refreshed.status === "suspended" &&
-        routeSuspendedProtectedEntry({
-          contentScreen: "lesson",
-          itemId: lesson?.id,
-          currentAccess,
-        })
-      ) {
-        return;
-      }
-      if (!currentAccess) {
-        const freeLesson = canOpenLesson({
-          lessonId: lesson?.id,
-          completed: done,
-          fullAccess: currentAccess,
-        });
-        if (!freeLesson) {
-          setPaywallVariant("subscribe");
-          setScreen("paywall");
-          return;
-        }
-      }
-    }
+    const requiresFullAccess = !canOpenLesson({
+      lessonId: lesson?.id,
+      completed: done,
+      fullAccess: false,
+    });
     if (
+      requiresFullAccess &&
       partnerStatus === "suspended" &&
       user?.uid &&
-      partnerOwnerUid === user.uid &&
-      routeSuspendedProtectedEntry({
-        contentScreen: "lesson",
-        itemId: lesson?.id,
-        currentAccess,
-      })
+      partnerOwnerUid === user.uid
     ) {
+      rememberPendingProtectedNavigation({
+        screen: "lesson",
+        itemId: lesson?.id,
+        index,
+      });
+      setScreen("partner-error");
       return;
+    }
+    if ((requiresFullAccess || (!done && sponsoredActive)) && user?.uid) {
+      const refreshed = await refreshAuthoritativePartnerAccess({
+        routeCurrent: false,
+      });
+      if (!refreshed) return;
+      currentAccess = refreshed.fullAccess;
+      if (!currentAccess && requiresFullAccess) {
+        routeDeniedProtectedEntry({
+          screen: "lesson",
+          itemId: lesson?.id,
+          index,
+        }, refreshed);
+        return;
+      }
     }
     if (
       !canOpenLesson({
@@ -2246,7 +2570,12 @@ function LearnerApp({ initialPartnerFragment }) {
         fullAccess: currentAccess,
       })
     ) {
-      goPaywall();
+      routeDeniedProtectedEntry(
+        { screen: "lesson", itemId: lesson?.id, index },
+        {
+          partnerStatus,
+          billingUnavailable: ownedBillingStatus === "unavailable",
+        });
       return;
     }
     setActiveExam(null);
@@ -2258,44 +2587,39 @@ function LearnerApp({ initialPartnerFragment }) {
   const startChallenge = async (challenge) => {
     const done = completedLessons.includes(challenge.id);
     let currentAccess = access;
-    if (!done && sponsoredActive) {
-      const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed) return;
-      currentAccess = resolveFullAccess({
-        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
-        subscriptionStatus,
-        developmentBypass: subscriptionBypassEnabled,
-      });
-      if (
-        refreshed.status === "suspended" &&
-        routeSuspendedProtectedEntry({
-          contentScreen: "challenge",
-          itemId: challenge.id,
-          currentAccess,
-        })
-      ) {
-        return;
-      }
-      if (!currentAccess) {
-        setPaywallVariant("subscribe");
-        setScreen("paywall");
-        return;
-      }
-    }
     if (
+      !done &&
       partnerStatus === "suspended" &&
       user?.uid &&
-      partnerOwnerUid === user.uid &&
-      routeSuspendedProtectedEntry({
-        contentScreen: "challenge",
-        itemId: challenge.id,
-        currentAccess,
-      })
+      partnerOwnerUid === user.uid
     ) {
+      rememberPendingProtectedNavigation({
+        screen: "challenge",
+        itemId: challenge.id,
+        item: challenge,
+      });
+      setScreen("partner-error");
       return;
     }
+    if (!done && user?.uid) {
+      const refreshed = await refreshAuthoritativePartnerAccess({
+        routeCurrent: false,
+      });
+      if (!refreshed) return;
+      currentAccess = refreshed.fullAccess;
+      if (!currentAccess) {
+        routeDeniedProtectedEntry(
+          { screen: "challenge", itemId: challenge.id, item: challenge },
+          refreshed,
+        );
+        return;
+      }
+    }
     if (!currentAccess && !done) {
-      goPaywall();
+      routeDeniedProtectedEntry(
+        { screen: "challenge", itemId: challenge.id, item: challenge },
+        { partnerStatus, billingUnavailable: ownedBillingStatus === "unavailable" },
+      );
       return;
     }
     setActiveExam(null);
@@ -2306,44 +2630,39 @@ function LearnerApp({ initialPartnerFragment }) {
   const startExam = async (exam) => {
     const done = completedLessons.includes(exam.id);
     let currentAccess = access;
-    if (!done && sponsoredActive) {
-      const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed) return;
-      currentAccess = resolveFullAccess({
-        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
-        subscriptionStatus,
-        developmentBypass: subscriptionBypassEnabled,
-      });
-      if (
-        refreshed.status === "suspended" &&
-        routeSuspendedProtectedEntry({
-          contentScreen: "exam",
-          itemId: exam.id,
-          currentAccess,
-        })
-      ) {
-        return;
-      }
-      if (!currentAccess) {
-        setPaywallVariant("subscribe");
-        setScreen("paywall");
-        return;
-      }
-    }
     if (
+      !done &&
       partnerStatus === "suspended" &&
       user?.uid &&
-      partnerOwnerUid === user.uid &&
-      routeSuspendedProtectedEntry({
-        contentScreen: "exam",
-        itemId: exam.id,
-        currentAccess,
-      })
+      partnerOwnerUid === user.uid
     ) {
+      rememberPendingProtectedNavigation({
+        screen: "exam",
+        itemId: exam.id,
+        item: exam,
+      });
+      setScreen("partner-error");
       return;
     }
+    if (!done && user?.uid) {
+      const refreshed = await refreshAuthoritativePartnerAccess({
+        routeCurrent: false,
+      });
+      if (!refreshed) return;
+      currentAccess = refreshed.fullAccess;
+      if (!currentAccess) {
+        routeDeniedProtectedEntry(
+          { screen: "exam", itemId: exam.id, item: exam },
+          refreshed,
+        );
+        return;
+      }
+    }
     if (!currentAccess && !done) {
-      goPaywall();
+      routeDeniedProtectedEntry(
+        { screen: "exam", itemId: exam.id, item: exam },
+        { partnerStatus, billingUnavailable: ownedBillingStatus === "unavailable" },
+      );
       return;
     }
     setActiveChallenge(null);
@@ -2352,10 +2671,32 @@ function LearnerApp({ initialPartnerFragment }) {
   };
 
   const startFreeTrial = async (plan = "annual") => {
-    if (!nativePurchasesAvailable()) {
-      throw new Error(
-        "Subscriptions are not available in the browser. Use a sponsored access link to unlock the full course.",
-      );
+    if (platform === "web") {
+      if (!user?.uid || currentAuthUidRef.current !== user.uid) {
+        throw new Error("Please sign in again to continue.");
+      }
+      const uid = user.uid;
+      const generation = authGenerationRef.current;
+      setBillingBusy(true);
+      try {
+        const checkout = await createBillingCheckout(user, plan);
+        if (
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== uid ||
+          !isValidatedHostedUrl(checkout?.url, "checkout.stripe.com")
+        ) {
+          throw new Error("Checkout is not available right now.");
+        }
+        globalThis.location.assign(checkout.url);
+      } finally {
+        if (
+          generation === authGenerationRef.current &&
+          currentAuthUidRef.current === uid
+        ) {
+          setBillingBusy(false);
+        }
+      }
+      return;
     }
     const entitlement = await purchaseSubscription(plan);
     if (!entitlement.active) {
@@ -2367,6 +2708,37 @@ function LearnerApp({ initialPartnerFragment }) {
       plan: planForProduct(entitlement.productId) || plan,
     });
     goHome();
+  };
+
+  const manageBilling = async () => {
+    if (platform !== "web") {
+      window.open("https://apps.apple.com/account/subscriptions", "_blank");
+      return;
+    }
+    if (!user?.uid || currentAuthUidRef.current !== user.uid) {
+      throw new Error("Please sign in again to continue.");
+    }
+    const uid = user.uid;
+    const generation = authGenerationRef.current;
+    setBillingBusy(true);
+    try {
+      const portal = await createBillingPortal(user);
+      if (
+        generation !== authGenerationRef.current ||
+        currentAuthUidRef.current !== uid ||
+        !isValidatedHostedUrl(portal?.url, "billing.stripe.com")
+      ) {
+        throw new Error("Billing management is not available right now.");
+      }
+      globalThis.location.assign(portal.url);
+    } finally {
+      if (
+        generation === authGenerationRef.current &&
+        currentAuthUidRef.current === uid
+      ) {
+        setBillingBusy(false);
+      }
+    }
   };
 
   const restorePurchase = async () => {
@@ -2389,10 +2761,18 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const finishDeletedAccountLocally = () => {
     authGenerationRef.current += 1;
+    billingBootstrapIdRef.current += 1;
+    billingPollIdRef.current += 1;
     authSettledRef.current = true;
     currentAuthUidRef.current = null;
     setUser(null);
     setProfile(null);
+    setBillingOwnerUid(null);
+    setBillingStatus("unavailable");
+    setBillingAccess(null);
+    setBillingPlans([]);
+    setBillingBusy(false);
+    setBillingRecovery(null);
     setPartnerOwnerUid(null);
     setPartner(null);
     setPartnerStatus("idle");
@@ -3142,9 +3522,7 @@ function LearnerApp({ initialPartnerFragment }) {
           onBack={accountDeletionBusy ? undefined : goHome}
           onLogOut={logOut}
           onOpenPaywall={goPaywall}
-          onManageSubscription={() =>
-            window.open("https://apps.apple.com/account/subscriptions", "_blank")
-          }
+          onManageSubscription={manageBilling}
           onResetPassword={profile?.email ? resetPassword : undefined}
           onDeleteAccount={deleteAccount}
           textSize={textSize}
@@ -3154,18 +3532,84 @@ function LearnerApp({ initialPartnerFragment }) {
       break;
     case "paywall":
       content = (
-        <Paywall
-          key={`paywall-${paywallVariant}`}
-          variant={paywallVariant}
-          textSize={textSize}
-          lessonsCompleted={lessonsCompletedCount}
-          badgesEarned={badgesEarnedCount}
-          onStartTrial={startFreeTrial}
-          onRestore={restorePurchase}
-          storeProducts={storeProducts}
-          purchasesAvailable={nativePurchasesAvailable()}
-          onStartLearning={goHome}
-          onMaybeLater={goHome}
+        <>
+          {billingRecovery?.kind === "cancel" ? (
+            <p
+              role="status"
+              className="mx-auto w-full max-w-3xl px-6 pt-4 text-center text-sm text-slate-700"
+            >
+              {billingRecovery.message}
+            </p>
+          ) : null}
+          <Paywall
+            key={`paywall-${paywallVariant}`}
+            variant={paywallVariant}
+            textSize={textSize}
+            lessonsCompleted={lessonsCompletedCount}
+            badgesEarned={badgesEarnedCount}
+            onStartTrial={startFreeTrial}
+            onRestore={restorePurchase}
+            storeProducts={storeProducts}
+            purchasesAvailable={platform === "native"}
+            platform={platform}
+            billingAvailable={
+              platform === "web" && billingPlans.length > 0 && !billingBusy
+            }
+            billingPlans={billingPlans}
+            billingStatus={ownedBillingStatus}
+            billingAccess={billingAccess}
+            billingBusy={billingBusy}
+            billingMessage={billingRecovery?.message || ""}
+            onStartLearning={goHome}
+            onMaybeLater={goHome}
+          />
+        </>
+      );
+      break;
+    case "billing-confirmation":
+      content = (
+        <BillingConfirmation
+          phase={billingRecovery?.phase || "checking"}
+          onRetry={billingRecovery?.phase === "timeout"
+            ? () => setBillingPollAttempt((attempt) => attempt + 1)
+            : undefined}
+          onManageBilling={
+            billingRecovery?.phase === "timeout" &&
+            (billingRecovery.canManage || billingAccess?.canManage)
+              ? () => {
+                  void manageBilling().catch(() => {
+                    setBillingRecovery((current) => ({
+                      ...current,
+                      kind: "confirmation",
+                      phase: "timeout",
+                    }));
+                  });
+                }
+              : undefined
+          }
+          onBack={() => {
+            billingPollIdRef.current += 1;
+            pendingProtectedNavigationRef.current = null;
+            setBillingReturn(null);
+            setBillingRecovery(null);
+            goHome();
+          }}
+        />
+      );
+      break;
+    case "billing-error":
+      content = (
+        <BillingAccessError
+          kind={ownedBillingStatus === "unavailable" ? "temporary" : "inactive"}
+          onRetry={() => {
+            setBillingReturn("success");
+            setBillingPollAttempt((attempt) => attempt + 1);
+          }}
+          onBack={() => {
+            pendingProtectedNavigationRef.current = null;
+            setBillingRecovery(null);
+            goHome();
+          }}
         />
       );
       break;
