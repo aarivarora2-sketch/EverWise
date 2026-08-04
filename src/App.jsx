@@ -34,7 +34,11 @@ import {
 import {
   isTrialExpired,
 } from "./utils/subscription";
-import { canOpenLesson, resolveFullAccess } from "./utils/access.js";
+import {
+  canOpenLesson,
+  resolveFullAccess,
+  shouldExitProtectedContent,
+} from "./utils/access.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
   beginPartnerRelease,
@@ -92,6 +96,7 @@ const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
   "everwise-partner-release-receipt";
 const PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY =
   "everwise-partner-release-confirmable";
+const PARTNER_ACCESS_REFRESH_INTERVAL_MS = 60_000;
 const PARTNER_RELEASE_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PARTNER_RECONCILIATION_REASONS = new Set([
   "cancellation",
@@ -2012,6 +2017,26 @@ function LearnerApp({ initialPartnerFragment }) {
       ) {
         return null;
       }
+      const currentAccess = resolveFullAccess({
+        sponsoredStatus:
+          authoritativeAccess.status === "active" ? "active" : "none",
+        subscriptionStatus,
+        developmentBypass: subscriptionBypassEnabled,
+      });
+      const activeItemId =
+        screen === "lesson"
+          ? activeLesson?.id
+          : screen === "challenge"
+            ? activeChallenge?.id
+            : screen === "exam"
+              ? activeExam?.id
+              : null;
+      const exitProtectedContent = shouldExitProtectedContent({
+        screen,
+        itemId: activeItemId,
+        completedIds: completedLessons,
+        fullAccess: currentAccess,
+      });
       if (authoritativeAccess.status === "active") {
         setPartnerOwnerUid(refreshUser.uid);
         setPartner(
@@ -2030,6 +2055,10 @@ function LearnerApp({ initialPartnerFragment }) {
       } else {
         clearAuthoritativePartner();
         updatePartnerRecovery(null);
+        if (exitProtectedContent) {
+          setPaywallVariant("subscribe");
+          setScreen("paywall");
+        }
       }
       return authoritativeAccess;
     } catch {
@@ -2063,9 +2092,14 @@ function LearnerApp({ initialPartnerFragment }) {
     };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", resume);
+    const intervalId = window.setInterval(
+      refresh,
+      PARTNER_ACCESS_REFRESH_INTERVAL_MS,
+    );
     return () => {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", resume);
+      window.clearInterval(intervalId);
     };
   }, [sponsoredActive]);
 

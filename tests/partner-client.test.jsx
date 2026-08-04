@@ -1,6 +1,14 @@
 import React from "react";
 import { readFileSync } from "node:fs";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import postcss from "postcss";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -18,6 +26,11 @@ import PartnerDashboard, {
 import ProfileInterview from "../src/screens/ProfileInterview.jsx";
 import PartnerAccessErrorScreen from "../src/screens/PartnerAccessError.jsx";
 import Settings from "../src/screens/Settings.jsx";
+import {
+  challengesByOrder,
+  examsByOrder,
+  lessonsByOrder,
+} from "../src/data/lessons.js";
 import { PartnerAccessError } from "../src/services/partnerAccess.js";
 
 const appStyles = readFileSync("src/index.css", "utf8");
@@ -28,6 +41,12 @@ const PARTNER = {
   name: "Community Partner",
   logoPath: null,
   accent: "#2F6B61",
+};
+const ACTIVE_PARTNER_ACCESS = {
+  status: "active",
+  partnerId: "community-partner",
+  name: "Community Partner",
+  branding: PARTNER,
 };
 const BRANDED_PARTNER = {
   ...PARTNER,
@@ -701,6 +720,40 @@ async function switchToPublicAccount(uid) {
   return currentUser;
 }
 
+async function openReturningSponsoredAppWithFakeTimers({
+  uid,
+  completedLessons = [],
+}) {
+  window.history.replaceState(null, "", "/");
+  const returningUser = {
+    uid,
+    email: `${uid}@example.com`,
+    getIdToken: vi.fn(async () => `${uid}-token`),
+  };
+  mocks.getDoc.mockResolvedValue(
+    profileSnapshot(
+      learnerProfile({
+        accessSource: "partner",
+        partnerId: "community-partner",
+        completedLessons,
+      }),
+    ),
+  );
+  const rendered = render(<App />);
+  await screen.findByRole("button", { name: "Get Started" });
+  vi.useFakeTimers();
+  await act(async () => mocks.authCallback(returningUser));
+  expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+  return { rendered, returningUser };
+}
+
+async function clickWithFakeTimers(element) {
+  await act(async () => {
+    fireEvent.click(element);
+    await Promise.resolve();
+  });
+}
+
 async function startStoredPartnerConfirmation(receipt, confirmation) {
   window.history.replaceState(null, "", "/");
   storeConfirmablePartnerRecovery(receipt);
@@ -1289,6 +1342,7 @@ describe("sponsored signup orchestration", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete Element.prototype.scrollIntoView;
@@ -1441,6 +1495,262 @@ describe("sponsored signup orchestration", () => {
     expect(await screen.findByText(/temporarily unavailable/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
     expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+  });
+
+  test("active sponsored access is revalidated after exactly 60,000 ms", async () => {
+    installMatchMedia();
+    const timerRefresh = deferred();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockImplementationOnce(() => timerRefresh.promise);
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "timer-refresh-sponsored-user",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(59_999));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      timerRefresh.resolve(ACTIVE_PARTNER_ACCESS);
+      await timerRefresh.promise;
+    });
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+  });
+
+  test("only one sponsored refresh interval runs and it stops after logout", async () => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess.mockResolvedValue(ACTIVE_PARTNER_ACCESS);
+    const { returningUser } = await openReturningSponsoredAppWithFakeTimers({
+      uid: "single-refresh-interval-user",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+
+    await act(async () => mocks.authCallback(null));
+    expect(screen.getByRole("button", { name: "Get Started" })).toBeVisible();
+    const callsAfterLogout = mocks.fetchPartnerAccess.mock.calls.length;
+
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(callsAfterLogout);
+    expect(returningUser.getIdToken).toHaveBeenCalledTimes(3);
+  });
+
+  test("the sponsored refresh interval stops after unmount", async () => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess.mockResolvedValue(ACTIVE_PARTNER_ACCESS);
+    const { rendered } = await openReturningSponsoredAppWithFakeTimers({
+      uid: "unmounted-refresh-interval-user",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+    rendered.unmount();
+
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+  });
+
+  test("authoritative none ejects an unfinished protected lesson to the subscription paywall", async () => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce({ status: "none" });
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "none-ejects-protected-lesson",
+      completedLessons: ["welcome", "internet"],
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Start lesson: What is AI?" }),
+    );
+    expect(screen.getByRole("heading", { name: "What is AI?" })).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+    expect(
+      screen.getByRole("heading", { name: "Pricing and subscription" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "What is AI?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test.each([
+    {
+      name: "a completed protected lesson",
+      completedLessons: ["welcome", "internet", "ai"],
+      buttonName: "Redo completed lesson: What is AI?",
+      heading: "What is AI?",
+      entryRefresh: false,
+    },
+    {
+      name: "free Lesson 1",
+      completedLessons: ["welcome"],
+      buttonName: "Start lesson: What is the Internet?",
+      heading: "What is the Internet?",
+      entryRefresh: true,
+    },
+  ])("authoritative none does not eject $name", async ({
+    completedLessons,
+    buttonName,
+    heading,
+    entryRefresh,
+  }) => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
+    if (entryRefresh) {
+      mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
+    }
+    mocks.fetchPartnerAccess.mockResolvedValueOnce({ status: "none" });
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: `none-keeps-${entryRefresh ? "free" : "completed"}-lesson`,
+      completedLessons,
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(screen.getByRole("button", { name: buttonName }));
+    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(
+      entryRefresh ? 3 : 2,
+    );
+    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+    expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+  });
+
+  test.each([
+    {
+      name: "lesson",
+      completedLessons: ["welcome", "internet"],
+      buttonName: "Start lesson: What is AI?",
+      visibleContent: "What is AI?",
+    },
+    {
+      name: "challenge",
+      completedLessons: lessonsByOrder.map(({ id }) => id),
+      buttonName: `Start challenge: ${challengesByOrder[0].title}`,
+      visibleContent: "Quick review",
+    },
+    {
+      name: "exam",
+      completedLessons: [
+        ...lessonsByOrder.map(({ id }) => id),
+        ...challengesByOrder.map(({ id }) => id),
+      ],
+      buttonName: `Start exam: ${examsByOrder[0].title}`,
+      visibleContent: examsByOrder[0].title,
+    },
+  ])("authoritative suspension ejects an unfinished protected $name", async ({
+    completedLessons,
+    buttonName,
+    visibleContent,
+  }) => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce({
+        ...ACTIVE_PARTNER_ACCESS,
+        status: "suspended",
+      });
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: `suspended-${visibleContent.replaceAll(" ", "-")}`,
+      completedLessons,
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(screen.getByRole("button", { name: buttonName }));
+    expect(screen.getByText(visibleContent)).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+    expect(screen.queryByText(visibleContent)).not.toBeInTheDocument();
+  });
+
+  test("an older timer response cannot overwrite a newer focus response", async () => {
+    installMatchMedia();
+    const olderTimerRefresh = deferred();
+    const newerFocusRefresh = deferred();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockImplementationOnce(() => olderTimerRefresh.promise)
+      .mockImplementationOnce(() => newerFocusRefresh.promise);
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "timer-focus-race-user",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      newerFocusRefresh.resolve({
+        ...ACTIVE_PARTNER_ACCESS,
+        status: "suspended",
+      });
+      await newerFocusRefresh.promise;
+    });
+    await act(async () => {
+      olderTimerRefresh.resolve(ACTIVE_PARTNER_ACCESS);
+      await olderTimerRefresh.promise;
+    });
+
+    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+  });
+
+  test("a timer response for the previous UID cannot affect the next account", async () => {
+    installMatchMedia();
+    const previousUidRefresh = deferred();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockImplementationOnce(() => previousUidRefresh.promise)
+      .mockResolvedValueOnce({ status: "none" });
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "previous-timer-user",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+    const nextUser = {
+      uid: "next-public-user",
+      email: "next-public@example.com",
+      getIdToken: vi.fn(async () => "next-public-token"),
+    };
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(
+        learnerProfile({ name: "Next learner", email: nextUser.email }),
+      ),
+    );
+    await act(async () => mocks.authCallback(nextUser));
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+
+    await act(async () => {
+      previousUidRefresh.resolve({
+        ...ACTIVE_PARTNER_ACCESS,
+        status: "suspended",
+      });
+      await previousUidRefresh.promise;
+    });
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Open Settings" }),
+    );
+
+    expect(screen.getByText("Start free trial")).toBeVisible();
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
   });
 
   test("an older membership refresh cannot overwrite a newer suspension", async () => {

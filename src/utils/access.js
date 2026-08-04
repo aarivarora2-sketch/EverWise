@@ -23,3 +23,20 @@ export function canOpenLesson({ lessonId, completed, fullAccess }) {
     fullAccess || completed || PUBLIC_FREE_LESSON_IDS.has(lessonId),
   );
 }
+
+export function shouldExitProtectedContent({
+  screen,
+  itemId,
+  completedIds,
+  fullAccess,
+}) {
+  if (!itemId) return false;
+  const completed = completedIds.includes(itemId);
+  if (screen === "lesson") {
+    return !canOpenLesson({ lessonId: itemId, completed, fullAccess });
+  }
+  if (screen === "challenge" || screen === "exam") {
+    return !completed && !fullAccess;
+  }
+  return false;
+}
