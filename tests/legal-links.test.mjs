@@ -44,3 +44,14 @@ test("Privacy explains sponsored access, optional research, aggregate reports, a
   assert.match(copy, /delete your account.*Settings/i);
   assert.match(copy, /everwisedigitalliteracy@gmail\.com/i);
 });
+
+test("Privacy accurately explains ordinary passwords and the private pre-provisioned roster", async () => {
+  const html = await readFile(new URL("../public/privacy.html", import.meta.url), "utf8");
+  const copy = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  assert.match(copy, /ordinary learner accounts.*Firebase.*password.*not visible to Everwise/i);
+  assert.match(copy, /operator-generated.*pre-provisioned roster.*plain(?:text)? usernames and passwords.*private distribution/i);
+  assert.match(copy, /roster.*outside GitHub.*cloud-synced storage.*cloud deployment artifacts.*owner-only local access/i);
+  assert.match(copy, /pre-provisioned credentials.*not temporary.*not forced to change/i);
+  assert.doesNotMatch(copy, /password.*never stored by us in plain text or visible to us/i);
+});
