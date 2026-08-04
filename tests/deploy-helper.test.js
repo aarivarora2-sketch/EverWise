@@ -96,6 +96,9 @@ const allowedEntries = [
   { name: "server/partnerApi.mjs", body: "export {};\n" },
   { name: "scripts/", type: "5" },
   { name: "scripts/manage-partners.mjs", body: "export {};\n" },
+  { name: "src/", type: "5" },
+  { name: "src/utils/", type: "5" },
+  { name: "src/utils/validation.js", body: "export {};\n" },
   { name: "dist/", type: "5" },
   { name: "dist/index.html", body: "<!doctype html>" },
   { name: "dist/assets/app.js", body: "export {};\n" },
@@ -109,6 +112,20 @@ test("archive validation accepts only the reviewed release allowlist", async (t)
   const result = validateArchive(archivePath);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
+});
+
+test("archive validation requires the shared server validation module", async (t) => {
+  const directory = await setup(t);
+  const archivePath = join(directory, "missing-validation.tgz");
+  await createArchive(
+    archivePath,
+    allowedEntries.filter(
+      ({ name }) => !name.startsWith("src/"),
+    ),
+  );
+
+  const result = validateArchive(archivePath);
+  assert.notEqual(result.status, 0, "validation module was not required");
 });
 
 test("archive validation rejects traversal, secrets, arbitrary code, dependencies, and partner data", async (t) => {
@@ -135,6 +152,8 @@ test("archive validation rejects traversal, secrets, arbitrary code, dependencie
     { name: "server/OPENAI_SECRET.mjs", body: "export {};\n" },
     { name: "server/private_key.mjs", body: "export {};\n" },
     { name: "scripts/other.mjs", body: "export {};\n" },
+    { name: "src/App.jsx", body: "export {};\n" },
+    { name: "src/utils/other.js", body: "export {};\n" },
     { name: "server/nested/other.mjs", body: "export {};\n" },
     { name: "node_modules/package/index.js", body: "export {};\n" },
     { name: "dist/node_modules/package/index.js", body: "export {};\n" },

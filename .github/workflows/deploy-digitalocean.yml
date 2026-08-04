@@ -106,7 +106,7 @@ jobs:
         run: |
           release_archive="$(mktemp)"
           trap 'rm -f "$release_archive"' EXIT
-          tar -czf "$release_archive" dist server.mjs server scripts/manage-partners.mjs
+          tar -czf "$release_archive" dist server.mjs server scripts/manage-partners.mjs src/utils/validation.js
           bash -c 'source "$1"; validate_release_archive "$2"' \
             validate-archive \
             ops/deploy-everwise \
