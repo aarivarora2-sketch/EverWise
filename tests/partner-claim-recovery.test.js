@@ -153,6 +153,60 @@ test("removes a matching recovery at the exact expiry boundary", () => {
   assert.equal(storage.getItem(PARTNER_CLAIM_RECOVERY_STORAGE_KEY), null);
 });
 
+test("read requires a valid current time and removes only matching future-created recovery", () => {
+  const invalidMatchingCases = [
+    ["missing current time", undefined, NOW],
+    ["fractional current time", NOW + 0.5, NOW],
+    ["future-created record", NOW, NOW + 1],
+  ];
+  for (const [label, readNow, createdAt] of invalidMatchingCases) {
+    const storage = new MemoryStorage();
+    assert.equal(
+      storePartnerClaimRecovery({
+        storage,
+        now: createdAt,
+        ...validInput(),
+      }),
+      true,
+      label,
+    );
+
+    assert.equal(
+      readPartnerClaimRecovery({ storage, now: readNow, uid: UID }),
+      null,
+      label,
+    );
+    assert.equal(
+      storage.getItem(PARTNER_CLAIM_RECOVERY_STORAGE_KEY),
+      null,
+      label,
+    );
+  }
+
+  const otherUidStorage = new MemoryStorage();
+  storePartnerClaimRecovery({
+    storage: otherUidStorage,
+    now: NOW + 1,
+    ...validInput(),
+  });
+  const otherUidBytes = otherUidStorage.getItem(
+    PARTNER_CLAIM_RECOVERY_STORAGE_KEY,
+  );
+
+  assert.equal(
+    readPartnerClaimRecovery({
+      storage: otherUidStorage,
+      now: NOW,
+      uid: OTHER_UID,
+    }),
+    null,
+  );
+  assert.equal(
+    otherUidStorage.getItem(PARTNER_CLAIM_RECOVERY_STORAGE_KEY),
+    otherUidBytes,
+  );
+});
+
 test("clear compares the stored bytes again before deleting", () => {
   const replacement = JSON.stringify({
     ...validInput({ uid: OTHER_UID }),

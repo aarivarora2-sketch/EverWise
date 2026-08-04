@@ -370,7 +370,13 @@ export function readPartnerClaimRecovery({ storage, now, uid } = {}) {
       return null;
     }
     const record = normalizeRecord(parsed);
-    if (!record || record.expiresAt <= now) {
+    if (
+      !Number.isFinite(now) ||
+      !Number.isInteger(now) ||
+      !record ||
+      record.createdAt > now ||
+      record.expiresAt <= now
+    ) {
       removeIfUnchanged(storage, serialized);
       return null;
     }

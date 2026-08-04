@@ -150,6 +150,7 @@ const mocks = vi.hoisted(() => ({
   setDoc: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
+  updateDoc: vi.fn(),
   rotatePartnerInvite: vi.fn(),
 }));
 
@@ -175,7 +176,7 @@ vi.mock("firebase/firestore", () => ({
   doc: vi.fn((_db, collection, uid) => ({ collection, uid })),
   getDoc: mocks.getDoc,
   setDoc: mocks.setDoc,
-  updateDoc: vi.fn(),
+  updateDoc: mocks.updateDoc,
 }));
 
 vi.mock("../src/firebase", () => ({ auth: {}, db: {} }));
@@ -792,6 +793,17 @@ async function clickWithFakeTimers(element) {
   });
 }
 
+async function finishVisibleLessonUntilProgressSaveStarts() {
+  for (let step = 0; step < 100 && mocks.updateDoc.mock.calls.length === 0; step += 1) {
+    const skip =
+      screen.queryByRole("button", { name: "Skip this step" }) ||
+      screen.queryByRole("button", { name: "Skip" });
+    expect(skip).not.toBeNull();
+    await clickWithFakeTimers(skip);
+  }
+  expect(mocks.updateDoc).toHaveBeenCalledTimes(1);
+}
+
 async function startStoredPartnerConfirmation(receipt, confirmation) {
   window.history.replaceState(null, "", "/");
   storeConfirmablePartnerRecovery(receipt);
@@ -1353,6 +1365,7 @@ describe("sponsored signup orchestration", () => {
     mocks.setDoc.mockReset();
     mocks.signInWithEmailAndPassword.mockReset();
     mocks.signOut.mockReset();
+    mocks.updateDoc.mockReset();
     mocks.previewInvite.mockResolvedValue({
       partnerId: "community-partner",
       branding: PARTNER,
@@ -1377,6 +1390,7 @@ describe("sponsored signup orchestration", () => {
     });
     mocks.signOut.mockResolvedValue(undefined);
     mocks.setDoc.mockResolvedValue(undefined);
+    mocks.updateDoc.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -1496,7 +1510,7 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText("Start free trial")).not.toBeInTheDocument();
   });
 
-  test("window focus revalidates active sponsorship and fails closed after suspension", async () => {
+  test("window focus removes suspended sponsorship without ejecting safe Home", async () => {
     installMatchMedia();
     window.history.replaceState(null, "", "/");
     const returningUser = {
@@ -1523,6 +1537,7 @@ describe("sponsored signup orchestration", () => {
         name: "Community Partner",
         branding: PARTNER,
       });
+    const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("button", { name: "Get Started" });
     await act(async () => mocks.authCallback(returningUser));
@@ -1530,8 +1545,11 @@ describe("sponsored signup orchestration", () => {
 
     await act(async () => window.dispatchEvent(new Event("focus")));
 
-    expect(await screen.findByText(/temporarily unavailable/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+    expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
     expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
   });
 
@@ -1619,6 +1637,76 @@ describe("sponsored signup orchestration", () => {
     ).not.toBeInTheDocument();
   });
 
+  test("a delayed none refresh does not eject after the learner navigates away", async () => {
+    installMatchMedia();
+    const pendingRefresh = deferred();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockImplementationOnce(() => pendingRefresh.promise);
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "none-refresh-navigation-race",
+      completedLessons: ["welcome", "internet"],
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Start lesson: What is AI?" }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByRole("heading", { name: "Your path" })).toBeVisible();
+    await act(async () => {
+      pendingRefresh.resolve({ status: "none" });
+      await pendingRefresh.promise;
+    });
+
+    expect(screen.getByRole("heading", { name: "Your path" })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Pricing and subscription" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("a delayed none refresh observes lesson completion while the progress save is pending", async () => {
+    installMatchMedia();
+    const pendingRefresh = deferred();
+    const pendingProgressSave = deferred();
+    mocks.updateDoc.mockReturnValue(pendingProgressSave.promise);
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockImplementationOnce(() => pendingRefresh.promise);
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "none-refresh-completion-race",
+      completedLessons: ["welcome", "internet"],
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Start lesson: What is AI?" }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+
+    await finishVisibleLessonUntilProgressSaveStarts();
+    expect(screen.getByRole("progressbar", { name: "Lesson progress" })).toBeVisible();
+    await act(async () => {
+      pendingRefresh.resolve({ status: "none" });
+      await pendingRefresh.promise;
+    });
+
+    expect(
+      screen.queryByRole("heading", { name: "Pricing and subscription" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Lesson progress" })).toBeVisible();
+
+    await act(async () => {
+      pendingProgressSave.resolve();
+      await pendingProgressSave.promise;
+    });
+    expect(screen.getByRole("heading", { name: "Great Job!" })).toBeVisible();
+  });
+
   test.each([
     {
       name: "a completed protected lesson",
@@ -1662,6 +1750,76 @@ describe("sponsored signup orchestration", () => {
     expect(screen.getByRole("heading", { name: heading })).toBeVisible();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
+
+  test.each([
+    {
+      name: "free Lesson 1",
+      completedLessons: ["welcome", "internet"],
+      replayButton: "Redo completed lesson: What is the Internet?",
+      replayHeading: "What is the Internet?",
+      protectedButton: "Start lesson: What is AI?",
+      protectedHeading: "What is AI?",
+      entryRefresh: true,
+    },
+    {
+      name: "a completed protected lesson",
+      completedLessons: ["welcome", "internet", "ai"],
+      replayButton: "Redo completed lesson: What is AI?",
+      replayHeading: "What is AI?",
+      protectedButton: "Start lesson: What is ChatGPT?",
+      protectedHeading: "What is ChatGPT?",
+      entryRefresh: false,
+    },
+  ])(
+    "authoritative suspension keeps $name replayable but blocks the next unfinished protected entry",
+    async ({
+      completedLessons,
+      replayButton,
+      replayHeading,
+      protectedButton,
+      protectedHeading,
+      entryRefresh,
+    }) => {
+      installMatchMedia();
+      mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
+      if (entryRefresh) {
+        mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
+      }
+      mocks.fetchPartnerAccess.mockResolvedValueOnce({
+        ...ACTIVE_PARTNER_ACCESS,
+        status: "suspended",
+      });
+      await openReturningSponsoredAppWithFakeTimers({
+        uid: `suspended-replay-${entryRefresh ? "free" : "completed"}`,
+        completedLessons,
+      });
+      await clickWithFakeTimers(
+        screen.getByRole("button", { name: "Open Course" }),
+      );
+      await clickWithFakeTimers(
+        screen.getByRole("button", { name: replayButton }),
+      );
+      expect(screen.getByRole("heading", { name: replayHeading })).toBeVisible();
+
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+      expect(screen.getByRole("heading", { name: replayHeading })).toBeVisible();
+      expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
+      await clickWithFakeTimers(screen.getByRole("button", { name: "Go back" }));
+      await clickWithFakeTimers(
+        screen.getByRole("button", { name: protectedButton }),
+      );
+
+      expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+      expect(
+        screen.queryByRole("heading", { name: protectedHeading }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "Pricing and subscription" }),
+      ).not.toBeInTheDocument();
+    },
+  );
 
   test.each([
     {
@@ -1745,8 +1903,12 @@ describe("sponsored signup orchestration", () => {
       await olderTimerRefresh.promise;
     });
 
-    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Open Settings" }),
+    );
+    expect(screen.getByText("Start free trial")).toBeVisible();
+    expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
   });
 
   test("a timer response for the previous UID cannot affect the next account", async () => {
@@ -1816,6 +1978,7 @@ describe("sponsored signup orchestration", () => {
       })
       .mockImplementationOnce(() => olderRefresh.promise)
       .mockImplementationOnce(() => newerRefresh.promise);
+    const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("button", { name: "Get Started" });
     await act(async () => mocks.authCallback(returningUser));
@@ -1842,9 +2005,10 @@ describe("sponsored signup orchestration", () => {
       await olderRefresh.promise;
     });
 
-    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
-    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+    expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
     expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
   });
 
@@ -2411,6 +2575,20 @@ describe("sponsored signup orchestration", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "We could not delete your account right now. Your saved profile was restored.",
     );
+  });
+
+  test("confirmed Firebase deletion clears matching claim recovery after auth signs out first", async () => {
+    const { returningUser, user } = await openReturningPublicSettings();
+    storeMatchingPartnerClaimRecovery(returningUser.uid);
+    mocks.deleteUser.mockImplementation(async () => {
+      await mocks.authCallback(null);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledWith(returningUser));
+
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBeNull();
+    expect(screen.getByRole("button", { name: "Get Started" })).toBeVisible();
   });
 
   test("reauthenticates and releases a sponsored account in the exact destructive order", async () => {

@@ -739,6 +739,11 @@ function LearnerApp({ initialPartnerFragment }) {
   const partnerRecoveryRef = useRef(null);
   const partnerAccessRefreshIdRef = useRef(0);
   const refreshAuthoritativePartnerAccessRef = useRef(null);
+  const protectedContentStateRef = useRef({
+    screen: "landing",
+    itemId: null,
+    completedIds: [],
+  });
 
   const updatePartnerFragment = (next) => {
     partnerFragmentRef.current = next;
@@ -1267,6 +1272,18 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
+  protectedContentStateRef.current = {
+    screen,
+    itemId:
+      screen === "lesson"
+        ? activeLesson?.id
+        : screen === "challenge"
+          ? activeChallenge?.id
+          : screen === "exam"
+            ? activeExam?.id
+            : null,
+    completedIds: completedLessons,
+  };
   const allDone = isCourseComplete(completedLessons, requiredLearningIds);
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
   const sponsoredActive = Boolean(
@@ -2083,18 +2100,11 @@ function LearnerApp({ initialPartnerFragment }) {
         subscriptionStatus,
         developmentBypass: subscriptionBypassEnabled,
       });
-      const activeItemId =
-        screen === "lesson"
-          ? activeLesson?.id
-          : screen === "challenge"
-            ? activeChallenge?.id
-            : screen === "exam"
-              ? activeExam?.id
-              : null;
+      const currentProtectedContent = protectedContentStateRef.current;
       const exitProtectedContent = shouldExitProtectedContent({
-        screen,
-        itemId: activeItemId,
-        completedIds: completedLessons,
+        screen: currentProtectedContent.screen,
+        itemId: currentProtectedContent.itemId,
+        completedIds: currentProtectedContent.completedIds,
         fullAccess: currentAccess,
       });
       if (authoritativeAccess.status === "active") {
@@ -2111,7 +2121,7 @@ function LearnerApp({ initialPartnerFragment }) {
         );
         setPartnerStatus("suspended");
         updatePartnerRecovery(null);
-        setScreen("partner-error");
+        if (exitProtectedContent) setScreen("partner-error");
       } else {
         clearAuthoritativePartner();
         updatePartnerRecovery(null);
@@ -2163,23 +2173,71 @@ function LearnerApp({ initialPartnerFragment }) {
     };
   }, [sponsoredActive]);
 
+  const routeSuspendedProtectedEntry = ({
+    contentScreen,
+    itemId,
+    currentAccess,
+  }) => {
+    if (
+      !shouldExitProtectedContent({
+        screen: contentScreen,
+        itemId,
+        completedIds: completedLessons,
+        fullAccess: currentAccess,
+      })
+    ) {
+      return false;
+    }
+    setScreen("partner-error");
+    return true;
+  };
+
   const startLesson = async (index) => {
     const lesson = lessonsByOrder[index];
     const done = lesson && completedLessons.includes(lesson.id);
     let currentAccess = access;
     if (!done && sponsoredActive) {
       const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed || refreshed.status === "suspended") return;
+      if (!refreshed) return;
       currentAccess = resolveFullAccess({
         sponsoredStatus: refreshed.status === "active" ? "active" : "none",
         subscriptionStatus,
         developmentBypass: subscriptionBypassEnabled,
       });
-      if (!currentAccess) {
-        setPaywallVariant("subscribe");
-        setScreen("paywall");
+      if (
+        refreshed.status === "suspended" &&
+        routeSuspendedProtectedEntry({
+          contentScreen: "lesson",
+          itemId: lesson?.id,
+          currentAccess,
+        })
+      ) {
         return;
       }
+      if (!currentAccess) {
+        const freeLesson = canOpenLesson({
+          lessonId: lesson?.id,
+          completed: done,
+          fullAccess: currentAccess,
+        });
+        if (!freeLesson) {
+          setPaywallVariant("subscribe");
+          setScreen("paywall");
+          return;
+        }
+      }
+    }
+    if (
+      partnerStatus === "suspended" &&
+      user?.uid &&
+      partnerOwnerUid === user.uid &&
+      routeSuspendedProtectedEntry({
+        contentScreen: "lesson",
+        itemId: lesson?.id,
+        currentAccess,
+      })
+    ) {
+      return;
     }
     if (
       !canOpenLesson({
@@ -2202,17 +2260,39 @@ function LearnerApp({ initialPartnerFragment }) {
     let currentAccess = access;
     if (!done && sponsoredActive) {
       const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed || refreshed.status === "suspended") return;
+      if (!refreshed) return;
       currentAccess = resolveFullAccess({
         sponsoredStatus: refreshed.status === "active" ? "active" : "none",
         subscriptionStatus,
         developmentBypass: subscriptionBypassEnabled,
       });
+      if (
+        refreshed.status === "suspended" &&
+        routeSuspendedProtectedEntry({
+          contentScreen: "challenge",
+          itemId: challenge.id,
+          currentAccess,
+        })
+      ) {
+        return;
+      }
       if (!currentAccess) {
         setPaywallVariant("subscribe");
         setScreen("paywall");
         return;
       }
+    }
+    if (
+      partnerStatus === "suspended" &&
+      user?.uid &&
+      partnerOwnerUid === user.uid &&
+      routeSuspendedProtectedEntry({
+        contentScreen: "challenge",
+        itemId: challenge.id,
+        currentAccess,
+      })
+    ) {
+      return;
     }
     if (!currentAccess && !done) {
       goPaywall();
@@ -2228,17 +2308,39 @@ function LearnerApp({ initialPartnerFragment }) {
     let currentAccess = access;
     if (!done && sponsoredActive) {
       const refreshed = await refreshAuthoritativePartnerAccess();
-      if (!refreshed || refreshed.status === "suspended") return;
+      if (!refreshed) return;
       currentAccess = resolveFullAccess({
         sponsoredStatus: refreshed.status === "active" ? "active" : "none",
         subscriptionStatus,
         developmentBypass: subscriptionBypassEnabled,
       });
+      if (
+        refreshed.status === "suspended" &&
+        routeSuspendedProtectedEntry({
+          contentScreen: "exam",
+          itemId: exam.id,
+          currentAccess,
+        })
+      ) {
+        return;
+      }
       if (!currentAccess) {
         setPaywallVariant("subscribe");
         setScreen("paywall");
         return;
       }
+    }
+    if (
+      partnerStatus === "suspended" &&
+      user?.uid &&
+      partnerOwnerUid === user.uid &&
+      routeSuspendedProtectedEntry({
+        contentScreen: "exam",
+        itemId: exam.id,
+        currentAccess,
+      })
+    ) {
+      return;
     }
     if (!currentAccess && !done) {
       goPaywall();
@@ -2285,11 +2387,7 @@ function LearnerApp({ initialPartnerFragment }) {
     await sendPasswordResetEmail(auth, user.email);
   };
 
-  const finishDeletedAccountLocally = (deletedUid) => {
-    clearPartnerClaimRecovery({
-      storage: window.sessionStorage,
-      expectedUid: deletedUid,
-    });
+  const finishDeletedAccountLocally = () => {
     authGenerationRef.current += 1;
     authSettledRef.current = true;
     currentAuthUidRef.current = null;
@@ -2449,9 +2547,13 @@ function LearnerApp({ initialPartnerFragment }) {
             : "We could not delete your account right now. Please try again.",
         );
       }
+      clearPartnerClaimRecovery({
+        storage: window.sessionStorage,
+        expectedUid,
+      });
       const deletionStillCurrent = accountDeletionOperationIsCurrent(operation);
       finishAccountDeletionOperation(operation);
-      if (deletionStillCurrent) finishDeletedAccountLocally(expectedUid);
+      if (deletionStillCurrent) finishDeletedAccountLocally();
       return;
     }
 
@@ -2606,13 +2708,17 @@ function LearnerApp({ initialPartnerFragment }) {
         "storage-cleanup",
       );
     }
+    clearPartnerClaimRecovery({
+      storage: window.sessionStorage,
+      expectedUid,
+    });
     const deletionStillCurrent = accountDeletionOperationIsCurrent(operation);
     finishAccountDeletionOperation(operation);
     // Firebase authentication is gone for the captured account. Only clear
     // its local UI when that exact auth generation is still current; a newer
     // account must remain untouched while receipt-only safety work continues.
     if (deletionStillCurrent) {
-      finishDeletedAccountLocally(expectedUid);
+      finishDeletedAccountLocally();
     }
     const confirmationOperation = beginSignedOutReleaseConfirmation();
     if (!confirmationReady) {
@@ -2906,12 +3012,16 @@ function LearnerApp({ initialPartnerFragment }) {
     );
   }
 
-  if (["invalid", "full", "suspended", "unavailable"].includes(partnerStatus)) {
-    const authenticatedSuspension = Boolean(
-      partnerStatus === "suspended" &&
-        user?.uid &&
-        partnerOwnerUid === user.uid,
-    );
+  const authenticatedSuspension = Boolean(
+    partnerStatus === "suspended" &&
+      user?.uid &&
+      partnerOwnerUid === user.uid,
+  );
+  if (
+    ["invalid", "full", "unavailable"].includes(partnerStatus) ||
+    (partnerStatus === "suspended" &&
+      (!authenticatedSuspension || screen === "partner-error"))
+  ) {
     return (
       <AppShell
         screen="partner-error"
