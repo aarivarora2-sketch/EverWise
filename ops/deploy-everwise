@@ -126,7 +126,7 @@ unsafe_archive_entry() {
   done
 
   case "$archive_entry" in
-    server.mjs|server/|scripts/|scripts/manage-partners.mjs|dist/|dist/*)
+    server.mjs|server/|scripts/|scripts/manage-partners.mjs|src/|src/utils/|src/utils/validation.js|dist/|dist/*)
       return 1
       ;;
     server/*.mjs)
@@ -259,7 +259,7 @@ NODE
 validate_release_archive() {
   local archive_path="$1"
   local archive_entry listing
-  local saw_server=false saw_server_directory=false saw_script=false saw_index=false
+  local saw_server=false saw_server_directory=false saw_script=false saw_validation=false saw_index=false
 
   validate_archive_bounds "$archive_path"
   tar -tzf "$archive_path" >/dev/null
@@ -273,6 +273,7 @@ validate_release_archive() {
       server.mjs) saw_server=true ;;
       server/) saw_server_directory=true ;;
       scripts/manage-partners.mjs) saw_script=true ;;
+      src/utils/validation.js) saw_validation=true ;;
       dist/index.html) saw_index=true ;;
     esac
   done < <(tar -tzf "$archive_path")
@@ -290,6 +291,7 @@ validate_release_archive() {
   if [[ "$saw_server" != "true" ||
         "$saw_server_directory" != "true" ||
         "$saw_script" != "true" ||
+        "$saw_validation" != "true" ||
         "$saw_index" != "true" ]]; then
     echo "The release archive is incomplete." >&2
     return 1
@@ -312,11 +314,13 @@ validate_release_tree() {
   test -f "$tree_path/server.mjs"
   test -d "$tree_path/server"
   test -f "$tree_path/scripts/manage-partners.mjs"
+  test -f "$tree_path/src/utils/validation.js"
   /usr/local/bin/node --check "$tree_path/server.mjs"
   while IFS= read -r -d '' module_path; do
     /usr/local/bin/node --check "$module_path"
   done < <(find "$tree_path/server" -maxdepth 1 -type f -name '*.mjs' -print0)
   /usr/local/bin/node --check "$tree_path/scripts/manage-partners.mjs"
+  /usr/local/bin/node --check "$tree_path/src/utils/validation.js"
 }
 
 ensure_partner_store() {
