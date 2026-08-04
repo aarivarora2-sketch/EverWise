@@ -136,7 +136,7 @@ async function measure(url, width, mutation = "") {
   if (typeof process.getuid === "function" && process.getuid() === 0) args.unshift("--no-sandbox");
 
   const chrome = spawn(browserPath, args, { detached: true, stdio: "ignore" });
-  const measurement = boundedAbort(10_000, "Paywall browser measurement timed out");
+  const measurement = boundedAbort(30_000, "Paywall browser measurement timed out");
 
   try {
     const port = await waitForDebugPort(profile, chrome, { signal: measurement.signal });
