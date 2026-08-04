@@ -159,16 +159,28 @@ function createHarness(overrides = {}) {
   return { api, calls, gateway, partnerStore, store };
 }
 
-async function invoke(api, pathname, {
-  body = {},
-  request: requestValue = request(),
-} = {}) {
+async function invoke(api, pathname, options = {}) {
+  const body = Object.hasOwn(options, "body") ? options.body : {};
+  const requestValue = options.request || request();
+  let defaultBodyByteLength;
+  const hasBodyByteLength = Object.hasOwn(options, "bodyByteLength");
+  if (body !== undefined && !hasBodyByteLength) {
+    try {
+      defaultBodyByteLength = Buffer.byteLength(JSON.stringify(body), "utf8");
+    } catch {
+      defaultBodyByteLength = 0;
+    }
+  }
+  const bodyByteLength = hasBodyByteLength
+    ? options.bodyByteLength
+    : defaultBodyByteLength;
   const responseValue = response();
   const handled = await api.handle({
     request: requestValue,
     response: responseValue,
     pathname,
     body,
+    bodyByteLength,
   });
   return { handled, response: responseValue };
 }
@@ -242,6 +254,33 @@ test("every billing route requires one verified Firebase bearer and owns only it
   }
 });
 
+test("verified Firebase UID is snapshotted once before validation and ownership use", async () => {
+  let reads = 0;
+  const learner = { email: "private@example.com" };
+  Object.defineProperty(learner, "uid", {
+    enumerable: true,
+    get() {
+      reads += 1;
+      return reads < 6 ? UID : "switched-attacker-uid";
+    },
+  });
+  const seenUids = [];
+  const { api } = createHarness({
+    verifyIdToken: async () => learner,
+    store: {
+      getByUid: async (uid) => {
+        seenUids.push(uid);
+        return null;
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/access");
+  assert.equal(result.response.status, 200);
+  assert.equal(reads, 1);
+  assert.deepEqual(seenUids, [UID]);
+});
+
 test("authenticated billing requests require bounded application/json object bodies", async () => {
   const { api } = createHarness();
 
@@ -276,6 +315,55 @@ test("authenticated billing requests require bounded application/json object bod
       error: { code: "INVALID_JSON", message: "The request body is invalid." },
     });
   }
+});
+
+test("supplied parsed bodies require exact bounded raw-byte proof", async () => {
+  const { api } = createHarness();
+
+  const missingProof = await invoke(api, "/api/billing/plans", {
+    body: {},
+    bodyByteLength: undefined,
+  });
+  assert.equal(missingProof.response.status, 400);
+  assert.deepEqual(missingProof.response.json(), {
+    error: { code: "INVALID_JSON", message: "The request body is invalid." },
+  });
+
+  for (const invalidProof of [-1, 1.5, "2", null]) {
+    const invalid = await invoke(api, "/api/billing/plans", {
+      body: {},
+      bodyByteLength: invalidProof,
+    });
+    assert.equal(invalid.response.status, 400);
+    assert.deepEqual(invalid.response.json(), {
+      error: { code: "INVALID_JSON", message: "The request body is invalid." },
+    });
+  }
+
+  const collapsedOversize = await invoke(api, "/api/billing/plans", {
+    body: {},
+    bodyByteLength: 256 * 1024 + 1,
+  });
+  assert.equal(collapsedOversize.response.status, 413);
+  assert.deepEqual(collapsedOversize.response.json(), {
+    error: { code: "PAYLOAD_TOO_LARGE", message: "The request body is too large." },
+  });
+
+  const mismatchedContentLength = await invoke(api, "/api/billing/plans", {
+    body: {},
+    bodyByteLength: 2,
+    request: request({ headers: { "content-length": "100" } }),
+  });
+  assert.equal(mismatchedContentLength.response.status, 400);
+
+  const selfRead = await invoke(api, "/api/billing/plans", {
+    body: undefined,
+    request: request({
+      rawBody: "{}",
+      headers: { "content-length": "2" },
+    }),
+  });
+  assert.equal(selfRead.response.status, 200);
 });
 
 test("plans are returned only after verification in exact public shape", async () => {
@@ -360,7 +448,10 @@ test("Checkout snapshots a stateful JSON plan exactly once before validation", a
     },
   });
 
-  const result = await invoke(api, "/api/billing/checkout", { body });
+  const result = await invoke(api, "/api/billing/checkout", {
+    body,
+    bodyByteLength: 18,
+  });
   assert.equal(result.response.status, 200);
   assert.equal(reads, 1);
   assert.equal(calls.length, 1);
@@ -492,6 +583,115 @@ test("Checkout binds a server-owned customer and applies a trial only once per U
   }
 });
 
+test("sequential first-trial Checkout requests reuse one durable Stripe operation", async () => {
+  const sessions = new Map();
+  const checkoutCalls = [];
+  let blockingSubscriptions = [];
+  const record = defaultRecord({ customerId: "cus_durable_trial" });
+  const store = {
+    getByUid: async () => record,
+    hasUsedTrial: async () => false,
+  };
+  const gateway = {
+    findOrCreateCustomer: async () => ({ id: record.customerId }),
+    listBlockingSubscriptions: async () => blockingSubscriptions,
+    createCheckoutSession: async (input) => {
+      checkoutCalls.push(input);
+      const key = `${input.uid}:${input.operationAttempt}`;
+      if (!sessions.has(key)) {
+        sessions.set(key, {
+          planKey: input.planKey,
+          trialEligible: input.trialEligible,
+          session: {
+            id: "cs_durable_first_trial",
+            url: "https://checkout.stripe.com/c/pay/durable-first-trial",
+          },
+        });
+      }
+      const saved = sessions.get(key);
+      if (saved.planKey !== input.planKey || saved.trialEligible !== input.trialEligible) {
+        throw new Error("Stripe idempotency parameters changed");
+      }
+      return saved.session;
+    },
+  };
+
+  const firstApi = createHarness({ store, gateway }).api;
+  const first = await invoke(firstApi, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+  assert.equal(first.response.status, 200);
+
+  // A new API instance models in-memory queue cleanup plus a server restart.
+  const restartedApi = createHarness({ store, gateway }).api;
+  const second = await invoke(restartedApi, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+  assert.equal(second.response.status, 200);
+  assert.deepEqual(second.response.json(), first.response.json());
+  assert.deepEqual(
+    checkoutCalls.map((call) => call.operationAttempt),
+    ["first-trial", "first-trial"],
+  );
+  assert.equal(sessions.size, 1);
+
+  blockingSubscriptions = [{
+    id: "sub_now_active",
+    customerId: record.customerId,
+    status: "active",
+    priceId: "price_test_monthly_private",
+    livemode: false,
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: 1_800_000_000,
+    trialEnd: null,
+  }];
+  const blocked = await invoke(createHarness({ store, gateway }).api, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+  assert.equal(blocked.response.status, 409);
+  assert.equal(blocked.response.json().error.code, "SUBSCRIPTION_EXISTS");
+  assert.equal(checkoutCalls.length, 2);
+});
+
+test("trial-used resubscriptions keep fresh no-trial Checkout operations", async () => {
+  const attempts = [];
+  const record = defaultRecord({
+    customerId: "cus_prior_trial",
+    trialUsedAt: "2026-07-01T00:00:00.000Z",
+  });
+  const overrides = {
+    store: {
+      getByUid: async () => record,
+      hasUsedTrial: async () => true,
+    },
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: record.customerId }),
+      createCheckoutSession: async (input) => {
+        attempts.push(input);
+        return {
+          id: `cs_resubscribe_${attempts.length}`,
+          url: `https://checkout.stripe.com/c/pay/resubscribe-${attempts.length}`,
+        };
+      },
+    },
+  };
+
+  const api = createHarness(overrides).api;
+  const first = await invoke(api, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+  const second = await invoke(api, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+  assert.equal(first.response.status, 200);
+  assert.equal(second.response.status, 200);
+  assert.equal(attempts[0].trialEligible, false);
+  assert.equal(attempts[1].trialEligible, false);
+  assert.notEqual(attempts[0].operationAttempt, "first-trial");
+  assert.notEqual(attempts[1].operationAttempt, "first-trial");
+  assert.notEqual(attempts[0].operationAttempt, attempts[1].operationAttempt);
+});
+
 test("Checkout rechecks all eligibility immediately before creating its Session", async () => {
   const order = [];
   let sponsorshipCheck = 0;
@@ -602,6 +802,35 @@ test("Price verification failure closes Checkout before customer or Session crea
   assert.equal(calls.findOrCreateCustomer.length, 0);
   assert.equal(calls.createCheckoutSession.length, 0);
   assert.equal(JSON.stringify(result.response.json()).includes("price_test_secret"), false);
+});
+
+test("Checkout masks malformed or non-Stripe gateway URLs at the API boundary", async () => {
+  const unsafeUrls = [
+    "provider-leak-card-declined",
+    "http://checkout.stripe.com/c/pay/insecure",
+    "https://checkout.stripe.com.evil.example/c/pay/lookalike",
+    "https://checkout.stripe.com:444/c/pay/non-default-port",
+    "https://user:password@checkout.stripe.com/c/pay/credentials",
+  ];
+
+  for (const url of unsafeUrls) {
+    const { api } = createHarness({
+      gateway: {
+        createCheckoutSession: async () => ({ id: "cs_private", url }),
+      },
+    });
+    const result = await invoke(api, "/api/billing/checkout", {
+      body: { plan: "monthly" },
+    });
+    assert.equal(result.response.status, 503);
+    assert.deepEqual(result.response.json(), {
+      error: {
+        code: "BILLING_UNAVAILABLE",
+        message: "Billing is temporarily unavailable.",
+      },
+    });
+    assert.equal(JSON.stringify(result.response.json()).includes(url), false);
+  }
 });
 
 test("access returns the exact normalized shared contract without billing identifiers", async () => {

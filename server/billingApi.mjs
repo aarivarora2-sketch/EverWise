@@ -69,16 +69,17 @@ const verifiedLearner = async (request, verifyIdToken) => {
   }
   try {
     const learner = await verifyIdToken(token);
+    const uid = learner?.uid;
     if (
       !isPlainObject(learner) ||
-      typeof learner.uid !== "string" ||
-      learner.uid.length < 1 ||
-      learner.uid.length > 128 ||
-      learner.uid !== learner.uid.trim()
+      typeof uid !== "string" ||
+      uid.length < 1 ||
+      uid.length > 128 ||
+      uid !== uid.trim()
     ) {
       throw new Error("invalid verifier result");
     }
-    return { uid: learner.uid };
+    return { uid };
   } catch (error) {
     if (error?.code === FIREBASE_CERTIFICATES_UNAVAILABLE_CODE) {
       throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
@@ -105,7 +106,7 @@ const requireJsonContentType = (request) => {
 
 const requireBoundedLength = (request) => {
   const contentLength = request.headers?.["content-length"];
-  if (contentLength === undefined) return;
+  if (contentLength === undefined) return null;
   if (typeof contentLength !== "string" || !/^\d+$/u.test(contentLength)) {
     throw apiError(400, "INVALID_JSON", "The request body is invalid.");
   }
@@ -113,6 +114,7 @@ const requireBoundedLength = (request) => {
   if (!Number.isSafeInteger(declaredLength) || declaredLength > MAXIMUM_BODY_BYTES) {
     throw apiError(413, "PAYLOAD_TOO_LARGE", "The request body is too large.");
   }
+  return declaredLength;
 };
 
 const readBody = async (request) => {
@@ -138,9 +140,20 @@ const readBody = async (request) => {
   }
 };
 
-const resolveBody = async (request, providedBody) => {
+const resolveBody = async (request, providedBody, providedBodyByteLength) => {
   requireJsonContentType(request);
-  requireBoundedLength(request);
+  const declaredLength = requireBoundedLength(request);
+  if (providedBody !== undefined) {
+    if (!Number.isSafeInteger(providedBodyByteLength) || providedBodyByteLength < 0) {
+      throw apiError(400, "INVALID_JSON", "The request body is invalid.");
+    }
+    if (providedBodyByteLength > MAXIMUM_BODY_BYTES) {
+      throw apiError(413, "PAYLOAD_TOO_LARGE", "The request body is too large.");
+    }
+    if (declaredLength !== null && declaredLength !== providedBodyByteLength) {
+      throw apiError(400, "INVALID_JSON", "The request body is invalid.");
+    }
+  }
   const body = providedBody === undefined ? await readBody(request) : providedBody;
   if (!isPlainObject(body)) {
     throw apiError(400, "INVALID_JSON", "The request body is invalid.");
@@ -151,8 +164,15 @@ const resolveBody = async (request, providedBody) => {
   } catch {
     throw apiError(400, "INVALID_JSON", "The request body is invalid.");
   }
-  if (Buffer.byteLength(serialized, "utf8") > MAXIMUM_BODY_BYTES) {
+  if (typeof serialized !== "string") {
+    throw apiError(400, "INVALID_JSON", "The request body is invalid.");
+  }
+  const serializedByteLength = Buffer.byteLength(serialized, "utf8");
+  if (serializedByteLength > MAXIMUM_BODY_BYTES) {
     throw apiError(413, "PAYLOAD_TOO_LARGE", "The request body is too large.");
+  }
+  if (providedBody !== undefined && serializedByteLength > providedBodyByteLength) {
+    throw apiError(400, "INVALID_JSON", "The request body is invalid.");
   }
   return JSON.parse(serialized);
 };
@@ -416,12 +436,12 @@ export const createBillingApi = ({
         planKey,
         appOrigin: config.appOrigin,
         trialEligible: !trialUsed,
-        operationAttempt: operationAttempt("checkout"),
+        operationAttempt: trialUsed ? operationAttempt("checkout") : "first-trial",
       });
-      if (!isPlainObject(session) || typeof session.url !== "string") {
+      if (!isPlainObject(session)) {
         throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
       }
-      return { url: session.url };
+      return { url: hostedUrl(session.url, "checkout.stripe.com") };
     });
 
   const getAccess = async (uid) => {
@@ -452,7 +472,7 @@ export const createBillingApi = ({
   };
 
   return Object.freeze({
-    async handle({ request, response, pathname, body } = {}) {
+    async handle({ request, response, pathname, body, bodyByteLength } = {}) {
       const route = BILLING_PATHS.get(pathname);
       if (!route) return false;
 
@@ -468,7 +488,7 @@ export const createBillingApi = ({
 
       try {
         const learner = await verifiedLearner(request, verifyIdToken);
-        const parsedBody = await resolveBody(request, body);
+        const parsedBody = await resolveBody(request, body, bodyByteLength);
         if (route === "plans") {
           requireExactKeys(parsedBody, []);
           await requireHealthyBilling();
