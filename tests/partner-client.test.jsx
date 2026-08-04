@@ -2664,7 +2664,9 @@ describe("sponsored signup orchestration", () => {
     mocks.setDoc.mockImplementation(async () => {
       order.push("profile-restore");
     });
-    const { returningProfile, user } = await openReturningSponsoredSettings();
+    const { returningProfile, returningUser, user } =
+      await openReturningSponsoredSettings();
+    const claimRecovery = storeMatchingPartnerClaimRecovery(returningUser.uid);
 
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
 
@@ -2677,6 +2679,9 @@ describe("sponsored signup orchestration", () => {
     });
     expect(mocks.confirmPartnerRelease).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBe(
+      claimRecovery,
+    );
     if (failedStage === "firebase") {
       expect(mocks.setDoc).toHaveBeenCalledWith(
         { collection: "users", uid: "returning-sponsored-delete" },
