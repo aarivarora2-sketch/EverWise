@@ -10,6 +10,7 @@ import {
   rename as fsRename,
   rm,
   stat,
+  symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -435,6 +436,15 @@ test("atomic persistence flushes a sibling temporary file before rename and sync
           events.push(["write", path]);
           return handle.writeFile(...args);
         },
+        async readFile(...args) {
+          return handle.readFile(...args);
+        },
+        async stat(...args) {
+          return handle.stat(...args);
+        },
+        async chmod(...args) {
+          return handle.chmod(...args);
+        },
         async sync() {
           events.push(["sync", path]);
           return handle.sync();
@@ -500,6 +510,53 @@ test("a failed primary rename preserves the old file and its recoverable backup"
   assert.equal(names.some((name) => name.includes(".tmp-")), false);
 });
 
+test("a final directory-sync failure rolls back the visible primary and never acknowledges success", async (t) => {
+  let filePath;
+  let failFinalDirectorySync = false;
+  let directorySyncs = 0;
+  const fsImpl = {
+    async open(path, flags, mode) {
+      const handle = await fsOpen(path, flags, mode);
+      if (path !== dirname(filePath)) return handle;
+      return new Proxy(handle, {
+        get(target, property) {
+          if (property === "sync") {
+            return async () => {
+              directorySyncs += 1;
+              if (failFinalDirectorySync && directorySyncs === 2) {
+                failFinalDirectorySync = false;
+                throw new Error("injected final directory sync failure");
+              }
+              return target.sync();
+            };
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  };
+  const setup = await setupStore(t, { fsImpl });
+  filePath = setup.filePath;
+  await bind(setup.store);
+  const original = await readFile(filePath, "utf8");
+  directorySyncs = 0;
+  failFinalDirectorySync = true;
+
+  await expectStoreError(
+    () => setup.store.applySubscriptionSnapshot(subscriptionSnapshot()),
+    "BILLING_STORE_DURABILITY_FAILED",
+  );
+  assert.equal(await readFile(filePath, "utf8"), original);
+  assert.equal((await setup.store.getByUid("uid-1")).status, "none");
+
+  assert.deepEqual(await setup.store.applySubscriptionSnapshot(subscriptionSnapshot()), {
+    applied: true,
+    reason: "updated",
+  });
+  assert.equal((await setup.store.getByUid("uid-1")).status, "active");
+});
+
 test("corrupt or missing primary data never resets over a recoverable backup", async (t) => {
   for (const primaryState of ["corrupt", "missing"]) {
     const { filePath, store } = await setupStore(t);
@@ -524,6 +581,84 @@ test("corrupt or missing primary data never resets over a recoverable backup", a
       await assert.rejects(() => access(filePath), { code: "ENOENT" });
     }
   }
+});
+
+test("symlinked parent components are rejected before creating or chmodding external storage", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "everwise-billing-parent-link-"));
+  const outside = await mkdtemp(join(tmpdir(), "everwise-billing-outside-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await chmod(root, 0o750);
+  await chmod(outside, 0o711);
+  const linkedParent = join(root, "linked");
+  await symlink(outside, linkedParent, "dir");
+  const filePath = join(linkedParent, "billing.json");
+  const store = createBillingStore({ filePath });
+
+  await expectStoreError(
+    () => bind(store),
+    "BILLING_STORE_UNSAFE_PATH",
+  );
+  await assert.rejects(() => access(join(outside, "billing.json")), { code: "ENOENT" });
+  assert.equal((await stat(outside)).mode & 0o777, 0o711);
+});
+
+test("symlinked primary, backup, and lock paths are rejected without touching their targets", async (t) => {
+  for (const targetKind of ["primary", "backup", "lock"]) {
+    const root = await mkdtemp(join(tmpdir(), `everwise-billing-${targetKind}-link-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await chmod(root, 0o750);
+    const externalPath = join(root, "external.txt");
+    await writeFile(externalPath, `external-${targetKind}`, { mode: 0o640 });
+    const filePath = join(root, "billing.json");
+    const store = createBillingStore({ filePath });
+
+    if (targetKind === "primary") {
+      await symlink(externalPath, filePath, "file");
+    } else if (targetKind === "backup") {
+      await bind(store);
+      await symlink(externalPath, `${filePath}.backup`, "file");
+    } else {
+      await symlink(externalPath, `${filePath}.lock`, "file");
+    }
+
+    if (targetKind !== "lock") {
+      assert.deepEqual(await store.health(), { configured: true, healthy: false });
+    }
+    await expectStoreError(
+      () => targetKind === "backup"
+        ? store.applySubscriptionSnapshot(subscriptionSnapshot())
+        : bind(store),
+      "BILLING_STORE_UNSAFE_PATH",
+    );
+    assert.equal(await readFile(externalPath, "utf8"), `external-${targetKind}`);
+    assert.equal((await stat(externalPath)).mode & 0o777, 0o640);
+  }
+});
+
+test("prototype-like valid UIDs round-trip through null-prototype learner maps", async (t) => {
+  const { filePath, store } = await setupStore(t);
+  await bind(store, "__proto__", "cus_proto");
+  await bind(store, "constructor", "cus_constructor");
+  await store.applySubscriptionSnapshot(subscriptionSnapshot({
+    uid: "__proto__",
+    customerId: "cus_proto",
+    subscriptionId: "sub_proto",
+  }));
+
+  const reopened = createBillingStore({ filePath, now: () => new Date(START) });
+  assert.equal((await reopened.getByUid("__proto__")).access, "full");
+  assert.equal((await reopened.getByUid("constructor")).customerId, "cus_constructor");
+  assert.equal((await reopened.getByCustomerId("cus_proto")).uid, "__proto__");
+  assert.deepEqual(await reopened.bindCustomer({
+    uid: "constructor",
+    customerId: "cus_constructor",
+  }), await reopened.getByUid("constructor"));
+
+  const disk = JSON.parse(await readFile(filePath, "utf8"));
+  assert.equal(Object.hasOwn(disk.learners, "__proto__"), true);
+  assert.equal(Object.hasOwn(disk.learners, "constructor"), true);
+  assert.deepEqual(Object.keys(disk.learners).sort(), ["__proto__", "constructor"]);
 });
 
 test("independent processes serialize read-modify-write mutations without losing data", async (t) => {

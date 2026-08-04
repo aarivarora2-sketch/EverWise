@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import * as fsPromises from "node:fs/promises";
-import { dirname } from "node:path";
-import { isDeepStrictEqual } from "node:util";
+import { dirname, join, parse, resolve, sep } from "node:path";
 
 const SCHEMA_VERSION = 1;
 const MAX_PROCESSED_EVENTS = 2000;
 const DIRECTORY_MODE = 0o750;
 const FILE_MODE = 0o600;
+const NO_FOLLOW = fsConstants.O_NOFOLLOW || 0;
+const DIRECTORY_FLAG = fsConstants.O_DIRECTORY || 0;
 const ROOT_KEYS = ["learners", "processedEvents", "version"];
 const RECORD_KEYS = [
   "cancelAtPeriodEnd",
@@ -157,6 +159,7 @@ function validateRecord(uid, record) {
 }
 
 function validateData(data) {
+  const learners = Object.create(null);
   try {
     if (
       !isPlainObject(data) ||
@@ -182,6 +185,7 @@ function validateData(data) {
         }
         subscriptionIds.add(record.subscriptionId);
       }
+      learners[uid] = record;
     }
 
     const eventIds = new Set();
@@ -203,15 +207,35 @@ function validateData(data) {
   } catch {
     throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
   }
-  return data;
+  return {
+    version: SCHEMA_VERSION,
+    learners,
+    processedEvents: data.processedEvents,
+  };
 }
 
 function emptyData() {
-  return { version: SCHEMA_VERSION, learners: {}, processedEvents: [] };
+  return {
+    version: SCHEMA_VERSION,
+    learners: Object.create(null),
+    processedEvents: [],
+  };
 }
 
 function clone(value) {
   return structuredClone(value);
+}
+
+function cloneData(data) {
+  const learners = Object.create(null);
+  for (const [uid, record] of Object.entries(data.learners)) {
+    learners[uid] = clone(record);
+  }
+  return {
+    version: SCHEMA_VERSION,
+    learners,
+    processedEvents: clone(data.processedEvents),
+  };
 }
 
 function nowDate(now) {
@@ -277,12 +301,221 @@ function eventIsNewer(created, eventId, record) {
   return eventId > record.lastEventId;
 }
 
+function unsafePathError() {
+  return storeError(
+    "BILLING_STORE_UNSAFE_PATH",
+    "The billing store path is unsafe.",
+  );
+}
+
+async function allowedSystemRootAlias(path, operations) {
+  if (process.platform !== "darwin") return false;
+  const expectedTargets = new Map([
+    ["/etc", "/private/etc"],
+    ["/tmp", "/private/tmp"],
+    ["/var", "/private/var"],
+  ]);
+  const expected = expectedTargets.get(path);
+  if (!expected) return false;
+  try {
+    return await operations.realpath(path) === expected;
+  } catch {
+    return false;
+  }
+}
+
+async function assertSafeDirectoryComponents(path, operations) {
+  const absolutePath = resolve(path);
+  const root = parse(absolutePath).root;
+  let current = root;
+  const components = absolutePath.slice(root.length).split(sep).filter(Boolean);
+  for (const component of components) {
+    current = join(current, component);
+    let details;
+    try {
+      details = await operations.lstat(current);
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw unsafePathError();
+    }
+    if (details.isSymbolicLink()) {
+      if (await allowedSystemRootAlias(current, operations)) continue;
+      throw unsafePathError();
+    }
+    if (!details.isDirectory()) throw unsafePathError();
+  }
+}
+
+async function lstatOrNull(path, operations) {
+  try {
+    return await operations.lstat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw unsafePathError();
+  }
+}
+
+function requireSafeRegular(details) {
+  if (details?.isSymbolicLink()) throw unsafePathError();
+  if (!details?.isFile()) {
+    throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
+  }
+}
+
+async function openExistingRegular(path, flags, operations) {
+  const before = await lstatOrNull(path, operations);
+  if (!before) {
+    const error = new Error("File does not exist");
+    error.code = "ENOENT";
+    throw error;
+  }
+  requireSafeRegular(before);
+  let handle;
+  try {
+    handle = await operations.open(path, flags | NO_FOLLOW);
+    const opened = await handle.stat();
+    const after = await operations.lstat(path);
+    requireSafeRegular(after);
+    if (
+      !opened.isFile() ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      after.dev !== before.dev ||
+      after.ino !== before.ino
+    ) {
+      throw unsafePathError();
+    }
+    return handle;
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    if (error instanceof BillingStoreError) throw error;
+    throw unsafePathError();
+  }
+}
+
+async function openNewRegular(path, operations) {
+  if (await lstatOrNull(path, operations)) throw unsafePathError();
+  let handle;
+  try {
+    handle = await operations.open(
+      path,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        NO_FOLLOW,
+      FILE_MODE,
+    );
+    const opened = await handle.stat();
+    const created = await operations.lstat(path);
+    requireSafeRegular(created);
+    if (!opened.isFile() || opened.dev !== created.dev || opened.ino !== created.ino) {
+      throw unsafePathError();
+    }
+    return handle;
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    if (error instanceof BillingStoreError) throw error;
+    throw unsafePathError();
+  }
+}
+
+async function readTextSafely(path, operations) {
+  const handle = await openExistingRegular(path, fsConstants.O_RDONLY, operations);
+  try {
+    return await handle.readFile("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function copyRegularFileSafely(source, destination, operations) {
+  const sourceHandle = await openExistingRegular(source, fsConstants.O_RDONLY, operations);
+  let destinationHandle;
+  try {
+    const contents = await sourceHandle.readFile();
+    destinationHandle = await openNewRegular(destination, operations);
+    await destinationHandle.writeFile(contents);
+    await destinationHandle.sync();
+    await destinationHandle.chmod(FILE_MODE);
+  } finally {
+    await sourceHandle.close().catch(() => {});
+    if (destinationHandle) await destinationHandle.close().catch(() => {});
+  }
+}
+
+async function chmodRegularSafely(path, operations) {
+  const handle = await openExistingRegular(path, fsConstants.O_RDWR, operations);
+  try {
+    await handle.chmod(FILE_MODE);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function chmodDirectorySafely(path, mode, operations) {
+  await assertSafeDirectoryComponents(path, operations);
+  let handle;
+  try {
+    handle = await operations.open(
+      path,
+      fsConstants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW,
+    );
+    const details = await handle.stat();
+    if (!details.isDirectory()) throw unsafePathError();
+    await handle.chmod(mode);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+async function syncDirectorySafely(path, operations) {
+  await assertSafeDirectoryComponents(path, operations);
+  let handle;
+  try {
+    handle = await operations.open(
+      path,
+      fsConstants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW,
+    );
+    const details = await handle.stat();
+    if (!details.isDirectory()) throw unsafePathError();
+    await handle.sync();
+  } catch (error) {
+    if (error instanceof BillingStoreError) throw error;
+    throw error;
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
 async function acquireInterprocessMutationLock(filePath, operations) {
+  const lockPath = `${filePath}.lock`;
   let lockHandle;
   try {
-    lockHandle = await operations.open(`${filePath}.lock`, "a+", FILE_MODE);
-    await operations.chmod(`${filePath}.lock`, FILE_MODE);
-  } catch {
+    const before = await lstatOrNull(lockPath, operations);
+    if (before) requireSafeRegular(before);
+    lockHandle = await operations.open(
+      lockPath,
+      fsConstants.O_RDWR |
+        fsConstants.O_APPEND |
+        fsConstants.O_CREAT |
+        NO_FOLLOW,
+      FILE_MODE,
+    );
+    const opened = await lockHandle.stat();
+    const after = await operations.lstat(lockPath);
+    requireSafeRegular(after);
+    if (
+      !opened.isFile() ||
+      (before && (opened.dev !== before.dev || opened.ino !== before.ino)) ||
+      opened.dev !== after.dev ||
+      opened.ino !== after.ino
+    ) {
+      throw unsafePathError();
+    }
+    await lockHandle.chmod(FILE_MODE);
+  } catch (error) {
+    if (lockHandle) await lockHandle.close().catch(() => {});
+    if (error instanceof BillingStoreError) throw error;
     throw storeError(
       "BILLING_STORE_LOCK_FAILED",
       "The billing store lock could not open.",
@@ -338,45 +571,66 @@ async function acquireInterprocessMutationLock(filePath, operations) {
   });
 }
 
-async function syncPath(path, flags, operations) {
-  const handle = await operations.open(path, flags);
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
 async function persistAtomically(filePath, data, hadPriorFile, operations) {
   temporaryFileCounter += 1;
   const suffix = `${process.pid}-${temporaryFileCounter}`;
   const temporaryPath = `${filePath}.tmp-${suffix}`;
   const backupPath = `${filePath}.backup`;
   const backupTemporaryPath = `${backupPath}.tmp-${suffix}`;
+  const recoveryTemporaryPath = `${filePath}.recovery-${suffix}`;
   let handle;
   try {
-    handle = await operations.open(temporaryPath, "wx", FILE_MODE);
+    handle = await openNewRegular(temporaryPath, operations);
     await handle.writeFile(`${JSON.stringify(data, null, 2)}\n`, "utf8");
     await handle.sync();
+    await handle.chmod(FILE_MODE);
     await handle.close();
     handle = null;
-    await operations.chmod(temporaryPath, FILE_MODE);
 
     if (hadPriorFile) {
-      await operations.copyFile(filePath, backupTemporaryPath);
-      await operations.chmod(backupTemporaryPath, FILE_MODE);
-      await syncPath(backupTemporaryPath, "r+", operations);
+      await copyRegularFileSafely(filePath, backupTemporaryPath, operations);
+      const existingBackup = await lstatOrNull(backupPath, operations);
+      if (existingBackup) requireSafeRegular(existingBackup);
       await operations.rename(backupTemporaryPath, backupPath);
-      await syncPath(dirname(filePath), "r", operations);
+      await syncDirectorySafely(dirname(filePath), operations);
     }
 
+    const existingPrimary = await lstatOrNull(filePath, operations);
+    if (existingPrimary) requireSafeRegular(existingPrimary);
     await operations.rename(temporaryPath, filePath);
-    await operations.chmod(filePath, FILE_MODE);
-    await syncPath(dirname(filePath), "r", operations);
+    try {
+      await chmodRegularSafely(filePath, operations);
+      await syncDirectorySafely(dirname(filePath), operations);
+    } catch {
+      try {
+        if (hadPriorFile) {
+          await copyRegularFileSafely(backupPath, recoveryTemporaryPath, operations);
+          const currentPrimary = await lstatOrNull(filePath, operations);
+          if (currentPrimary) requireSafeRegular(currentPrimary);
+          await operations.rename(recoveryTemporaryPath, filePath);
+          await chmodRegularSafely(filePath, operations);
+        } else {
+          const currentPrimary = await lstatOrNull(filePath, operations);
+          requireSafeRegular(currentPrimary);
+          await operations.unlink(filePath);
+        }
+        await syncDirectorySafely(dirname(filePath), operations);
+      } catch {
+        throw storeError(
+          "BILLING_STORE_DURABILITY_FAILED",
+          "The billing store could not confirm a durable update.",
+        );
+      }
+      throw storeError(
+        "BILLING_STORE_DURABILITY_FAILED",
+        "The billing store could not confirm a durable update.",
+      );
+    }
   } finally {
     if (handle) await handle.close().catch(() => {});
     await operations.unlink(temporaryPath).catch(() => {});
     await operations.unlink(backupTemporaryPath).catch(() => {});
+    await operations.unlink(recoveryTemporaryPath).catch(() => {});
   }
 }
 
@@ -392,6 +646,7 @@ export function createBillingStore({
   if (typeof filePath !== "string" || !filePath) {
     throw new TypeError("filePath must be a non-empty string");
   }
+  filePath = resolve(filePath);
   if (typeof now !== "function") throw new TypeError("now must be a function");
   if (fsImpl !== undefined && !isPlainObject(fsImpl)) {
     throw new TypeError("fsImpl must be an object");
@@ -406,8 +661,9 @@ export function createBillingStore({
 
   async function prepareParentDirectory() {
     const parentPath = dirname(filePath);
+    await assertSafeDirectoryComponents(parentPath, operations);
     try {
-      const parent = await operations.stat(parentPath);
+      const parent = await operations.lstat(parentPath);
       if (!parent.isDirectory() || !secureDirectoryMode(parent.mode)) {
         throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
       }
@@ -417,78 +673,71 @@ export function createBillingStore({
         throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
       }
       await operations.mkdir(parentPath, { recursive: true, mode: DIRECTORY_MODE });
+      await assertSafeDirectoryComponents(parentPath, operations);
     }
-    await operations.chmod(parentPath, DIRECTORY_MODE);
+    await chmodDirectorySafely(parentPath, DIRECTORY_MODE, operations);
   }
 
-  async function verifyStoredPermissions() {
+  async function verifyStoredPermissions(primary) {
     try {
-      const [parent, primary] = await Promise.all([
-        operations.stat(dirname(filePath)),
-        operations.stat(filePath),
-      ]);
+      await assertSafeDirectoryComponents(dirname(filePath), operations);
+      const parent = await operations.lstat(dirname(filePath));
+      requireSafeRegular(primary);
       if (
         !parent.isDirectory() ||
-        !primary.isFile() ||
         !secureDirectoryMode(parent.mode) ||
         (primary.mode & 0o777) !== FILE_MODE
       ) {
         throw new Error("unsafe permissions");
       }
-      try {
-        const backup = await operations.stat(`${filePath}.backup`);
-        if (!backup.isFile() || (backup.mode & 0o777) !== FILE_MODE) {
-          throw new Error("unsafe backup permissions");
+      for (const optionalPath of [`${filePath}.backup`, `${filePath}.lock`]) {
+        const optional = await lstatOrNull(optionalPath, operations);
+        if (!optional) continue;
+        requireSafeRegular(optional);
+        if ((optional.mode & 0o777) !== FILE_MODE) {
+          throw new Error("unsafe permissions");
         }
-      } catch (error) {
-        if (error?.code !== "ENOENT") throw error;
       }
-    } catch {
-      throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
-    }
-  }
-
-  async function backupExists() {
-    try {
-      await operations.stat(`${filePath}.backup`);
-      return true;
-    } catch (error) {
-      if (error?.code === "ENOENT") return false;
-      return true;
-    }
-  }
-
-  async function readData({ allowMissing = false } = {}) {
-    let text;
-    try {
-      text = await operations.readFile(filePath, "utf8");
-    } catch (error) {
-      if (error?.code === "ENOENT") {
-        if (await backupExists()) {
-          throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
-        }
-        if (allowMissing) return null;
-        throw storeError(
-          "BILLING_STORE_NOT_CONFIGURED",
-          "The billing store is not configured.",
-        );
-      }
-      throw storeError("BILLING_STORE_CORRUPT", "The billing store could not be read.");
-    }
-    await verifyStoredPermissions();
-    try {
-      return validateData(JSON.parse(text));
     } catch (error) {
       if (error instanceof BillingStoreError) throw error;
       throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
     }
   }
 
-  async function committedDataMatches(expected) {
+  async function backupExists() {
+    const backup = await lstatOrNull(`${filePath}.backup`, operations);
+    if (!backup) return false;
+    requireSafeRegular(backup);
+    return true;
+  }
+
+  async function readData({ allowMissing = false } = {}) {
+    await assertSafeDirectoryComponents(dirname(filePath), operations);
+    const primary = await lstatOrNull(filePath, operations);
+    if (!primary) {
+      if (await backupExists()) {
+        throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
+      }
+      if (allowMissing) return null;
+      throw storeError(
+        "BILLING_STORE_NOT_CONFIGURED",
+        "The billing store is not configured.",
+      );
+    }
+    requireSafeRegular(primary);
+    await verifyStoredPermissions(primary);
+    let text;
     try {
-      return isDeepStrictEqual(await readData(), expected);
-    } catch {
-      return false;
+      text = await readTextSafely(filePath, operations);
+    } catch (error) {
+      if (error instanceof BillingStoreError) throw error;
+      throw storeError("BILLING_STORE_CORRUPT", "The billing store could not be read.");
+    }
+    try {
+      return validateData(JSON.parse(text));
+    } catch (error) {
+      if (error instanceof BillingStoreError) throw error;
+      throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
     }
   }
 
@@ -499,15 +748,11 @@ export function createBillingStore({
       try {
         const current = await readData({ allowMissing });
         const hadPriorFile = current !== null;
-        const working = clone(current || emptyData());
+        const working = cloneData(current || emptyData());
         const outcome = await mutator(working, nowDate(now));
         if (outcome.changed) {
           validateData(working);
-          try {
-            await persistAtomically(filePath, working, hadPriorFile, operations);
-          } catch (error) {
-            if (!(await committedDataMatches(working))) throw error;
-          }
+          await persistAtomically(filePath, working, hadPriorFile, operations);
         }
         return outcome.result;
       } finally {
@@ -525,7 +770,11 @@ export function createBillingStore({
   async function getByUid(uid) {
     const normalizedUid = requireUid(uid);
     const data = await readData();
-    return viewRecord(data.learners[normalizedUid]);
+    return viewRecord(
+      Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null,
+    );
   }
 
   async function getByCustomerId(customerId) {
@@ -541,7 +790,9 @@ export function createBillingStore({
     return enqueueMutation((data, currentDate) => {
       const normalizedUid = requireUid(uid);
       const normalizedCustomerId = requireIdentifier(customerId, CUSTOMER_ID_PATTERN);
-      const existing = data.learners[normalizedUid];
+      const existing = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
       const owner = Object.values(data.learners).find(
         (candidate) => candidate.customerId === normalizedCustomerId,
       );
@@ -599,7 +850,7 @@ export function createBillingStore({
       if (typeof snapshot.cancelAtPeriodEnd !== "boolean") throw invalidInput();
       const trialEndsAt = normalizeOptionalTimestamp(snapshot.trialEndsAt);
       const currentPeriodEndsAt = normalizeOptionalTimestamp(snapshot.currentPeriodEndsAt);
-      const record = data.learners[uid];
+      const record = Object.hasOwn(data.learners, uid) ? data.learners[uid] : null;
       if (!record || record.customerId !== customerId) {
         throw storeError(
           "BILLING_STORE_IDENTITY_CONFLICT",
@@ -651,8 +902,8 @@ export function createBillingStore({
   async function hasUsedTrial(uid) {
     const normalizedUid = requireUid(uid);
     const data = await readData();
-    return data.learners[normalizedUid]?.trialUsedAt !== null &&
-      data.learners[normalizedUid]?.trialUsedAt !== undefined;
+    if (!Object.hasOwn(data.learners, normalizedUid)) return false;
+    return data.learners[normalizedUid].trialUsedAt !== null;
   }
 
   function recordProcessedEvent({ eventId, created } = {}) {
