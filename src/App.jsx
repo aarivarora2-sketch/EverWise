@@ -110,6 +110,21 @@ const PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY =
   "everwise-partner-release-confirmable";
 const PARTNER_ACCESS_REFRESH_INTERVAL_MS = 60_000;
 const BILLING_CONFIRMATION_DELAYS_MS = [0, 1_000, 2_000, 3_000, 5_000, 8_000];
+const BILLING_CONFIRMATION_DEADLINE_MS = 20_000;
+const BILLING_RETURN_INTENT_STORAGE_KEY = "everwise.billing-return-intent.v1";
+const BILLING_RETURN_INTENT_TTL_MS = 10 * 60 * 1000;
+const BILLING_RETURN_INTENT_MAX_BYTES = 1_024;
+const BILLING_RETURN_INTENT_KEYS = [
+  "createdAt",
+  "expiresAt",
+  "itemId",
+  "nonce",
+  "screen",
+  "uid",
+  "version",
+];
+const BILLING_RETURN_NONCE_PATTERN = /^[a-f0-9]{32}$/;
+const BILLING_RETURN_SCREENS = new Set(["lesson", "challenge", "exam"]);
 const PARTNER_RELEASE_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PARTNER_RECONCILIATION_REASONS = new Set([
   "cancellation",
@@ -142,6 +157,14 @@ const LEGACY_TEXT_SIZES = {
   largest: "size-4",
 };
 
+function encodedByteLength(value) {
+  try {
+    return new TextEncoder().encode(value).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 function getSavedTextSize() {
   try {
     const saved = window.localStorage.getItem(TEXT_SIZE_STORAGE_KEY);
@@ -169,6 +192,128 @@ function consumeBillingReturnMarker() {
   } catch {
     return null;
   }
+}
+
+function clearStoredBillingReturnIntent() {
+  try {
+    window.sessionStorage.removeItem(BILLING_RETURN_INTENT_STORAGE_KEY);
+  } catch {
+    // A blocked session store must never keep the app from failing closed.
+  }
+}
+
+function createBillingReturnNonce() {
+  try {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+function storeBillingReturnIntent({ uid, screen, itemId }) {
+  clearStoredBillingReturnIntent();
+  const nonce = createBillingReturnNonce();
+  if (!nonce) return false;
+  const createdAt = Date.now();
+  const serialized = JSON.stringify({
+    version: 1,
+    nonce,
+    uid,
+    screen,
+    itemId,
+    createdAt,
+    expiresAt: createdAt + BILLING_RETURN_INTENT_TTL_MS,
+  });
+  if (encodedByteLength(serialized) > BILLING_RETURN_INTENT_MAX_BYTES) {
+    return false;
+  }
+  try {
+    window.sessionStorage.setItem(BILLING_RETURN_INTENT_STORAGE_KEY, serialized);
+    return (
+      window.sessionStorage.getItem(BILLING_RETURN_INTENT_STORAGE_KEY) ===
+      serialized
+    );
+  } catch {
+    clearStoredBillingReturnIntent();
+    return false;
+  }
+}
+
+function readBillingReturnIntent(expectedUid) {
+  let serialized;
+  try {
+    serialized = window.sessionStorage.getItem(BILLING_RETURN_INTENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (serialized === null) return null;
+  const reject = () => {
+    clearStoredBillingReturnIntent();
+    return null;
+  };
+  if (
+    typeof serialized !== "string" ||
+    serialized.length === 0 ||
+    encodedByteLength(serialized) > BILLING_RETURN_INTENT_MAX_BYTES
+  ) {
+    return reject();
+  }
+  let intent;
+  try {
+    intent = JSON.parse(serialized);
+  } catch {
+    return reject();
+  }
+  if (
+    !intent ||
+    Object.getPrototypeOf(intent) !== Object.prototype ||
+    Object.keys(intent).sort().join("\u0000") !==
+      BILLING_RETURN_INTENT_KEYS.join("\u0000") ||
+    intent.version !== 1 ||
+    typeof intent.uid !== "string" ||
+    intent.uid !== expectedUid ||
+    typeof intent.screen !== "string" ||
+    !BILLING_RETURN_SCREENS.has(intent.screen) ||
+    typeof intent.itemId !== "string" ||
+    intent.itemId.length === 0 ||
+    intent.itemId.length > 128 ||
+    typeof intent.nonce !== "string" ||
+    !BILLING_RETURN_NONCE_PATTERN.test(intent.nonce) ||
+    !Number.isSafeInteger(intent.createdAt) ||
+    !Number.isSafeInteger(intent.expiresAt) ||
+    intent.expiresAt !== intent.createdAt + BILLING_RETURN_INTENT_TTL_MS
+  ) {
+    return reject();
+  }
+  const now = Date.now();
+  if (
+    intent.createdAt > now ||
+    intent.createdAt < now - BILLING_RETURN_INTENT_TTL_MS ||
+    intent.expiresAt <= now
+  ) {
+    return reject();
+  }
+  return intent;
+}
+
+function resolveBillingReturnDestination(intent) {
+  if (!intent) return null;
+  if (intent.screen === "lesson") {
+    const index = lessonsByOrder.findIndex((lesson) => lesson.id === intent.itemId);
+    if (index < 0) return null;
+    return { screen: "lesson", itemId: intent.itemId, index };
+  }
+  if (intent.screen === "challenge") {
+    const item = challengesByOrder.find((challenge) => challenge.id === intent.itemId);
+    return item ? { screen: "challenge", itemId: intent.itemId, item } : null;
+  }
+  if (intent.screen === "exam") {
+    const item = examsByOrder.find((exam) => exam.id === intent.itemId);
+    return item ? { screen: "exam", itemId: intent.itemId, item } : null;
+  }
+  return null;
 }
 
 function isValidatedHostedUrl(value, hostname) {
@@ -1083,10 +1228,17 @@ function LearnerApp({ initialPartnerFragment }) {
     const unsub = onAuthStateChanged(auth, async (u) => {
       receivedInitialAuthState = true;
       window.clearTimeout(startupFallback);
+      const previousAuthUid = currentAuthUidRef.current;
       const generation = authGenerationRef.current + 1;
       authGenerationRef.current = generation;
       authSettledRef.current = false;
       currentAuthUidRef.current = u?.uid || null;
+      if (previousAuthUid && previousAuthUid !== (u?.uid || null)) {
+        pendingProtectedNavigationRef.current = null;
+        clearStoredBillingReturnIntent();
+      } else if (u?.uid) {
+        readBillingReturnIntent(u.uid);
+      }
       if (
         billingReturnOwnerUidRef.current &&
         billingReturnOwnerUidRef.current !== (u?.uid || null)
@@ -2216,6 +2368,8 @@ function LearnerApp({ initialPartnerFragment }) {
       billingBootstrapIdRef.current += 1;
       billingPollIdRef.current += 1;
       currentAuthUidRef.current = null;
+      pendingProtectedNavigationRef.current = null;
+      clearStoredBillingReturnIntent();
       setUser(null);
       setProfile(null);
       setBillingOwnerUid(null);
@@ -2388,6 +2542,11 @@ function LearnerApp({ initialPartnerFragment }) {
     };
   }, [authChecked, platform, profile, sponsoredActive, user?.uid]);
 
+  const clearPendingProtectedNavigation = () => {
+    pendingProtectedNavigationRef.current = null;
+    clearStoredBillingReturnIntent();
+  };
+
   useEffect(() => {
     if (!billingReturn || !authChecked || !authSettledRef.current) {
       return undefined;
@@ -2395,6 +2554,7 @@ function LearnerApp({ initialPartnerFragment }) {
     if (!user?.uid || !profile) return undefined;
 
     if (billingReturn === "cancel") {
+      clearPendingProtectedNavigation();
       setBillingRecovery({
         kind: "cancel",
         message: "Checkout was canceled. Your access has not changed.",
@@ -2406,12 +2566,14 @@ function LearnerApp({ initialPartnerFragment }) {
     }
 
     if (sponsoredActive) {
+      clearPendingProtectedNavigation();
       setBillingRecovery(null);
       setBillingReturn(null);
       setScreen("home");
       return undefined;
     }
     if (platform !== "web") {
+      clearPendingProtectedNavigation();
       setBillingRecovery({ kind: "temporary" });
       setScreen("billing-error");
       setBillingReturn(null);
@@ -2423,28 +2585,87 @@ function LearnerApp({ initialPartnerFragment }) {
     const pollId = billingPollIdRef.current + 1;
     billingPollIdRef.current = pollId;
     billingReturnOwnerUidRef.current = uid;
+    const deadlineAt = performance.now() + BILLING_CONFIRMATION_DEADLINE_MS;
     let cancelled = false;
-    let timerId = null;
+    let timedOut = false;
+    let deadlineTimerId = null;
+    const delayTimerIds = new Set();
     const current = () =>
       !cancelled &&
+      !timedOut &&
       pollId === billingPollIdRef.current &&
       generation === authGenerationRef.current &&
       currentAuthUidRef.current === uid;
-    const wait = (delay) =>
-      new Promise((resolve) => {
-        timerId = window.setTimeout(resolve, delay);
+    const deadlineReached = Symbol("billing-confirmation-deadline");
+    const deadlinePromise = new Promise((resolve) => {
+      const remaining = Math.max(0, deadlineAt - performance.now());
+      deadlineTimerId = window.setTimeout(
+        () => resolve(deadlineReached),
+        remaining,
+      );
+    });
+    const raceDeadline = (promise) =>
+      Promise.race([
+        Promise.resolve(promise).then(
+          (value) => ({ settled: true, value }),
+          () => ({ settled: false, value: null }),
+        ),
+        deadlinePromise,
+      ]);
+    const wait = (delay) => {
+      let timerId = null;
+      const promise = new Promise((resolve) => {
+        timerId = window.setTimeout(() => {
+          delayTimerIds.delete(timerId);
+          resolve();
+        }, delay);
+        delayTimerIds.add(timerId);
       });
+      return raceDeadline(promise).finally(() => {
+        if (timerId !== null && delayTimerIds.delete(timerId)) {
+          window.clearTimeout(timerId);
+        }
+      });
+    };
+    const clearPollTimers = () => {
+      if (deadlineTimerId !== null) window.clearTimeout(deadlineTimerId);
+      deadlineTimerId = null;
+      for (const timerId of delayTimerIds) window.clearTimeout(timerId);
+      delayTimerIds.clear();
+    };
+    const transitionToTimeout = (latestAccess) => {
+      if (!current()) return;
+      timedOut = true;
+      clearPollTimers();
+      partnerAccessRefreshIdRef.current += 1;
+      setBillingBusy(false);
+      clearPendingProtectedNavigation();
+      setBillingRecovery({
+        kind: "confirmation",
+        phase: "timeout",
+        canManage: latestAccess?.canManage === true,
+      });
+    };
     const openPendingOrHome = () => {
-      const pending = pendingProtectedNavigationRef.current;
-      if (
-        !pending ||
-        pending.uid !== uid ||
-        pending.generation !== generation
-      ) {
+      let pending = pendingProtectedNavigationRef.current;
+      if (!pending) {
+        const storedIntent = readBillingReturnIntent(uid);
+        pending = resolveBillingReturnDestination(storedIntent);
+        if (storedIntent && !pending) clearStoredBillingReturnIntent();
+      }
+      if (pending && (pending.uid || pending.generation)) {
+        if (pending.uid !== uid || pending.generation !== generation) {
+          clearPendingProtectedNavigation();
+          setScreen("home");
+          return;
+        }
+      }
+      if (!pending) {
+        clearStoredBillingReturnIntent();
         setScreen("home");
         return;
       }
-      pendingProtectedNavigationRef.current = null;
+      clearPendingProtectedNavigation();
       if (pending.screen === "lesson") {
         setActiveExam(null);
         setActiveChallenge(null);
@@ -2464,14 +2685,32 @@ function LearnerApp({ initialPartnerFragment }) {
     void (async () => {
       let latestAccess = null;
       for (const delay of BILLING_CONFIRMATION_DELAYS_MS) {
-        if (delay > 0) await wait(delay);
+        if (performance.now() >= deadlineAt) {
+          transitionToTimeout(latestAccess);
+          return;
+        }
+        if (delay > 0) {
+          const delayed = await wait(delay);
+          if (delayed === deadlineReached) {
+            transitionToTimeout(latestAccess);
+            return;
+          }
+        }
         if (!current()) return;
-        const refreshed = await refreshAuthoritativePartnerAccessRef.current?.({
-          routeCurrent: false,
-        });
+        const outcome = await raceDeadline(
+          refreshAuthoritativePartnerAccessRef.current?.({
+            routeCurrent: false,
+          }),
+        );
+        if (outcome === deadlineReached) {
+          transitionToTimeout(latestAccess);
+          return;
+        }
         if (!current()) return;
+        const refreshed = outcome.settled ? outcome.value : null;
         latestAccess = refreshed?.billingAccess || latestAccess;
         if (refreshed?.fullAccess) {
+          clearPollTimers();
           setBillingRecovery(null);
           setBillingReturn(null);
           billingReturnOwnerUidRef.current = null;
@@ -2479,17 +2718,12 @@ function LearnerApp({ initialPartnerFragment }) {
           return;
         }
       }
-      if (!current()) return;
-      setBillingRecovery({
-        kind: "confirmation",
-        phase: "timeout",
-        canManage: latestAccess?.canManage === true,
-      });
+      transitionToTimeout(latestAccess);
     })();
 
     return () => {
       cancelled = true;
-      if (timerId !== null) window.clearTimeout(timerId);
+      clearPollTimers();
     };
   }, [
     authChecked,
@@ -2503,6 +2737,11 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const rememberPendingProtectedNavigation = (pending) => {
     if (!user?.uid) return;
+    storeBillingReturnIntent({
+      uid: user.uid,
+      screen: pending.screen,
+      itemId: pending.itemId,
+    });
     pendingProtectedNavigationRef.current = {
       ...pending,
       uid: user.uid,
@@ -2765,6 +3004,8 @@ function LearnerApp({ initialPartnerFragment }) {
     billingPollIdRef.current += 1;
     authSettledRef.current = true;
     currentAuthUidRef.current = null;
+    pendingProtectedNavigationRef.current = null;
+    clearStoredBillingReturnIntent();
     setUser(null);
     setProfile(null);
     setBillingOwnerUid(null);
@@ -3560,8 +3801,16 @@ function LearnerApp({ initialPartnerFragment }) {
             billingAccess={billingAccess}
             billingBusy={billingBusy}
             billingMessage={billingRecovery?.message || ""}
-            onStartLearning={goHome}
-            onMaybeLater={goHome}
+            onStartLearning={() => {
+              clearPendingProtectedNavigation();
+              setBillingRecovery(null);
+              goHome();
+            }}
+            onMaybeLater={() => {
+              clearPendingProtectedNavigation();
+              setBillingRecovery(null);
+              goHome();
+            }}
           />
         </>
       );
@@ -3589,7 +3838,7 @@ function LearnerApp({ initialPartnerFragment }) {
           }
           onBack={() => {
             billingPollIdRef.current += 1;
-            pendingProtectedNavigationRef.current = null;
+            clearPendingProtectedNavigation();
             setBillingReturn(null);
             setBillingRecovery(null);
             goHome();
@@ -3606,7 +3855,7 @@ function LearnerApp({ initialPartnerFragment }) {
             setBillingPollAttempt((attempt) => attempt + 1);
           }}
           onBack={() => {
-            pendingProtectedNavigationRef.current = null;
+            clearPendingProtectedNavigation();
             setBillingRecovery(null);
             goHome();
           }}
