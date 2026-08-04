@@ -207,10 +207,26 @@ function createHarness(overrides = {}) {
       calls.verifyIdToken.push(token);
       return { uid: UID, email: "private@example.com" };
     });
+  const billingConfig = overrides.config || CONFIG;
+  let plansReady = false;
+  const planVerifier = overrides.planVerifier || {
+    isVerified: () => plansReady,
+    async verify() {
+      try {
+        const result = await gateway.verifyPlans(billingConfig.plans);
+        plansReady = true;
+        return result;
+      } catch (error) {
+        plansReady = false;
+        throw error;
+      }
+    },
+  };
   const api = createBillingApi({
-    config: overrides.config || CONFIG,
+    config: billingConfig,
     store,
     gateway,
+    planVerifier,
     partnerStore,
     verifyIdToken,
     now: overrides.now || (() => new Date(NOW)),
@@ -1335,6 +1351,17 @@ test("independent APIs and a real store converge on one first-trial reservation 
   const common = {
     config: CONFIG,
     gateway,
+    planVerifier: (() => {
+      let ready = false;
+      return {
+        isVerified: () => ready,
+        async verify() {
+          const result = await gateway.verifyPlans(CONFIG.plans);
+          ready = true;
+          return result;
+        },
+      };
+    })(),
     partnerStore: { getAccess: async () => ({ status: "none" }) },
     verifyIdToken: async () => ({ uid: UID }),
     now: () => new Date(NOW),

@@ -203,11 +203,19 @@ const validStoreResult = (value, actionKey, reasons) =>
   typeof value.reason === "string" &&
   reasons.has(value.reason);
 
-export const createBillingWebhook = ({ config, store, gateway, logger } = {}) => {
+export const createBillingWebhook = ({
+  config,
+  store,
+  gateway,
+  planReadiness,
+  logger,
+} = {}) => {
   if (
     !config ||
     !store ||
     !gateway ||
+    !planReadiness ||
+    typeof planReadiness.isVerified !== "function" ||
     !logger ||
     typeof store.getByCustomerId !== "function" ||
     typeof store.applySubscriptionSnapshot !== "function" ||
@@ -219,7 +227,7 @@ export const createBillingWebhook = ({ config, store, gateway, logger } = {}) =>
     typeof gateway.listNonTerminalSubscriptions !== "function" ||
     typeof gateway.cancelSubscription !== "function"
   ) {
-    throw new TypeError("config, store, gateway, and logger are required");
+    throw new TypeError("config, store, gateway, planReadiness, and logger are required");
   }
 
   const recordEventOnly = async (event) => {
@@ -395,6 +403,9 @@ export const createBillingWebhook = ({ config, store, gateway, logger } = {}) =>
           await recordEventOnly(event);
           logger.info("BILLING_TRIAL_WILL_END");
         } else if (ACCESS_CHANGING_EVENTS.has(event.type)) {
+          if (planReadiness.isVerified() !== true) {
+            throw new Error("billing plans are not verified");
+          }
           await processLifecycle(event);
         } else {
           await recordEventOnly(event);

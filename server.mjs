@@ -174,6 +174,35 @@ const billingLivemode = (env) =>
   typeof env.STRIPE_SECRET_KEY === "string" &&
   env.STRIPE_SECRET_KEY.trim().startsWith("sk_live_");
 
+const createBillingPlanVerifier = ({ plans, verifyPlans } = {}) => {
+  if (!plans || typeof plans !== "object") {
+    throw new TypeError("plans are required");
+  }
+  if (typeof verifyPlans !== "function") {
+    throw new TypeError("verifyPlans is required");
+  }
+  let generation = 0;
+  let verified = false;
+  return Object.freeze({
+    isVerified() {
+      return verified;
+    },
+    async verify() {
+      generation += 1;
+      const attempt = generation;
+      verified = false;
+      try {
+        const result = await verifyPlans(plans);
+        if (attempt === generation) verified = true;
+        return result;
+      } catch (error) {
+        verified = false;
+        throw error;
+      }
+    },
+  });
+};
+
 async function readMeasuredJsonBody(request) {
   const contentLength = request.headers?.["content-length"];
   if (contentLength !== undefined) {
@@ -384,15 +413,17 @@ export async function createEverWiseApplication({
     filePath: env.EVERWISE_BILLING_STORE_PATH || DEFAULT_BILLING_STORE_PATH,
   });
   let gateway = unavailableBillingGateway();
-  let plansVerified = false;
+  const planVerifier = createBillingPlanVerifier({
+    plans: config.plans,
+    verifyPlans: (configuredPlans) => gateway.verifyPlans(configuredPlans),
+  });
   if (configurationValid && config?.configured === true) {
     try {
       gateway = resolvedDependencies.createStripeGateway({
         secretKey: env.STRIPE_SECRET_KEY,
         fetchImpl,
       });
-      await gateway.verifyPlans(config.plans);
-      plansVerified = true;
+      await planVerifier.verify();
     } catch {
       logger.error("BILLING_PLANS_UNVERIFIED");
     }
@@ -402,6 +433,7 @@ export async function createEverWiseApplication({
     config,
     store: billingStore,
     gateway,
+    planVerifier,
     partnerStore,
     verifyIdToken,
   });
@@ -409,6 +441,7 @@ export async function createEverWiseApplication({
     config: { ...config, livemode: billingLivemode(env) },
     store: billingStore,
     gateway,
+    planReadiness: planVerifier,
     logger,
   });
   const scamCheckLimiter = createRouteRateLimiter({
@@ -479,7 +512,7 @@ export async function createEverWiseApplication({
         Object.assign(health, {
           billingConfigured:
             configurationValid && config?.configured === true,
-          billingPlansVerified: plansVerified,
+          billingPlansVerified: planVerifier.isVerified(),
           billingStoreHealthy: storeHealthy,
         });
         jsonResponse(response, 200, health);

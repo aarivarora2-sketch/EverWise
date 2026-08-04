@@ -82,6 +82,8 @@ function createDependencies({
   config = CONFIG,
   plansVerified = true,
   storeHealth = { configured: true, healthy: true },
+  gatewayImplementation,
+  storeImplementation,
   partnerHandledPath = null,
   webhookImplementation,
   billingApiImplementation,
@@ -105,14 +107,14 @@ function createDependencies({
     health: async () => ({ configured: false, healthy: false }),
     getAccess: async () => ({ status: "none" }),
   };
-  const gateway = {
+  const gateway = gatewayImplementation || {
     async verifyPlans(plans) {
       calls.verifyPlans += 1;
       if (!plansVerified) throw new Error("private Price mismatch price_test_private");
       return plans;
     },
   };
-  const store = {
+  const store = storeImplementation || {
     health: async () => storeHealth,
   };
   const dependencies = {
@@ -401,6 +403,224 @@ test("partial config, Price mismatch, and unhealthy storage are false without se
     assert.equal(serialized.includes("sk_test_partial_private"), false, fixture.name);
     assert.equal(serialized.includes("price_test_private"), false, fixture.name);
   }
+});
+
+test("failed startup plan verification blocks entitlement webhooks until an authenticated API retry recovers readiness", async () => {
+  const config = {
+    ...CONFIG,
+    plans: {
+      monthly: {
+        key: "monthly",
+        priceId: "price_test_monthly",
+        currency: "usd",
+        unitAmount: 999,
+        interval: "month",
+        trialDays: 7,
+      },
+      annual: {
+        key: "annual",
+        priceId: "price_test_annual",
+        currency: "usd",
+        unitAmount: 9999,
+        interval: "year",
+        trialDays: 7,
+      },
+    },
+  };
+  let verifyAttempts = 0;
+  let eventId = "evt_blocked_before_verification";
+  const operations = {
+    construct: 0,
+    retrieve: 0,
+    list: 0,
+    cancel: 0,
+    begin: 0,
+    reconcile: 0,
+  };
+  const authoritative = {
+    id: "sub_recovered",
+    customerId: "cus_recovered",
+    created: 1_800_000_000,
+    status: "active",
+    priceId: "price_test_monthly",
+    livemode: false,
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: 1_800_086_400,
+    trialEnd: null,
+  };
+  const gateway = {
+    async verifyPlans(plans) {
+      verifyAttempts += 1;
+      if (verifyAttempts === 1) throw new Error("private Price mismatch");
+      return plans;
+    },
+    constructWebhookEvent(rawBody, signature, secret) {
+      operations.construct += 1;
+      assert.deepEqual(rawBody, Buffer.from("correctly-signed-lifecycle"));
+      assert.equal(signature, "t=123,v1=correct-signature");
+      assert.equal(secret, CONFIG.webhookSecret);
+      return {
+        id: eventId,
+        type: "customer.subscription.updated",
+        created: 1_800_000_100,
+        livemode: false,
+        object: {
+          kind: "subscription",
+          id: authoritative.id,
+          status: "active",
+          customerId: authoritative.customerId,
+          subscriptionId: authoritative.id,
+          priceId: authoritative.priceId,
+          metadata: { firebaseUid: "firebase-uid-123" },
+        },
+      };
+    },
+    async retrieveSubscription() {
+      operations.retrieve += 1;
+      return authoritative;
+    },
+    async listNonTerminalSubscriptions() {
+      operations.list += 1;
+      return [authoritative];
+    },
+    async cancelSubscription() {
+      operations.cancel += 1;
+      throw new Error("no duplicate should be canceled");
+    },
+    async listBlockingSubscriptions() { return []; },
+  };
+  const store = {
+    async health() { return { configured: true, healthy: true }; },
+    async getByCustomerId() {
+      return {
+        uid: "firebase-uid-123",
+        customerId: authoritative.customerId,
+        subscriptionId: null,
+        plan: null,
+        status: "none",
+        trialUsedAt: null,
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false,
+        lastEventCreated: null,
+        lastEventId: null,
+        updatedAt: "2026-08-04T00:00:00.000Z",
+      };
+    },
+    async beginSubscriptionReconciliation() {
+      operations.begin += 1;
+      return { held: false, reason: "not_granting" };
+    },
+    async reconcileSubscriptionSnapshot() {
+      operations.reconcile += 1;
+      return { applied: true, reason: "reconciled" };
+    },
+    async applySubscriptionSnapshot() { throw new Error("not used"); },
+    async recordProcessedEvent() { return { recorded: true, reason: "recorded" }; },
+  };
+  const { dependencies, logger } = createDependencies({
+    config,
+    gatewayImplementation: gateway,
+    storeImplementation: store,
+  });
+  delete dependencies.createBillingApi;
+  delete dependencies.createBillingWebhook;
+  const application = await createEverWiseApplication({
+    env: BILLING_ENV,
+    dependencies,
+    logger,
+  });
+
+  const initialHealth = await invoke(
+    application,
+    request("/healthz", { method: "GET", body: null }),
+  );
+  assert.equal(initialHealth.json().billingPlansVerified, false);
+  const blocked = await invoke(application, request("/api/stripe/webhook", {
+    body: Buffer.from("correctly-signed-lifecycle"),
+    headers: { "stripe-signature": "t=123,v1=correct-signature" },
+  }));
+  assert.equal(blocked.status, 500);
+  assert.equal(blocked.json().error.code, "BILLING_WEBHOOK_FAILED");
+  assert.deepEqual(operations, {
+    construct: 1,
+    retrieve: 0,
+    list: 0,
+    cancel: 0,
+    begin: 0,
+    reconcile: 0,
+  });
+
+  const plans = await invoke(application, request("/api/billing/plans", {
+    headers: { authorization: "Bearer valid-token" },
+  }));
+  assert.equal(plans.status, 200);
+  assert.equal(verifyAttempts, 2);
+  const recoveredHealth = await invoke(
+    application,
+    request("/healthz", { method: "GET", body: null }),
+  );
+  assert.equal(recoveredHealth.json().billingPlansVerified, true);
+
+  eventId = "evt_processed_after_recovery";
+  const processed = await invoke(application, request("/api/stripe/webhook", {
+    body: Buffer.from("correctly-signed-lifecycle"),
+    headers: { "stripe-signature": "t=123,v1=correct-signature" },
+  }));
+  assert.equal(processed.status, 200);
+  assert.equal(operations.retrieve, 1);
+  assert.equal(operations.list, 1);
+  assert.equal(operations.reconcile, 1);
+  assert.equal(operations.cancel, 0);
+});
+
+test("a newer failed verification cannot be overwritten by an older successful attempt", async () => {
+  let verifyAttempt = 0;
+  let resolveOlder;
+  const olderResult = new Promise((resolve) => { resolveOlder = resolve; });
+  const gateway = {
+    async verifyPlans(plans) {
+      verifyAttempt += 1;
+      if (verifyAttempt === 1) return plans;
+      if (verifyAttempt === 2) return olderResult;
+      throw new Error("newer definitive mismatch");
+    },
+  };
+  const { dependencies, logger } = createDependencies({
+    gatewayImplementation: gateway,
+    billingApiImplementation(options) {
+      return {
+        async authorize() { return {}; },
+        async handleVerified({ response: responseValue }) {
+          assert.equal(options.planVerifier.verifyPlans, undefined);
+          const older = options.planVerifier.verify();
+          const newer = options.planVerifier.verify();
+          await Promise.resolve();
+          resolveOlder(CONFIG.plans);
+          await Promise.allSettled([older, newer]);
+          responseValue.writeHead(200, { "Content-Type": "application/json" });
+          responseValue.end(JSON.stringify({ attempted: true }));
+          return true;
+        },
+      };
+    },
+  });
+  const application = await createEverWiseApplication({
+    env: BILLING_ENV,
+    dependencies,
+    logger,
+  });
+
+  const attempt = await invoke(application, request("/api/billing/plans", {
+    headers: { authorization: "Bearer valid-token" },
+  }));
+  assert.equal(attempt.status, 200);
+  assert.equal(verifyAttempt, 3);
+  const health = await invoke(
+    application,
+    request("/healthz", { method: "GET", body: null }),
+  );
+  assert.equal(health.json().billingPlansVerified, false);
 });
 
 test("disabled local billing keeps partner and AI routes while Checkout and Portal fail closed", async () => {

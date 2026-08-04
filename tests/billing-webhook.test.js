@@ -27,6 +27,7 @@ const CONFIG = Object.freeze({
     annual: Object.freeze({ key: "annual", priceId: "price_test_annual" }),
   }),
 });
+const VERIFIED_PLAN_READINESS = Object.freeze({ isVerified: () => true });
 
 function request({
   method = "POST",
@@ -198,6 +199,7 @@ function createHarness(overrides = {}) {
       config: overrides.config || CONFIG,
       store,
       gateway,
+      planReadiness: overrides.planReadiness || VERIFIED_PLAN_READINESS,
       logger,
     }),
     setRecord(value) {
@@ -319,6 +321,7 @@ test("verified irrelevant and duplicate events return 200 so Stripe will not ret
   const irrelevant = createHarness({
     event: event({ id: "evt_irrelevant", type: "charge.succeeded", object: null }),
     recordResult: { recorded: false, reason: "duplicate" },
+    planReadiness: { isVerified: () => false },
   });
   const irrelevantResult = await invoke(irrelevant.webhook);
   assertSafeJson(irrelevantResult.response, 200, true);
@@ -584,6 +587,7 @@ test("an unbound record discovers two subscriptions and stores only the authorit
     config: CONFIG,
     store,
     gateway: reconciliationGateway([later, earlier], normalizedEvent, calls),
+    planReadiness: VERIFIED_PLAN_READINESS,
     logger: { info() {}, warn() {}, error() {} },
   });
 
@@ -629,6 +633,7 @@ test("an older event atomically replaces a cached loser and replay is an exact n
     config: CONFIG,
     store,
     gateway: reconciliationGateway([later, earlier], normalizedEvent, calls),
+    planReadiness: VERIFIED_PLAN_READINESS,
     logger: { info() {}, warn() {}, error() {} },
   });
 
@@ -706,6 +711,7 @@ test("provider, cancellation, and final-store uncertainty leave cached access re
       config: CONFIG,
       store: usedStore,
       gateway,
+      planReadiness: VERIFIED_PLAN_READINESS,
       logger: { info() {}, warn() {}, error() {} },
     });
 

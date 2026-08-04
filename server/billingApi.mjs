@@ -363,6 +363,7 @@ export const createBillingApi = ({
   config,
   store,
   gateway,
+  planVerifier,
   partnerStore,
   verifyIdToken,
   now = () => new Date(),
@@ -371,12 +372,15 @@ export const createBillingApi = ({
     !config ||
     !store ||
     !gateway ||
+    !planVerifier ||
+    typeof planVerifier.verify !== "function" ||
+    typeof planVerifier.isVerified !== "function" ||
     !partnerStore ||
     typeof verifyIdToken !== "function" ||
     typeof now !== "function"
   ) {
     throw new TypeError(
-      "config, store, gateway, partnerStore, verifyIdToken, and now are required",
+      "config, store, gateway, planVerifier, partnerStore, verifyIdToken, and now are required",
     );
   }
   let verifiedPlansPromise = null;
@@ -405,19 +409,26 @@ export const createBillingApi = ({
     if (health?.configured !== true || health.healthy !== true) {
       throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
     }
+    if (planVerifier.isVerified() === true) return;
     if (!verifiedPlansPromise) {
-      verifiedPlansPromise = Promise.resolve().then(() => gateway.verifyPlans(config.plans));
+      verifiedPlansPromise = Promise.resolve().then(() =>
+        planVerifier.verify());
     }
+    const verification = verifiedPlansPromise;
     try {
-      await verifiedPlansPromise;
+      await verification;
+      if (planVerifier.isVerified() !== true) {
+        throw new Error("billing plans remain unverified");
+      }
     } catch {
-      verifiedPlansPromise = null;
+      if (verifiedPlansPromise === verification) verifiedPlansPromise = null;
       throw apiError(
         503,
         "BILLING_NOT_CONFIGURED",
         "Billing is not available right now.",
       );
     }
+    if (verifiedPlansPromise === verification) verifiedPlansPromise = null;
   };
 
   const rejectActiveSponsorship = async (uid) => {
