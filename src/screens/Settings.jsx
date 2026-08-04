@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { statusLabel, trialDaysLeft } from "../utils/subscription";
 import { ArrowLeftIcon } from "../components/Icons";
 import { openLegalPage } from "../config/legalLinks";
 import TextSizeControl from "../components/TextSizeControl";
@@ -14,6 +13,7 @@ function Row({ label, value, onClick, hint, disabled = false }) {
       type={interactive ? "button" : undefined}
       onClick={onClick}
       disabled={interactive ? disabled : undefined}
+      aria-label={interactive ? label : undefined}
       className={`responsive-split flex w-full items-center justify-between gap-4 rounded-2xl bg-cream-card px-5 py-5 text-left shadow-card ${
         interactive
           ? "transition-colors hover:bg-cream-deep active:bg-cream-deep disabled:cursor-not-allowed disabled:opacity-60"
@@ -37,6 +37,160 @@ function Row({ label, value, onClick, hint, disabled = false }) {
       ) : null}
     </Comp>
   );
+}
+
+const WEB_STATUSES = new Set([
+  "active",
+  "canceled",
+  "incomplete",
+  "incomplete_expired",
+  "past_due",
+  "paused",
+  "trialing",
+  "unpaid",
+]);
+
+const unavailableBilling = (busy = false) => ({
+  provider: "unavailable",
+  status: "unavailable",
+  plan: null,
+  trialEndsAt: null,
+  currentPeriodEndsAt: null,
+  cancelAtPeriodEnd: false,
+  canManage: false,
+  busy,
+});
+
+function canonicalDate(value) {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return undefined;
+  const date = new Date(milliseconds);
+  if (date.toISOString() !== value) return undefined;
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(date);
+}
+
+function normalizeBillingViewModel(billing, legacy) {
+  if (billing === undefined) {
+    if (legacy.sponsored) {
+      return {
+        provider: "sponsor",
+        status: "active",
+        partnerName: legacy.partner?.name || "your community partner",
+        busy: false,
+      };
+    }
+    if (legacy.subscriptionStatus === "active") {
+      return {
+        provider: "apple",
+        status: "active",
+        plan: legacy.plan === "monthly" ? "monthly" : "annual",
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canManage: true,
+        busy: false,
+      };
+    }
+    return {
+      provider: "none",
+      status: "none",
+      plan: null,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canManage: false,
+      busy: false,
+    };
+  }
+
+  if (!billing || typeof billing !== "object" || Array.isArray(billing)) {
+    return unavailableBilling();
+  }
+  if (billing.provider === "unavailable" && billing.status === "unavailable") {
+    return unavailableBilling(billing.busy === true);
+  }
+  if (billing.provider === "sponsor" && billing.status === "active") {
+    return {
+      provider: "sponsor",
+      status: "active",
+      partnerName:
+        typeof billing.partnerName === "string" && billing.partnerName.trim()
+          ? billing.partnerName.trim()
+          : "your community partner",
+      busy: billing.busy === true,
+    };
+  }
+  if (billing.provider === "none" && billing.status === "none") {
+    return {
+      provider: "none",
+      status: "none",
+      plan: null,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canManage: false,
+      busy: billing.busy === true,
+    };
+  }
+  if (
+    billing.provider !== "stripe" &&
+    billing.provider !== "apple"
+  ) {
+    return unavailableBilling(billing.busy === true);
+  }
+  if (
+    !WEB_STATUSES.has(billing.status) ||
+    (billing.plan !== "monthly" && billing.plan !== "annual") ||
+    typeof billing.cancelAtPeriodEnd !== "boolean" ||
+    typeof billing.canManage !== "boolean"
+  ) {
+    return unavailableBilling(billing.busy === true);
+  }
+  const trialEndsAt = canonicalDate(billing.trialEndsAt);
+  const currentPeriodEndsAt = canonicalDate(billing.currentPeriodEndsAt);
+  if (
+    trialEndsAt === undefined ||
+    currentPeriodEndsAt === undefined ||
+    (billing.provider === "stripe" &&
+      billing.status === "active" &&
+      currentPeriodEndsAt === null) ||
+    (billing.provider === "stripe" &&
+      billing.status === "trialing" &&
+      trialEndsAt === null)
+  ) {
+    return unavailableBilling(billing.busy === true);
+  }
+  return {
+    provider: billing.provider,
+    status: billing.status,
+    plan: billing.plan,
+    trialEndsAt,
+    currentPeriodEndsAt,
+    cancelAtPeriodEnd: billing.cancelAtPeriodEnd,
+    canManage: billing.canManage,
+    busy: billing.busy === true,
+  };
+}
+
+function billingStatusLabel(status) {
+  const labels = {
+    active: "Active",
+    canceled: "Canceled",
+    incomplete: "Incomplete",
+    incomplete_expired: "Expired",
+    past_due: "Past due",
+    paused: "Paused",
+    trialing: "Trial",
+    unpaid: "Unpaid",
+  };
+  return labels[status] || "Unavailable";
 }
 
 function terminalReleaseMessage(terminal) {
@@ -101,15 +255,16 @@ export function PartnerDeletionReconciliation({ reconciliation = "compensation" 
 }
 
 export default function Settings({
+  billing,
   sponsored = false,
   partner = null,
   subscriptionStatus,
-  trialStartedAt,
   plan,
   onBack,
   onLogOut,
   onOpenPaywall,
   onManageSubscription,
+  onRetryBilling,
   onResetPassword,
   onDeleteAccount,
   textSize,
@@ -118,19 +273,31 @@ export default function Settings({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [billingActionBusy, setBillingActionBusy] = useState(false);
+  const [billingActionError, setBillingActionError] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
 
-  const daysLeft = trialDaysLeft(trialStartedAt);
-  const statusText = statusLabel(subscriptionStatus);
-  const statusDetail =
-    subscriptionStatus === "trial"
-      ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
-      : subscriptionStatus === "active" && plan
-      ? plan === "monthly"
-        ? "Monthly plan"
-        : plan
-      : null;
+  const billingView = normalizeBillingViewModel(billing, {
+    partner,
+    plan,
+    sponsored,
+    subscriptionStatus,
+  });
+  const billingBusy = billingView.busy || billingActionBusy;
+
+  const runBillingAction = async (action) => {
+    if (typeof action !== "function" || billingBusy) return;
+    setBillingActionBusy(true);
+    setBillingActionError("");
+    try {
+      await action();
+    } catch {
+      setBillingActionError("Billing management is temporarily unavailable.");
+    } finally {
+      setBillingActionBusy(false);
+    }
+  };
 
   const resetPassword = async () => {
     setBusy(true);
@@ -200,37 +367,97 @@ export default function Settings({
           </div>
         </section>
 
-        {sponsored ? (
+        {billingView.provider === "sponsor" ? (
           <section className="settings-section settings-subscription mt-8 space-y-3">
             <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
               Access
             </p>
             <div className="rounded-2xl bg-cream-card px-5 py-5 shadow-card">
               <p className="text-xl font-semibold text-ink">
-                Full access provided by {partner?.name || "your community partner"}
+                Full access provided by {billingView.partnerName}
               </p>
               <p className="mt-1 text-lg text-ink-soft">
                 No subscription or payment is required.
               </p>
             </div>
           </section>
+        ) : billingView.provider === "unavailable" ? (
+          <section className="settings-section settings-subscription mt-8 space-y-3">
+            <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Subscription
+            </p>
+            <p
+              className="rounded-2xl bg-alert/10 px-5 py-5 text-lg font-semibold text-alert shadow-card"
+              role="alert"
+            >
+              Billing is temporarily unavailable.
+            </p>
+            <Row
+              label="Retry"
+              hint="Check subscription status again"
+              onClick={() => runBillingAction(onRetryBilling)}
+              disabled={billingBusy}
+            />
+          </section>
+        ) : billingView.provider === "none" ? (
+          <section className="settings-section settings-subscription mt-8 space-y-3">
+            <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
+              Subscription
+            </p>
+            <Row label="Status" value="No subscription" />
+            <Row
+              label="View plans"
+              onClick={onOpenPaywall}
+              hint="Start free trial"
+              disabled={billingBusy}
+            />
+          </section>
         ) : (
           <section className="settings-section settings-subscription mt-8 space-y-3">
             <p className="text-base font-bold uppercase tracking-wide text-ink-faint">
               Subscription
             </p>
-            <Row label="Status" value={statusText} hint={statusDetail} />
-            {subscriptionStatus === "active" ? (
+            <div className="rounded-2xl bg-cream-card px-5 py-5 shadow-card">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <p className="text-xl font-semibold text-ink">Status</p>
+                <p className="text-xl font-semibold text-clay">
+                  {billingStatusLabel(billingView.status)}
+                </p>
+              </div>
+              <p className="mt-2 text-lg font-semibold text-ink">
+                {billingView.plan === "monthly" ? "Monthly plan" : "Annual plan"}
+              </p>
+              {billingView.status === "trialing" ? (
+                <p className="mt-1 text-lg text-ink-soft">
+                  Trial ends {billingView.trialEndsAt}.
+                </p>
+              ) : billingView.cancelAtPeriodEnd ? (
+                <p className="mt-1 text-lg text-ink-soft">
+                  Canceled — access continues through {billingView.currentPeriodEndsAt}.
+                </p>
+              ) : billingView.status === "active" && billingView.currentPeriodEndsAt ? (
+                <p className="mt-1 text-lg text-ink-soft">
+                  Renews {billingView.currentPeriodEndsAt}.
+                </p>
+              ) : null}
+            </div>
+            {billingView.canManage ? (
               <Row
                 label="Manage subscription"
-                onClick={onManageSubscription}
-                hint="Open Apple subscription settings"
+                onClick={() => runBillingAction(onManageSubscription)}
+                disabled={billingBusy}
+                hint={
+                  billingView.provider === "apple"
+                    ? "Manage your subscription in Apple subscription settings."
+                    : "Open the secure billing portal"
+                }
               />
             ) : (
               <Row
-                label="Start free trial"
+                label="View plans"
                 onClick={onOpenPaywall}
-                hint="See your options"
+                hint="Start free trial"
+                disabled={billingBusy}
               />
             )}
           </section>
@@ -345,6 +572,11 @@ export default function Settings({
       {error ? (
         <p className="mt-6 rounded-2xl bg-alert/10 px-5 py-4 text-lg font-semibold text-alert" role="alert">
           {error}
+        </p>
+      ) : null}
+      {billingActionError ? (
+        <p className="mt-6 rounded-2xl bg-alert/10 px-5 py-4 text-lg font-semibold text-alert" role="alert">
+          {billingActionError}
         </p>
       ) : null}
     </div>

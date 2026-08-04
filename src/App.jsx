@@ -944,6 +944,7 @@ function LearnerApp({ initialPartnerFragment }) {
   const [billingPlans, setBillingPlans] = useState([]);
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingRecovery, setBillingRecovery] = useState(null);
+  const [billingRefreshAttempt, setBillingRefreshAttempt] = useState(0);
   const [billingPollAttempt, setBillingPollAttempt] = useState(0);
   const [nativeEntitlement, setNativeEntitlement] = useState({
     uid: null,
@@ -1576,7 +1577,6 @@ function LearnerApp({ initialPartnerFragment }) {
     completedIds: completedLessons,
   };
   const allDone = isCourseComplete(completedLessons, requiredLearningIds);
-  const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
   const nativeSubscriptionStatus =
     user?.uid && nativeEntitlement.uid === user.uid
       ? nativeEntitlement.subscriptionStatus
@@ -1595,6 +1595,80 @@ function LearnerApp({ initialPartnerFragment }) {
     platform,
     developmentBypass: subscriptionBypassEnabled,
   });
+  const ownedBillingAccess =
+    user?.uid && billingOwnerUid === user.uid ? billingAccess : null;
+  const settingsBilling = sponsoredActive
+    ? {
+        provider: "sponsor",
+        status: "active",
+        partnerName: partner?.name || "your community partner",
+        plan: null,
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canManage: false,
+        busy: false,
+        error: null,
+      }
+    : platform === "web"
+      ? ownedBillingStatus === "unavailable" || !ownedBillingAccess
+        ? {
+            provider: "unavailable",
+            status: "unavailable",
+            plan: null,
+            trialEndsAt: null,
+            currentPeriodEndsAt: null,
+            cancelAtPeriodEnd: false,
+            canManage: false,
+            busy: billingBusy,
+            error: "Billing is temporarily unavailable.",
+          }
+        : ownedBillingAccess.status === "none"
+          ? {
+              provider: "none",
+              status: "none",
+              plan: null,
+              trialEndsAt: null,
+              currentPeriodEndsAt: null,
+              cancelAtPeriodEnd: false,
+              canManage: false,
+              busy: billingBusy,
+              error: null,
+            }
+          : {
+              provider: "stripe",
+              status: ownedBillingAccess.status,
+              plan: ownedBillingAccess.plan,
+              trialEndsAt: ownedBillingAccess.trialEndsAt,
+              currentPeriodEndsAt: ownedBillingAccess.currentPeriodEndsAt,
+              cancelAtPeriodEnd: ownedBillingAccess.cancelAtPeriodEnd,
+              canManage: ownedBillingAccess.canManage,
+              busy: billingBusy,
+              error: null,
+            }
+      : nativeSubscriptionStatus === "active"
+        ? {
+            provider: "apple",
+            status: "active",
+            plan: profile?.plan === "monthly" ? "monthly" : "annual",
+            trialEndsAt: null,
+            currentPeriodEndsAt: null,
+            cancelAtPeriodEnd: false,
+            canManage: true,
+            busy: false,
+            error: null,
+          }
+        : {
+            provider: "none",
+            status: "none",
+            plan: null,
+            trialEndsAt: null,
+            currentPeriodEndsAt: null,
+            cancelAtPeriodEnd: false,
+            canManage: false,
+            busy: false,
+            error: null,
+          };
 
   useEffect(() => {
     if (
@@ -1672,7 +1746,7 @@ function LearnerApp({ initialPartnerFragment }) {
     return () => {
       cancelled = true;
     };
-  }, [authChecked, platform, profile, sponsoredActive, user]);
+  }, [authChecked, billingRefreshAttempt, platform, profile, sponsoredActive, user]);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -3975,15 +4049,15 @@ function LearnerApp({ initialPartnerFragment }) {
     case "settings":
       content = (
         <Settings
-          sponsored={sponsoredActive}
-          partner={sponsoredActive ? partner : null}
-          subscriptionStatus={subscriptionStatus}
-          trialStartedAt={profile?.trialStartedAt}
-          plan={profile?.plan ?? null}
+          billing={settingsBilling}
           onBack={accountDeletionBusy ? undefined : goHome}
           onLogOut={logOut}
           onOpenPaywall={goPaywall}
           onManageSubscription={manageBilling}
+          onRetryBilling={() => {
+            setBillingRecovery(null);
+            setBillingRefreshAttempt((attempt) => attempt + 1);
+          }}
           onResetPassword={profile?.email ? resetPassword : undefined}
           onDeleteAccount={deleteAccount}
           textSize={textSize}
@@ -4013,14 +4087,17 @@ function LearnerApp({ initialPartnerFragment }) {
             storeProducts={storeProducts}
             purchasesAvailable={platform === "native"}
             platform={platform}
-            billingAvailable={
-              platform === "web" && billingPlans.length > 0 && !billingBusy
-            }
+            sponsored={sponsoredActive}
+            billingAvailable={platform === "web" && billingPlans.length > 0}
             billingPlans={billingPlans}
             billingStatus={ownedBillingStatus}
             billingAccess={billingAccess}
             billingBusy={billingBusy}
             billingMessage={billingRecovery?.message || ""}
+            onRetry={() => {
+              setBillingRecovery(null);
+              setBillingRefreshAttempt((attempt) => attempt + 1);
+            }}
             onStartLearning={() => {
               clearPendingProtectedNavigation();
               setBillingRecovery(null);
