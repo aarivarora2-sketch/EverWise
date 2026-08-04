@@ -1038,6 +1038,88 @@ test("trial marked used during attach is caught by the final recheck and its URL
   assert.equal((await readFile(filePath, "utf8")).includes("checkout.stripe.com"), false);
 });
 
+test("trial use after reading an attached reservation expires the stale Session and withholds its URL", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "everwise-billing-stale-attached-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const filePath = path.join(root, "billing.json");
+  const store = createBillingStore({ filePath, now: () => new Date(NOW) });
+  await store.bindCustomer({ uid: UID, customerId: "cus_stale_attached" });
+  await store.reservePendingTrialCheckout({
+    uid: UID,
+    plan: "monthly",
+    attemptId: "attempt_stale_attached",
+  });
+  await store.attachPendingTrialCheckout({
+    uid: UID,
+    attemptId: "attempt_stale_attached",
+    sessionId: "cs_stale_attached",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  });
+
+  let injectedSnapshot = false;
+  const interleavedStore = {
+    ...store,
+    getPendingTrialCheckout: async (uid) => {
+      const pending = await store.getPendingTrialCheckout(uid);
+      if (!injectedSnapshot) {
+        injectedSnapshot = true;
+        await store.applySubscriptionSnapshot({
+          uid: UID,
+          customerId: "cus_stale_attached",
+          subscriptionId: "sub_stale_attached",
+          plan: "monthly",
+          status: "trialing",
+          trialEndsAt: "2026-08-06T12:00:00.000Z",
+          currentPeriodEndsAt: "2026-09-03T12:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          eventId: "evt_stale_attached",
+          created: 1,
+        });
+      }
+      return pending;
+    },
+  };
+  const retrieved = [];
+  const expired = [];
+  const { api } = createHarness({
+    store: interleavedStore,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_stale_attached" }),
+      retrieveCheckoutSession: async (sessionId) => {
+        retrieved.push(sessionId);
+        return {
+          id: sessionId,
+          url: "https://checkout.stripe.com/c/pay/must-not-return-stale-attached",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+      expireCheckoutSession: async (sessionId) => {
+        expired.push(sessionId);
+        return { id: sessionId, status: "expired", expiresAt: CHECKOUT_EXPIRES_AT };
+      },
+      createCheckoutSession: async () => {
+        throw new Error("must not create while recovering an attached Session");
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 409);
+  assert.deepEqual(result.response.json(), {
+    error: {
+      code: "CHECKOUT_ELIGIBILITY_CHANGED",
+      message: "Billing eligibility changed. Please try again.",
+    },
+  });
+  assert.deepEqual(retrieved, ["cs_stale_attached"]);
+  assert.deepEqual(expired, ["cs_stale_attached"]);
+  assert.equal(JSON.stringify(result.response.json()).includes("must-not-return"), false);
+  assert.equal((await store.getByUid(UID)).trialUsedAt, NOW.toISOString());
+  assert.equal(await store.getPendingTrialCheckout(UID), null);
+  assert.equal((await readFile(filePath, "utf8")).includes("checkout.stripe.com"), false);
+});
+
 test("trial-used resubscriptions keep fresh no-trial Checkout operations", async () => {
   const attempts = [];
   const state = createPendingStore({

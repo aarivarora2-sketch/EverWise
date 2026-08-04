@@ -566,6 +566,29 @@ export const createBillingApi = ({
         }
         throw checkoutEligibilityChangedError();
       };
+      const requireCurrentTrialReservation = async (pending, session) => {
+        let trialUsed;
+        let currentPendingValue;
+        try {
+          trialUsed = await store.hasUsedTrial(uid);
+          currentPendingValue = await store.getPendingTrialCheckout(uid);
+        } catch {
+          await expireIneligibleTrial(session);
+        }
+        const currentPending = currentPendingValue === null
+          ? null
+          : pendingTrialCheckout(currentPendingValue);
+        if (
+          trialUsed !== false ||
+          !currentPending ||
+          currentPending.attemptId !== pending.attemptId ||
+          currentPending.sessionId !== session.id ||
+          currentPending.plan !== pending.plan ||
+          currentPending.expiresAt !== session.expiresAt
+        ) {
+          await expireIneligibleTrial(session);
+        }
+      };
 
       const existingPendingValue = await store.getPendingTrialCheckout(uid);
       const existingPending = existingPendingValue === null
@@ -616,8 +639,6 @@ export const createBillingApi = ({
             throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
           }
           pending = attached;
-          const trialUsedAfterAttach = await store.hasUsedTrial(uid);
-          if (trialUsedAfterAttach !== false) await expireIneligibleTrial(session);
         } else {
           session = checkoutLifecycle(
             await gateway.retrieveCheckoutSession(pending.sessionId),
@@ -629,6 +650,7 @@ export const createBillingApi = ({
 
         if (session.status === "complete") throw checkoutConfirmingError();
         if (session.status === "open" && pending.plan === planKey) {
+          await requireCurrentTrialReservation(pending, session);
           return { url: hostedUrl(session.url, "checkout.stripe.com") };
         }
         if (session.status === "open") {
