@@ -16,6 +16,9 @@ import {
 import * as partnerOperations from "../src/services/partnerAccess.js";
 
 const PRODUCTION_API_ORIGIN = "https://everwise.dexio-games.com";
+const PRODUCTION_PARTNER_ID = "community-partner";
+const PRODUCTION_PARTNER_NAME = "Community Partner";
+const PRODUCTION_FIREBASE_PROJECT_ID = "games-caf0e";
 const REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REQUIRED_ENVIRONMENT = [
   "EVERWISE_FIREBASE_WEB_API_KEY",
@@ -30,6 +33,7 @@ const FIXED_VALUES = Object.freeze({
   end: "500",
 });
 const VALUE_OPTIONS = new Set([...Object.keys(FIXED_VALUES), "output"]);
+const PROGRESS_STATUSES = new Set(["active", "failed", "pending"]);
 const COMMAND_OPTIONS = new Map([
   ["preflight", new Map([...VALUE_OPTIONS].map((name) => [name, "value"]))],
   [
@@ -63,6 +67,16 @@ const SAFE_ERROR_CODES = new Set([
   "RECENT_AUTH_REQUIRED",
   "UNAUTHENTICATED",
   "UNAVAILABLE",
+]);
+const SAFE_CLI_ERROR_CODES = new Set([
+  "CLI_ARGUMENTS",
+  "DEPENDENCIES",
+  "ENVIRONMENT",
+  "INVALID_PREFLIGHT",
+  "INVALID_PROGRESS",
+  "INVALID_SUMMARY",
+  "OUTPUT_PATH",
+  "PRODUCTION_TARGET",
 ]);
 
 const defaultDependencies = Object.freeze({
@@ -193,21 +207,127 @@ function requireDependencies(dependencies) {
   return dependencies;
 }
 
-function writePreflight(stdout, preflight) {
-  stdout.write("Production preflight passed.\n");
-  stdout.write(`Partner: ${preflight.partnerName} (${preflight.partnerId})\n`);
-  stdout.write(`Firebase project: ${preflight.firebaseProjectId}\n`);
-  stdout.write(
-    `Seats: ${preflight.seats.claimed} claimed, ${preflight.seats.available} available, ${preflight.seats.limit} total\n`,
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    keys.length === sortedExpected.length &&
+    keys.every((key, index) => key === sortedExpected[index])
   );
+}
+
+function snapshotPreflight(value) {
+  let snapshot;
+  try {
+    if (!hasExactKeys(value, ["firebaseProjectId", "partnerId", "partnerName", "seats"])) {
+      fail("INVALID_PREFLIGHT", "Provisioning preflight was invalid.");
+    }
+    const seats = value.seats;
+    if (!hasExactKeys(seats, ["available", "claimed", "limit"])) {
+      fail("INVALID_PREFLIGHT", "Provisioning preflight was invalid.");
+    }
+    snapshot = {
+      partnerId: value.partnerId,
+      partnerName: value.partnerName,
+      firebaseProjectId: value.firebaseProjectId,
+      seats: {
+        claimed: seats.claimed,
+        available: seats.available,
+        limit: seats.limit,
+      },
+    };
+  } catch {
+    fail("INVALID_PREFLIGHT", "Provisioning preflight was invalid.");
+  }
+  if (
+    snapshot.partnerId !== PRODUCTION_PARTNER_ID ||
+    snapshot.partnerName !== PRODUCTION_PARTNER_NAME ||
+    snapshot.firebaseProjectId !== PRODUCTION_FIREBASE_PROJECT_ID ||
+    snapshot.seats.claimed !== 0 ||
+    snapshot.seats.available !== 500 ||
+    snapshot.seats.limit !== 500
+  ) {
+    fail("INVALID_PREFLIGHT", "Provisioning preflight was invalid.");
+  }
+  return Object.freeze({
+    ...snapshot,
+    seats: Object.freeze(snapshot.seats),
+  });
+}
+
+function snapshotProgress(value) {
+  let snapshot;
+  try {
+    if (!hasExactKeys(value, ["accountNumber", "status", "username"])) {
+      fail("INVALID_PROGRESS", "Provisioning progress was invalid.");
+    }
+    snapshot = {
+      accountNumber: value.accountNumber,
+      username: value.username,
+      status: value.status,
+    };
+  } catch {
+    fail("INVALID_PROGRESS", "Provisioning progress was invalid.");
+  }
+  const expectedUsername = Number.isSafeInteger(snapshot.accountNumber)
+    ? `EverWise${String(snapshot.accountNumber).padStart(3, "0")}`
+    : "";
+  if (
+    !Number.isSafeInteger(snapshot.accountNumber) ||
+    snapshot.accountNumber < 1 ||
+    snapshot.accountNumber > 500 ||
+    snapshot.username !== expectedUsername ||
+    !PROGRESS_STATUSES.has(snapshot.status)
+  ) {
+    fail("INVALID_PROGRESS", "Provisioning progress was invalid.");
+  }
+  return snapshot;
+}
+
+function writePreflight(stdout) {
+  stdout.write("Production preflight passed.\n");
+  stdout.write("Partner: Community Partner (community-partner)\n");
+  stdout.write("Firebase project: games-caf0e\n");
+  stdout.write("Seats: 0 claimed, 500 available, 500 total\n");
   stdout.write("No accounts or credential files were created.\n");
 }
 
-function safeExternalError(error) {
-  const code = SAFE_ERROR_CODES.has(error?.code)
-    ? error.code
+function snapshotError(error) {
+  let cliOwned = false;
+  let code;
+  let message;
+  try {
+    cliOwned = error instanceof SponsoredAccountsCliError;
+  } catch {
+    cliOwned = false;
+  }
+  try {
+    code = error?.code;
+  } catch {
+    code = undefined;
+  }
+  try {
+    message = error?.message;
+  } catch {
+    message = undefined;
+  }
+  return { cliOwned, code, message };
+}
+
+function formatSafeError(error) {
+  const snapshot = snapshotError(error);
+  if (
+    snapshot.cliOwned &&
+    SAFE_CLI_ERROR_CODES.has(snapshot.code) &&
+    typeof snapshot.message === "string"
+  ) {
+    return `Error [${snapshot.code}]: ${snapshot.message}\n`;
+  }
+  const code = SAFE_ERROR_CODES.has(snapshot.code)
+    ? snapshot.code
     : "OPERATION_FAILED";
-  const message = typeof error?.message === "string" ? error.message : "";
+  const message = typeof snapshot.message === "string" ? snapshot.message : "";
   const accountMatch = message.match(
     /Sponsored account ([1-9]\d{0,2}) \((EverWise(?:00[1-9]|0[1-9]\d|[1-4]\d{2}|500))\)/,
   );
@@ -217,11 +337,18 @@ function safeExternalError(error) {
 }
 
 function writeSafeError(stderr, error) {
-  if (error instanceof SponsoredAccountsCliError) {
-    stderr.write(`Error [${error.code}]: ${error.message}\n`);
-    return;
+  let output = "Error [OPERATION_FAILED].\n";
+  try {
+    output = formatSafeError(error);
+  } catch {
+    // The fallback is static and intentionally contains no dependency data.
   }
-  stderr.write(safeExternalError(error));
+  try {
+    const write = stderr?.write;
+    if (typeof write === "function") Reflect.apply(write, stderr, [output]);
+  } catch {
+    // A broken error stream must not expose the original thrown value.
+  }
 }
 
 function validSummary(summary) {
@@ -247,15 +374,17 @@ export async function runSponsoredAccountsCli({
     const { apiKey, inviteToken, adminToken } = readEnvironment(env);
     const resolvedDependencies = requireDependencies(dependencies);
     const firebaseClient = resolvedDependencies.createFirebaseIdentityClient({ apiKey });
-    const preflight = await resolvedDependencies.preflightSponsoredProvisioning({
-      apiOrigin: options["api-origin"],
-      inviteToken,
-      adminToken,
-      firebaseClient,
-      partnerOperations: resolvedDependencies.partnerOperations,
-    });
+    const preflight = snapshotPreflight(
+      await resolvedDependencies.preflightSponsoredProvisioning({
+        apiOrigin: options["api-origin"],
+        inviteToken,
+        adminToken,
+        firebaseClient,
+        partnerOperations: resolvedDependencies.partnerOperations,
+      }),
+    );
 
-    writePreflight(stdout, preflight);
+    writePreflight(stdout);
     if (command === "preflight") return 0;
     if (options["confirm-production"] !== true) {
       stdout.write(
@@ -293,8 +422,10 @@ export async function runSponsoredAccountsCli({
           repositoryRoot: REPOSITORY_ROOT,
           rows: nextRows,
         }),
-      onProgress: ({ accountNumber, username, status }) =>
-        stdout.write(`Account ${accountNumber}/500 ${username}: ${status}\n`),
+      onProgress: (progress) => {
+        const { accountNumber, username, status } = snapshotProgress(progress);
+        return stdout.write(`Account ${accountNumber}/500 ${username}: ${status}\n`);
+      },
       backoff: resolvedDependencies.backoff,
     });
     if (!validSummary(summary)) {

@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { runSponsoredAccountsCli } from "../scripts/provision-sponsored-accounts.mjs";
 
 const API_ORIGIN = "https://everwise.dexio-games.com";
 const OUTPUT = join(tmpdir(), "everwise-sponsored-accounts.csv");
+const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const CLI_PATH = join(REPOSITORY_ROOT, "scripts", "provision-sponsored-accounts.mjs");
 const ENV = Object.freeze({
   EVERWISE_FIREBASE_WEB_API_KEY: "firebase-api-secret",
   EVERWISE_PARTNER_INVITE_TOKEN: "partner-invite-secret",
@@ -122,10 +126,10 @@ test("rejects malformed or non-production arguments before constructing dependen
     [...validArgs("preflight"), "--unknown", "value"],
     [...validArgs("preflight"), "--count", "500"],
     validArgs("preflight").map((value) => value === "--count" ? "--count=500" : value),
-    validArgs("preflight").filter((value) => value !== "500"),
+    validArgs("preflight").slice(0, -1),
     validArgs("preflight", { output: "relative.csv" }),
     validArgs("preflight").map((value) => value === API_ORIGIN ? "http://everwise.dexio-games.com" : value),
-    validArgs("preflight").map((value) => value === "500" ? "499" : value),
+    validArgs("preflight").map((value, index) => index === 4 ? "499" : value),
     validArgs("preflight").map((value) => value === "EverWise" ? "everwise" : value),
     validArgs("preflight").map((value) => value === "1" ? "0" : value),
     validArgs("preflight").map((value, index) => index === 10 ? "499" : value),
@@ -233,7 +237,7 @@ test("confirmed create saves a pending roster before provisioning and persists u
   assert.equal(createOptions.rows, fixture.rows);
   assert.equal(provisionOptions.rows, fixture.rows);
   assert.equal(provisionOptions.apiOrigin, API_ORIGIN);
-  assert.equal(provisionOptions.preflight, PREFLIGHT);
+  assert.deepEqual(provisionOptions.preflight, PREFLIGHT);
   assert.equal(provisionOptions.inviteToken, ENV.EVERWISE_PARTNER_INVITE_TOKEN);
   assert.equal(provisionOptions.firebaseClient, fixture.firebaseClient);
   assert.equal(provisionOptions.partnerOperations, fixture.partnerOperations);
@@ -251,7 +255,16 @@ test("confirmed create saves a pending roster before provisioning and persists u
 });
 
 test("confirmed resume reads the validated roster without regenerating passwords", async () => {
-  const fixture = makeFixture();
+  const fixture = makeFixture({
+    async provisionSponsoredRoster(options) {
+      fixture.calls.push(["provisionSponsoredRoster", options]);
+      const changedRows = options.rows.map((row, index) =>
+        index === 0 ? { ...row, status: "active" } : row,
+      );
+      await options.persistRows(changedRows);
+      return { active: 500, pending: 0, failed: 0 };
+    },
+  });
   const originalPasswords = fixture.rows.map(({ password }) => password);
 
   assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 0);
@@ -261,13 +274,24 @@ test("confirmed resume reads the validated roster without regenerating passwords
     "preflightSponsoredProvisioning",
     "readRosterFile",
     "provisionSponsoredRoster",
+    "writeRosterFile",
   ]);
   const readOptions = fixture.calls[2][1];
   const provisionOptions = fixture.calls[3][1];
+  const writeOptions = fixture.calls[4][1];
   assert.equal(readOptions.filePath, OUTPUT);
   assert.equal(typeof readOptions.repositoryRoot, "string");
   assert.equal(provisionOptions.rows, fixture.rows);
   assert.deepEqual(provisionOptions.rows.map(({ password }) => password), originalPasswords);
+  assert.deepEqual(writeOptions, {
+    filePath: OUTPUT,
+    repositoryRoot: readOptions.repositoryRoot,
+    rows: [
+      { ...fixture.rows[0], status: "active" },
+      ...fixture.rows.slice(1),
+    ],
+  });
+  assert.deepEqual(writeOptions.rows.map(({ password }) => password), originalPasswords);
   assert.equal(
     fixture.stdoutText,
     `${PREFLIGHT_OUTPUT}Provisioning complete: 500 active, 0 pending, 0 failed.\n` +
@@ -294,5 +318,174 @@ test("dependency failures expose only a safe code and safe account context", asy
   for (const secret of Object.values(ENV)) {
     assert.equal(fixture.stderrText.includes(secret), false);
     assert.equal(fixture.stdoutText.includes(secret), false);
+  }
+});
+
+test("stateful dependency error getters are snapshotted once and cannot reveal secrets", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  let codeReads = 0;
+  let messageReads = 0;
+  const fixture = makeFixture({
+    async provisionSponsoredRoster() {
+      throw {
+        get code() {
+          codeReads += 1;
+          return codeReads === 1
+            ? "UNAVAILABLE"
+            : `${ENV.EVERWISE_FIREBASE_WEB_API_KEY}-${password}`;
+        },
+        get message() {
+          messageReads += 1;
+          return messageReads === 1
+            ? `Sponsored account 7 (EverWise007) ${ENV.EVERWISE_PARTNER_INVITE_TOKEN} ${ENV.EVERWISE_PARTNER_ADMIN_TOKEN} ${idToken}`
+            : `${password} ${idToken}`;
+        },
+      };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+
+  assert.equal(codeReads, 1);
+  assert.equal(messageReads, 1);
+  assert.equal(fixture.stderrText, "Error [UNAVAILABLE] account 7 (EverWise007).\n");
+  for (const secret of [...Object.values(ENV), password, idToken]) {
+    assert.equal(`${fixture.stdoutText}${fixture.stderrText}`.includes(secret), false);
+  }
+});
+
+test("throwing dependency error getters and a throwing error stream cannot escape", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  const fixture = makeFixture({
+    async provisionSponsoredRoster() {
+      throw {
+        get code() {
+          throw new Error(`${ENV.EVERWISE_FIREBASE_WEB_API_KEY} ${password}`);
+        },
+        get message() {
+          throw new Error(
+            `${ENV.EVERWISE_PARTNER_INVITE_TOKEN} ${ENV.EVERWISE_PARTNER_ADMIN_TOKEN} ${idToken}`,
+          );
+        },
+      };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.equal(fixture.stderrText, "Error [OPERATION_FAILED].\n");
+
+  const streamFailure = `${Object.values(ENV).join(" ")} ${password} ${idToken}`;
+  const result = await runSponsoredAccountsCli({
+    argv: [],
+    env: ENV,
+    dependencies: fixture.dependencies,
+    stdout: fixture.stdout,
+    stderr: {
+      write() {
+        throw new Error(streamFailure);
+      },
+    },
+  });
+  assert.equal(result, 1);
+});
+
+test("hostile progress payloads fail without writing dependency-controlled fields", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  const leakedUsername = `${ENV.EVERWISE_FIREBASE_WEB_API_KEY}-${password}`;
+  const fixture = makeFixture({
+    async provisionSponsoredRoster(options) {
+      await options.onProgress({
+        accountNumber: 1,
+        get username() {
+          return leakedUsername;
+        },
+        status: `${ENV.EVERWISE_PARTNER_INVITE_TOKEN}-${ENV.EVERWISE_PARTNER_ADMIN_TOKEN}-${idToken}`,
+      });
+      return { active: 500, pending: 0, failed: 0 };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.equal(fixture.stderrText, "Error [INVALID_PROGRESS]: Provisioning progress was invalid.\n");
+  for (const secret of [...Object.values(ENV), password, idToken]) {
+    assert.equal(`${fixture.stdoutText}${fixture.stderrText}`.includes(secret), false);
+  }
+});
+
+test("progress rejects a non-integer account even when its empty username would otherwise match", async () => {
+  const fixture = makeFixture({
+    async provisionSponsoredRoster(options) {
+      await options.onProgress({
+        accountNumber: 1.5,
+        username: "",
+        status: "active",
+      });
+      return { active: 500, pending: 0, failed: 0 };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.equal(fixture.stderrText, "Error [INVALID_PROGRESS]: Provisioning progress was invalid.\n");
+  assert.equal(fixture.stdoutText.includes("Account 1.5"), false);
+});
+
+test("hostile preflight getters fail before any dynamic target output", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  const fixture = makeFixture({
+    async preflightSponsoredProvisioning() {
+      return {
+        partnerId: "community-partner",
+        get partnerName() {
+          return `${ENV.EVERWISE_FIREBASE_WEB_API_KEY} ${password}`;
+        },
+        get firebaseProjectId() {
+          return `${ENV.EVERWISE_PARTNER_INVITE_TOKEN} ${idToken}`;
+        },
+        get seats() {
+          throw new Error(ENV.EVERWISE_PARTNER_ADMIN_TOKEN);
+        },
+      };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("preflight")), 1);
+  assert.equal(fixture.stdoutText, "");
+  assert.equal(fixture.stderrText, "Error [INVALID_PREFLIGHT]: Provisioning preflight was invalid.\n");
+  for (const secret of [...Object.values(ENV), password, idToken]) {
+    assert.equal(`${fixture.stdoutText}${fixture.stderrText}`.includes(secret), false);
+  }
+});
+
+test("process import is inert and invalid direct execution exits safely without network", () => {
+  const imported = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `await import(${JSON.stringify(new URL("../scripts/provision-sponsored-accounts.mjs", import.meta.url).href)}); process.stdout.write("imported\\n");`,
+    ],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.equal(imported.stdout, "imported\n");
+  assert.equal(imported.stderr, "");
+
+  const direct = spawnSync(process.execPath, [CLI_PATH, "not-a-command"], {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8",
+    env: { ...process.env, ...ENV },
+  });
+  assert.equal(direct.status, 1);
+  assert.equal(direct.stdout, "");
+  assert.equal(
+    direct.stderr,
+    "Error [CLI_ARGUMENTS]: A supported provisioning command is required.\n",
+  );
+  for (const secret of Object.values(ENV)) {
+    assert.equal(direct.stderr.includes(secret), false);
   }
 });
