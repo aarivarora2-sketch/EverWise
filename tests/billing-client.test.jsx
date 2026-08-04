@@ -656,6 +656,61 @@ describe("Checkout return confirmation", () => {
     expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
   });
 
+  test.each([
+    ["non-finite", Number.NaN],
+    ["regressing", 999],
+  ])(
+    "permanently invalidates the poll after one %s provider-await clock sample",
+    async (_label, invalidSample) => {
+      let phase = "baseline";
+      vi.spyOn(performance, "now").mockImplementation(() => {
+        if (phase === "invalid-next") {
+          phase = "recovered";
+          return invalidSample;
+        }
+        return phase === "recovered" ? 1_001 : 1_000;
+      });
+      window.history.replaceState(null, "", "/?billing=success");
+      window.sessionStorage.setItem(
+        BILLING_RETURN_INTENT_KEY,
+        serializedBillingIntent({ uid: `invalid-clock-${_label}` }),
+      );
+      const access = deferred();
+      mocks.fetchBillingAccess
+        .mockResolvedValueOnce(NONE)
+        .mockImplementationOnce(() => access.promise)
+        .mockResolvedValue(ACTIVE);
+      render(<App />);
+      await settleLaunch();
+      await act(async () =>
+        mocks.authCallback(firebaseUser(`invalid-clock-${_label}`)),
+      );
+      expect(screen.getByText(/Checking your access/i)).toBeVisible();
+
+      phase = "invalid-next";
+      await act(async () => {
+        access.resolve(NONE);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(phase).toBe("recovered");
+      expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+      expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+      const callsAfterInvalidation = mocks.fetchBillingAccess.mock.calls.length;
+      await act(async () => vi.advanceTimersByTimeAsync(19_000));
+      expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(callsAfterInvalidation);
+      expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Back to free lessons" }));
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "View plans" }));
+      expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+    },
+  );
+
   test("a cancel marker returns to the paywall with a neutral message", async () => {
     window.history.replaceState(null, "", "/?billing=cancel");
     mocks.fetchBillingAccess.mockResolvedValue(NONE);

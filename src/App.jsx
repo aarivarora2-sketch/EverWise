@@ -2629,6 +2629,7 @@ function LearnerApp({ initialPartnerFragment }) {
       ? startedAt + BILLING_CONFIRMATION_DEADLINE_MS
       : null;
     let lastObservedAt = startedAt;
+    let monotonicInvalid = !Number.isFinite(startedAt);
     let cancelled = false;
     let timedOut = false;
     let deadlineTimerId = null;
@@ -2640,12 +2641,14 @@ function LearnerApp({ initialPartnerFragment }) {
       generation === authGenerationRef.current &&
       currentAuthUidRef.current === uid;
     const readMonotonicNow = () => {
+      if (monotonicInvalid) return null;
       const value = monotonicNow?.() ?? null;
       if (
         !Number.isFinite(value) ||
         !Number.isFinite(lastObservedAt) ||
         value < lastObservedAt
       ) {
+        monotonicInvalid = true;
         return null;
       }
       lastObservedAt = value;
