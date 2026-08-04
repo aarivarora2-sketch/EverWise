@@ -573,6 +573,89 @@ describe("Checkout return confirmation", () => {
     expect(screen.queryByRole("heading", { name: /^(Lesson|Challenge|Exam):/ })).not.toBeInTheDocument();
   });
 
+  test("fails closed when an access microtask wins after a stalled event loop has crossed the deadline", async () => {
+    let monotonicNow = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+    window.history.replaceState(null, "", "/?billing=success");
+    window.sessionStorage.setItem(
+      BILLING_RETURN_INTENT_KEY,
+      serializedBillingIntent({ uid: "stalled-return-user" }),
+    );
+    const stalledAccess = deferred();
+    mocks.fetchBillingAccess
+      .mockResolvedValueOnce(NONE)
+      .mockImplementationOnce(() => stalledAccess.promise)
+      .mockResolvedValue(NONE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("stalled-return-user")));
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
+
+    monotonicNow = 21_001;
+    await act(async () => {
+      stalledAccess.resolve(ACTIVE);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to free lessons" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "View plans" }));
+    expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+  });
+
+  test("accepts authoritative access strictly before the monotonic deadline", async () => {
+    let monotonicNow = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+    window.history.replaceState(null, "", "/?billing=success");
+    const access = deferred();
+    mocks.fetchBillingAccess
+      .mockResolvedValueOnce(NONE)
+      .mockImplementationOnce(() => access.promise);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("before-deadline-user")));
+
+    monotonicNow = 29_999;
+    await act(async () => {
+      access.resolve(ACTIVE);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("heading", { name: "Home" })).toBeVisible();
+    expect(screen.queryByText(/still could not confirm/i)).not.toBeInTheDocument();
+  });
+
+  test("rejects authoritative access exactly at the monotonic deadline", async () => {
+    let monotonicNow = 50_000;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+    window.history.replaceState(null, "", "/?billing=success");
+    const access = deferred();
+    mocks.fetchBillingAccess
+      .mockResolvedValueOnce(NONE)
+      .mockImplementationOnce(() => access.promise);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("deadline-boundary-user")));
+
+    monotonicNow = 70_000;
+    await act(async () => {
+      access.resolve(ACTIVE);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+  });
+
   test("a cancel marker returns to the paywall with a neutral message", async () => {
     window.history.replaceState(null, "", "/?billing=cancel");
     mocks.fetchBillingAccess.mockResolvedValue(NONE);

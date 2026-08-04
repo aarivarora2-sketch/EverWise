@@ -165,6 +165,24 @@ function encodedByteLength(value) {
   }
 }
 
+function captureMonotonicNow() {
+  try {
+    const owner = globalThis.performance;
+    const method = owner?.now;
+    if (typeof method !== "function") return null;
+    return () => {
+      try {
+        const value = Reflect.apply(method, owner, []);
+        return Number.isFinite(value) ? value : null;
+      } catch {
+        return null;
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+
 function getSavedTextSize() {
   try {
     const saved = window.localStorage.getItem(TEXT_SIZE_STORAGE_KEY);
@@ -2397,16 +2415,30 @@ function LearnerApp({ initialPartnerFragment }) {
     }
   };
 
-  const refreshAuthoritativePartnerAccess = async ({ routeCurrent = true } = {}) => {
+  const refreshAuthoritativePartnerAccess = async ({
+    routeCurrent = true,
+    acceptResult = null,
+  } = {}) => {
     const refreshUser = user;
     if (!refreshUser?.uid) return null;
     const generation = authGenerationRef.current;
     const refreshId = partnerAccessRefreshIdRef.current + 1;
     partnerAccessRefreshIdRef.current = refreshId;
-    const isCurrent = () =>
-      refreshId === partnerAccessRefreshIdRef.current &&
-      generation === authGenerationRef.current &&
-      currentAuthUidRef.current === refreshUser.uid;
+    const isCurrent = () => {
+      if (
+        refreshId !== partnerAccessRefreshIdRef.current ||
+        generation !== authGenerationRef.current ||
+        currentAuthUidRef.current !== refreshUser.uid
+      ) {
+        return false;
+      }
+      if (acceptResult === null) return true;
+      try {
+        return acceptResult() === true;
+      } catch {
+        return false;
+      }
+    };
     let authoritativeAccess;
     try {
       authoritativeAccess = await fetchAuthoritativePartnerAccess(refreshUser);
@@ -2441,6 +2473,7 @@ function LearnerApp({ initialPartnerFragment }) {
     const billingWasPreviouslyFull = billingHadFullAccessRef.current;
 
     if (authoritativeAccess.status === "active") {
+      if (!isCurrent()) return null;
       setPartnerOwnerUid(refreshUser.uid);
       setPartner(
         authoritativeAccess.branding || { name: authoritativeAccess.name },
@@ -2448,6 +2481,7 @@ function LearnerApp({ initialPartnerFragment }) {
       setPartnerStatus("active");
       updatePartnerRecovery(null);
     } else if (authoritativeAccess.status === "suspended") {
+      if (!isCurrent()) return null;
       setPartnerOwnerUid(refreshUser.uid);
       setPartner(
         authoritativeAccess.branding || { name: authoritativeAccess.name },
@@ -2455,9 +2489,11 @@ function LearnerApp({ initialPartnerFragment }) {
       setPartnerStatus("suspended");
       updatePartnerRecovery(null);
     } else {
+      if (!isCurrent()) return null;
       clearAuthoritativePartner();
       updatePartnerRecovery(null);
       if (platform === "web") {
+        if (!isCurrent()) return null;
         setBillingBusy(true);
         try {
           nextBillingAccess = await fetchBillingAccess(refreshUser);
@@ -2473,6 +2509,7 @@ function LearnerApp({ initialPartnerFragment }) {
         } catch {
           if (!isCurrent()) return null;
           billingUnavailable = true;
+          if (!isCurrent()) return null;
           setBillingOwnerUid(refreshUser.uid);
           setBillingAccess(null);
           setBillingStatus("unavailable");
@@ -2499,6 +2536,7 @@ function LearnerApp({ initialPartnerFragment }) {
       completedIds: currentProtectedContent.completedIds,
       fullAccess: currentAccess,
     });
+    if (!isCurrent()) return null;
     if (routeCurrent && exitProtectedContent) {
       if (authoritativeAccess.status === "suspended") {
         setScreen("partner-error");
@@ -2585,23 +2623,44 @@ function LearnerApp({ initialPartnerFragment }) {
     const pollId = billingPollIdRef.current + 1;
     billingPollIdRef.current = pollId;
     billingReturnOwnerUidRef.current = uid;
-    const deadlineAt = performance.now() + BILLING_CONFIRMATION_DEADLINE_MS;
+    const monotonicNow = captureMonotonicNow();
+    const startedAt = monotonicNow?.() ?? null;
+    const deadlineAt = Number.isFinite(startedAt)
+      ? startedAt + BILLING_CONFIRMATION_DEADLINE_MS
+      : null;
+    let lastObservedAt = startedAt;
     let cancelled = false;
     let timedOut = false;
     let deadlineTimerId = null;
     const delayTimerIds = new Set();
-    const current = () =>
+    const pollIdentityCurrent = () =>
       !cancelled &&
       !timedOut &&
       pollId === billingPollIdRef.current &&
       generation === authGenerationRef.current &&
       currentAuthUidRef.current === uid;
+    const readMonotonicNow = () => {
+      const value = monotonicNow?.() ?? null;
+      if (
+        !Number.isFinite(value) ||
+        !Number.isFinite(lastObservedAt) ||
+        value < lastObservedAt
+      ) {
+        return null;
+      }
+      lastObservedAt = value;
+      return value;
+    };
+    const pollAcceptsResult = () => {
+      if (!pollIdentityCurrent() || !Number.isFinite(deadlineAt)) return false;
+      const value = readMonotonicNow();
+      return value !== null && value < deadlineAt;
+    };
     const deadlineReached = Symbol("billing-confirmation-deadline");
     const deadlinePromise = new Promise((resolve) => {
-      const remaining = Math.max(0, deadlineAt - performance.now());
       deadlineTimerId = window.setTimeout(
         () => resolve(deadlineReached),
-        remaining,
+        Number.isFinite(deadlineAt) ? BILLING_CONFIRMATION_DEADLINE_MS : 0,
       );
     });
     const raceDeadline = (promise) =>
@@ -2634,7 +2693,8 @@ function LearnerApp({ initialPartnerFragment }) {
       delayTimerIds.clear();
     };
     const transitionToTimeout = (latestAccess) => {
-      if (!current()) return;
+      if (!pollIdentityCurrent()) return;
+      billingPollIdRef.current += 1;
       timedOut = true;
       clearPollTimers();
       partnerAccessRefreshIdRef.current += 1;
@@ -2646,7 +2706,11 @@ function LearnerApp({ initialPartnerFragment }) {
         canManage: latestAccess?.canManage === true,
       });
     };
-    const openPendingOrHome = () => {
+    const openPendingOrHome = (latestAccess) => {
+      if (!pollAcceptsResult()) {
+        transitionToTimeout(latestAccess);
+        return false;
+      }
       let pending = pendingProtectedNavigationRef.current;
       if (!pending) {
         const storedIntent = readBillingReturnIntent(uid);
@@ -2657,13 +2721,13 @@ function LearnerApp({ initialPartnerFragment }) {
         if (pending.uid !== uid || pending.generation !== generation) {
           clearPendingProtectedNavigation();
           setScreen("home");
-          return;
+          return true;
         }
       }
       if (!pending) {
         clearStoredBillingReturnIntent();
         setScreen("home");
-        return;
+        return true;
       }
       clearPendingProtectedNavigation();
       if (pending.screen === "lesson") {
@@ -2678,6 +2742,7 @@ function LearnerApp({ initialPartnerFragment }) {
         setActiveExam(pending.item);
       }
       setScreen(pending.screen);
+      return true;
     };
 
     setBillingRecovery({ kind: "confirmation", phase: "checking" });
@@ -2685,36 +2750,43 @@ function LearnerApp({ initialPartnerFragment }) {
     void (async () => {
       let latestAccess = null;
       for (const delay of BILLING_CONFIRMATION_DELAYS_MS) {
-        if (performance.now() >= deadlineAt) {
+        if (!pollAcceptsResult()) {
           transitionToTimeout(latestAccess);
           return;
         }
         if (delay > 0) {
           const delayed = await wait(delay);
-          if (delayed === deadlineReached) {
+          if (delayed === deadlineReached || !pollAcceptsResult()) {
             transitionToTimeout(latestAccess);
             return;
           }
         }
-        if (!current()) return;
-        const outcome = await raceDeadline(
-          refreshAuthoritativePartnerAccessRef.current?.({
-            routeCurrent: false,
-          }),
-        );
-        if (outcome === deadlineReached) {
+        if (!pollAcceptsResult()) {
           transitionToTimeout(latestAccess);
           return;
         }
-        if (!current()) return;
+        const outcome = await raceDeadline(
+          refreshAuthoritativePartnerAccessRef.current?.({
+            routeCurrent: false,
+            acceptResult: pollAcceptsResult,
+          }),
+        );
+        if (outcome === deadlineReached || !pollAcceptsResult()) {
+          transitionToTimeout(latestAccess);
+          return;
+        }
         const refreshed = outcome.settled ? outcome.value : null;
         latestAccess = refreshed?.billingAccess || latestAccess;
         if (refreshed?.fullAccess) {
+          if (!pollAcceptsResult()) {
+            transitionToTimeout(latestAccess);
+            return;
+          }
+          if (!openPendingOrHome(latestAccess)) return;
           clearPollTimers();
           setBillingRecovery(null);
           setBillingReturn(null);
           billingReturnOwnerUidRef.current = null;
-          openPendingOrHome();
           return;
         }
       }
