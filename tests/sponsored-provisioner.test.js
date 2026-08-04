@@ -74,11 +74,16 @@ function codedError(code, { status = null, message = code } = {}) {
 }
 
 function provisioningOptions(overrides = {}) {
+  const rows = overrides.rows ?? makeRoster();
+  const active = rows.filter(({ status }) => status === "active").length;
   return {
-    rows: makeRoster(),
+    rows,
     apiOrigin: API_ORIGIN,
     inviteToken: INVITE_TOKEN,
-    preflight: PREFLIGHT,
+    preflight: {
+      ...PREFLIGHT,
+      seats: { claimed: active, available: 500 - active, limit: 500 },
+    },
     firebaseClient: {},
     partnerOperations: {},
     persistRows: async () => {},
@@ -212,6 +217,101 @@ test("preflight verifies the production partner, empty 500-seat pilot, and Fireb
   assert.equal(reportCall.options.apiEndpointImpl("/api/partner/admin/report"), `${API_ORIGIN}/api/partner/admin/report`);
   assert.equal(previewCall.options.apiEndpointImpl("/api/partner/preview").includes(INVITE_TOKEN), false);
   assert.equal(reportCall.options.apiEndpointImpl("/api/partner/admin/report").includes(ADMIN_TOKEN), false);
+});
+
+test("resume preflight accepts only seat counts consistent with the validated roster", async () => {
+  const resumeSummary = { total: 500, active: 237, pending: 263 };
+
+  for (const claimed of [237, 238]) {
+    const dependencies = preflightDependencies({
+      report: {
+        ...REPORT,
+        seats: { claimed, available: 500 - claimed, limit: 500 },
+      },
+    });
+
+    assert.deepEqual(
+      await preflightSponsoredProvisioning({
+        apiOrigin: API_ORIGIN,
+        inviteToken: INVITE_TOKEN,
+        adminToken: ADMIN_TOKEN,
+        firebaseClient: dependencies.firebaseClient,
+        partnerOperations: dependencies.partnerOperations,
+        resumeSummary,
+      }),
+      {
+        partnerId: "community-partner",
+        partnerName: "Community Partner",
+        firebaseProjectId: "games-caf0e",
+        seats: { claimed, available: 500 - claimed, limit: 500 },
+      },
+    );
+  }
+
+  for (const claimed of [236, 239]) {
+    const dependencies = preflightDependencies({
+      report: {
+        ...REPORT,
+        seats: { claimed, available: 500 - claimed, limit: 500 },
+      },
+    });
+    await assert.rejects(
+      preflightSponsoredProvisioning({
+        apiOrigin: API_ORIGIN,
+        inviteToken: INVITE_TOKEN,
+        adminToken: ADMIN_TOKEN,
+        firebaseClient: dependencies.firebaseClient,
+        partnerOperations: dependencies.partnerOperations,
+        resumeSummary,
+      }),
+      /resume roster/i,
+    );
+  }
+});
+
+test("resume preflight permits a fully occupied matching roster and rejects contradictory availability", async () => {
+  const resumeSummary = { total: 500, active: 500, pending: 0 };
+  const fullReport = {
+    ...REPORT,
+    seats: { claimed: 500, available: 0, limit: 500 },
+  };
+  const dependencies = preflightDependencies({
+    preview: { ...PREVIEW, seatAvailable: false },
+    report: fullReport,
+  });
+
+  assert.deepEqual(
+    await preflightSponsoredProvisioning({
+      apiOrigin: API_ORIGIN,
+      inviteToken: INVITE_TOKEN,
+      adminToken: ADMIN_TOKEN,
+      firebaseClient: dependencies.firebaseClient,
+      partnerOperations: dependencies.partnerOperations,
+      resumeSummary,
+    }),
+    {
+      partnerId: "community-partner",
+      partnerName: "Community Partner",
+      firebaseProjectId: "games-caf0e",
+      seats: { claimed: 500, available: 0, limit: 500 },
+    },
+  );
+
+  const contradictory = preflightDependencies({
+    preview: { ...PREVIEW, seatAvailable: true },
+    report: fullReport,
+  });
+  await assert.rejects(
+    preflightSponsoredProvisioning({
+      apiOrigin: API_ORIGIN,
+      inviteToken: INVITE_TOKEN,
+      adminToken: ADMIN_TOKEN,
+      firebaseClient: contradictory.firebaseClient,
+      partnerOperations: contradictory.partnerOperations,
+      resumeSummary,
+    }),
+    /not eligible/i,
+  );
 });
 
 test("preflight rejects insecure production origins before calling dependencies", async () => {
@@ -426,6 +526,40 @@ test("active roster rows sign in and verify authoritative access without account
 
   assert.deepEqual(calls, { signIn: 500, access: 500, create: 0, claim: 0, persist: 0 });
   assert.deepEqual(result, { active: 500, pending: 0, failed: 0 });
+});
+
+test("resume orchestration accepts only the matching saved seat state before authentication", async () => {
+  const rows = makeRoster();
+  const oneAhead = pendingScenario({
+    rows,
+    existing: true,
+    accessImpl: async () => ACTIVE_ACCESS,
+  });
+  oneAhead.options.preflight = {
+    ...PREFLIGHT,
+    seats: { claimed: 500, available: 0, limit: 500 },
+  };
+
+  assert.deepEqual(await provisionSponsoredRoster(oneAhead.options), {
+    active: 500,
+    pending: 0,
+    failed: 0,
+  });
+  assert.equal(oneAhead.calls.claim, 0);
+  assert.equal(oneAhead.calls.persist, 1);
+
+  const mismatched = pendingScenario({ rows });
+  mismatched.options.preflight = {
+    ...PREFLIGHT,
+    seats: { claimed: 497, available: 3, limit: 500 },
+  };
+  await assert.rejects(
+    provisionSponsoredRoster(mismatched.options),
+    /configuration is invalid/i,
+  );
+  assert.equal(mismatched.calls.signIn, 0);
+  assert.equal(mismatched.calls.create, 0);
+  assert.equal(mismatched.calls.claim, 0);
 });
 
 test("an ambiguous claim that later verifies active persists the row without deleting the account", async () => {

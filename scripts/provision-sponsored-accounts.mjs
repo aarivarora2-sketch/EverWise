@@ -7,6 +7,7 @@ import {
   buildSponsoredRoster,
   createRosterFile,
   readRosterFile,
+  summarizeRoster,
   writeRosterFile,
 } from "./sponsoredRoster.mjs";
 import {
@@ -217,7 +218,34 @@ function hasExactKeys(value, expected) {
   );
 }
 
-function snapshotPreflight(value) {
+function validResumeSummary(summary) {
+  return Boolean(
+    hasExactKeys(summary, ["active", "pending", "total"]) &&
+      summary.total === 500 &&
+      Number.isSafeInteger(summary.active) &&
+      summary.active >= 0 &&
+      Number.isSafeInteger(summary.pending) &&
+      summary.pending >= 0 &&
+      summary.active + summary.pending === summary.total
+  );
+}
+
+function seatsMatchRoster(seats, resumeSummary) {
+  if (seats.limit !== 500) return false;
+  if (resumeSummary === undefined) {
+    return seats.claimed === 0 && seats.available === 500;
+  }
+  if (!validResumeSummary(resumeSummary)) return false;
+  const maximumClaimed =
+    resumeSummary.active + (resumeSummary.pending > 0 ? 1 : 0);
+  return (
+    seats.claimed >= resumeSummary.active &&
+    seats.claimed <= maximumClaimed &&
+    seats.available === 500 - seats.claimed
+  );
+}
+
+function snapshotPreflight(value, resumeSummary) {
   let snapshot;
   try {
     if (!hasExactKeys(value, ["firebaseProjectId", "partnerId", "partnerName", "seats"])) {
@@ -244,9 +272,10 @@ function snapshotPreflight(value) {
     snapshot.partnerId !== PRODUCTION_PARTNER_ID ||
     snapshot.partnerName !== PRODUCTION_PARTNER_NAME ||
     snapshot.firebaseProjectId !== PRODUCTION_FIREBASE_PROJECT_ID ||
-    snapshot.seats.claimed !== 0 ||
-    snapshot.seats.available !== 500 ||
-    snapshot.seats.limit !== 500
+    !Number.isSafeInteger(snapshot.seats.claimed) ||
+    !Number.isSafeInteger(snapshot.seats.available) ||
+    !Number.isSafeInteger(snapshot.seats.limit) ||
+    !seatsMatchRoster(snapshot.seats, resumeSummary)
   ) {
     fail("INVALID_PREFLIGHT", "Provisioning preflight was invalid.");
   }
@@ -285,11 +314,13 @@ function snapshotProgress(value) {
   return snapshot;
 }
 
-function writePreflight(stdout) {
+function writePreflight(stdout, preflight) {
   stdout.write("Production preflight passed.\n");
   stdout.write("Partner: Community Partner (community-partner)\n");
   stdout.write("Firebase project: games-caf0e\n");
-  stdout.write("Seats: 0 claimed, 500 available, 500 total\n");
+  stdout.write(
+    `Seats: ${preflight.seats.claimed} claimed, ${preflight.seats.available} available, ${preflight.seats.limit} total\n`,
+  );
   stdout.write("No accounts or credential files were created.\n");
 }
 
@@ -395,6 +426,16 @@ export async function runSponsoredAccountsCli({
     const { apiKey, inviteToken, adminToken } = readEnvironment(env);
     const resolvedDependencies = requireDependencies(dependencies);
     const firebaseClient = resolvedDependencies.createFirebaseIdentityClient({ apiKey });
+    const output = options.output;
+    const resumeRows = command === "resume"
+      ? await resolvedDependencies.readRosterFile({
+        filePath: output,
+        repositoryRoot: REPOSITORY_ROOT,
+      })
+      : undefined;
+    const resumeSummary = resumeRows === undefined
+      ? undefined
+      : summarizeRoster(resumeRows);
     const preflight = snapshotPreflight(
       await resolvedDependencies.preflightSponsoredProvisioning({
         apiOrigin: options["api-origin"],
@@ -402,10 +443,12 @@ export async function runSponsoredAccountsCli({
         adminToken,
         firebaseClient,
         partnerOperations: resolvedDependencies.partnerOperations,
+        ...(resumeSummary === undefined ? {} : { resumeSummary }),
       }),
+      resumeSummary,
     );
 
-    writePreflight(stdout);
+    writePreflight(stdout, preflight);
     if (command === "preflight") return 0;
     if (options["confirm-production"] !== true) {
       stdout.write(
@@ -414,13 +457,9 @@ export async function runSponsoredAccountsCli({
       return 0;
     }
 
-    const output = options.output;
     const rows = command === "create"
       ? resolvedDependencies.buildSponsoredRoster()
-      : await resolvedDependencies.readRosterFile({
-        filePath: output,
-        repositoryRoot: REPOSITORY_ROOT,
-      });
+      : resumeRows;
 
     if (command === "create") {
       await resolvedDependencies.createRosterFile({

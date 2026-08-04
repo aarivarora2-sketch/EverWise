@@ -2,7 +2,12 @@ import { markRosterActive, summarizeRoster } from "./sponsoredRoster.mjs";
 import { usernameToAuthEmail } from "../src/utils/validation.js";
 
 const EXPECTED_FIREBASE_PROJECT_ID = "games-caf0e";
-const EXPECTED_SEATS = Object.freeze({ claimed: 0, available: 500, limit: 500 });
+const EXPECTED_SEAT_LIMIT = 500;
+const EXPECTED_SEATS = Object.freeze({
+  claimed: 0,
+  available: EXPECTED_SEAT_LIMIT,
+  limit: EXPECTED_SEAT_LIMIT,
+});
 const DISTRIBUTION_KEYS = [
   "accessibilityNeeds",
   "ageBand",
@@ -155,6 +160,36 @@ function validAccess(access, { allowNone = true } = {}) {
   );
 }
 
+function validResumeSummary(summary) {
+  return Boolean(
+    hasExactKeys(summary, ["active", "pending", "total"]) &&
+      summary.total === EXPECTED_SEAT_LIMIT &&
+      Number.isSafeInteger(summary.active) &&
+      summary.active >= 0 &&
+      Number.isSafeInteger(summary.pending) &&
+      summary.pending >= 0 &&
+      summary.active + summary.pending === summary.total
+  );
+}
+
+function seatsMatchRoster(seats, resumeSummary) {
+  if (seats.limit !== EXPECTED_SEAT_LIMIT) return false;
+  if (resumeSummary === undefined) {
+    return (
+      seats.claimed === EXPECTED_SEATS.claimed &&
+      seats.available === EXPECTED_SEATS.available
+    );
+  }
+  if (!validResumeSummary(resumeSummary)) return false;
+  const maximumClaimed =
+    resumeSummary.active + (resumeSummary.pending > 0 ? 1 : 0);
+  return (
+    seats.claimed >= resumeSummary.active &&
+    seats.claimed <= maximumClaimed &&
+    seats.available === EXPECTED_SEAT_LIMIT - seats.claimed
+  );
+}
+
 function productionEndpoint(apiOrigin) {
   try {
     const origin = new URL(apiOrigin);
@@ -181,6 +216,7 @@ export async function preflightSponsoredProvisioning({
   adminToken,
   firebaseClient,
   partnerOperations,
+  resumeSummary,
 } = {}) {
   const apiEndpointImpl = productionEndpoint(apiOrigin);
   if (
@@ -190,9 +226,14 @@ export async function preflightSponsoredProvisioning({
     adminToken.length === 0 ||
     typeof firebaseClient?.getProject !== "function" ||
     typeof partnerOperations?.previewInvite !== "function" ||
-    typeof partnerOperations?.fetchPartnerReport !== "function"
+    typeof partnerOperations?.fetchPartnerReport !== "function" ||
+    (resumeSummary !== undefined && !validResumeSummary(resumeSummary))
   ) {
-    throw safeProvisioningError("Provisioning preflight configuration is invalid");
+    throw safeProvisioningError(
+      resumeSummary === undefined
+        ? "Provisioning preflight configuration is invalid"
+        : "Provisioning resume roster is invalid",
+    );
   }
 
   let preview;
@@ -216,16 +257,16 @@ export async function preflightSponsoredProvisioning({
     preview.branding.name !== report.name ||
     report.status !== "active" ||
     report.invitation.status !== "active" ||
-    preview.seatAvailable !== true
+    preview.seatAvailable !== (report.seats.available > 0)
   ) {
     throw safeProvisioningError("Provisioning partner is not eligible");
   }
-  if (
-    report.seats.claimed !== EXPECTED_SEATS.claimed ||
-    report.seats.available !== EXPECTED_SEATS.available ||
-    report.seats.limit !== EXPECTED_SEATS.limit
-  ) {
-    throw safeProvisioningError("Provisioning requires an empty 500-seat pilot");
+  if (!seatsMatchRoster(report.seats, resumeSummary)) {
+    throw safeProvisioningError(
+      resumeSummary === undefined
+        ? "Provisioning requires an empty 500-seat pilot"
+        : "Provisioning seat counts do not match the resume roster",
+    );
   }
   if (
     !hasExactKeys(project, ["projectId"]) ||
@@ -238,11 +279,11 @@ export async function preflightSponsoredProvisioning({
     partnerId: report.partnerId,
     partnerName: report.name,
     firebaseProjectId: project.projectId,
-    seats: { ...EXPECTED_SEATS },
+    seats: { ...report.seats },
   };
 }
 
-function validPreflight(preflight) {
+function validPreflight(preflight, resumeSummary) {
   return Boolean(
     hasExactKeys(preflight, ["firebaseProjectId", "partnerId", "partnerName", "seats"]) &&
       typeof preflight.partnerId === "string" &&
@@ -251,9 +292,10 @@ function validPreflight(preflight) {
       preflight.partnerName === preflight.partnerName.trim() &&
       preflight.firebaseProjectId === EXPECTED_FIREBASE_PROJECT_ID &&
       hasExactKeys(preflight.seats, ["available", "claimed", "limit"]) &&
-      preflight.seats.claimed === EXPECTED_SEATS.claimed &&
-      preflight.seats.available === EXPECTED_SEATS.available &&
-      preflight.seats.limit === EXPECTED_SEATS.limit
+      Number.isSafeInteger(preflight.seats.claimed) &&
+      Number.isSafeInteger(preflight.seats.available) &&
+      Number.isSafeInteger(preflight.seats.limit) &&
+      seatsMatchRoster(preflight.seats, resumeSummary)
   );
 }
 
@@ -357,8 +399,14 @@ export async function provisionSponsoredRoster({
   backoff,
 } = {}) {
   const apiEndpointImpl = productionEndpoint(apiOrigin);
+  let rosterSummary;
+  try {
+    rosterSummary = summarizeRoster(initialRows);
+  } catch {
+    throw safeProvisioningError("Provisioning roster is invalid");
+  }
   if (
-    !validPreflight(preflight) ||
+    !validPreflight(preflight, rosterSummary) ||
     typeof inviteToken !== "string" ||
     inviteToken.length === 0 ||
     typeof firebaseClient?.signIn !== "function" ||
@@ -371,7 +419,6 @@ export async function provisionSponsoredRoster({
   ) {
     throw safeProvisioningError("Provisioning configuration is invalid");
   }
-  summarizeRoster(initialRows);
 
   let rows = initialRows.map((row) => ({ ...row }));
   let active = 0;

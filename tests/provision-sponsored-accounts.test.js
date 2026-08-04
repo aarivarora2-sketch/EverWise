@@ -50,10 +50,11 @@ function validArgs(command, { confirmed = false, output = OUTPUT } = {}) {
 }
 
 function pendingRows() {
+  const passwordAlphabet = "23456789abcdefghijkmnopqrstuvwxyz";
   return Array.from({ length: 500 }, (_, index) => ({
     accountNumber: index + 1,
     username: `EverWise${String(index + 1).padStart(3, "0")}`,
-    password: `Password-${String(index + 1).padStart(3, "0")}-Safe!A1`,
+    password: `SafePassword-A2!${passwordAlphabet[Math.floor(index / passwordAlphabet.length)]}${passwordAlphabet[index % passwordAlphabet.length]}`,
     status: "pending",
   }));
 }
@@ -192,10 +193,16 @@ test("unconfirmed create and resume stop after the same read-only preflight", as
 
     assert.equal(await run(fixture, validArgs(command)), 0);
 
-    assert.deepEqual(fixture.calls.map(([name]) => name), [
-      "createFirebaseIdentityClient",
-      "preflightSponsoredProvisioning",
-    ]);
+    assert.deepEqual(
+      fixture.calls.map(([name]) => name),
+      command === "resume"
+        ? [
+          "createFirebaseIdentityClient",
+          "readRosterFile",
+          "preflightSponsoredProvisioning",
+        ]
+        : ["createFirebaseIdentityClient", "preflightSponsoredProvisioning"],
+    );
     assert.equal(
       fixture.stdoutText,
       `${PREFLIGHT_OUTPUT}Re-run with --confirm-production only after reviewing this target.\n`,
@@ -271,12 +278,12 @@ test("confirmed resume reads the validated roster without regenerating passwords
 
   assert.deepEqual(fixture.calls.map(([name]) => name), [
     "createFirebaseIdentityClient",
-    "preflightSponsoredProvisioning",
     "readRosterFile",
+    "preflightSponsoredProvisioning",
     "provisionSponsoredRoster",
     "writeRosterFile",
   ]);
-  const readOptions = fixture.calls[2][1];
+  const readOptions = fixture.calls[1][1];
   const provisionOptions = fixture.calls[3][1];
   const writeOptions = fixture.calls[4][1];
   assert.equal(readOptions.filePath, OUTPUT);
@@ -298,6 +305,77 @@ test("confirmed resume reads the validated roster without regenerating passwords
       "Private roster saved to the approved output path.\n",
   );
   assert.equal(fixture.stderrText, "");
+});
+
+test("partial resume validates the saved roster before accepting its matching occupied seats", async () => {
+  const claimed = 237;
+  const resumeRows = pendingRows().map((row, index) => ({
+    ...row,
+    status: index < claimed ? "active" : "pending",
+  }));
+  const resumePreflight = {
+    ...PREFLIGHT,
+    seats: { claimed, available: 500 - claimed, limit: 500 },
+  };
+  const originalPasswords = resumeRows.map(({ password }) => password);
+  const fixture = makeFixture({
+    async readRosterFile(options) {
+      fixture.calls.push(["readRosterFile", options]);
+      return resumeRows;
+    },
+    async preflightSponsoredProvisioning(options) {
+      fixture.calls.push(["preflightSponsoredProvisioning", options]);
+      assert.deepEqual(options.resumeSummary, {
+        total: 500,
+        active: claimed,
+        pending: 500 - claimed,
+      });
+      return resumePreflight;
+    },
+    async provisionSponsoredRoster(options) {
+      fixture.calls.push(["provisionSponsoredRoster", options]);
+      assert.equal(options.rows, resumeRows);
+      assert.deepEqual(
+        options.rows.map(({ password }) => password),
+        originalPasswords,
+      );
+      assert.deepEqual(options.preflight, resumePreflight);
+      return { active: claimed, pending: 500 - claimed, failed: 0 };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 0);
+
+  assert.deepEqual(fixture.calls.map(([name]) => name), [
+    "createFirebaseIdentityClient",
+    "readRosterFile",
+    "preflightSponsoredProvisioning",
+    "provisionSponsoredRoster",
+  ]);
+  assert.match(
+    fixture.stdoutText,
+    /Seats: 237 claimed, 263 available, 500 total/,
+  );
+  assert.equal(fixture.stderrText, "");
+});
+
+test("resume rejects a roster with the wrong fixed identity before remote preflight", async () => {
+  const fixture = makeFixture({
+    async readRosterFile(options) {
+      fixture.calls.push(["readRosterFile", options]);
+      return fixture.rows.map((row, index) =>
+        index === 0 ? { ...row, username: "EverWise999" } : row,
+      );
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.deepEqual(fixture.calls.map(([name]) => name), [
+    "createFirebaseIdentityClient",
+    "readRosterFile",
+  ]);
+  assert.equal(fixture.stdoutText, "");
+  assert.equal(fixture.stderrText, "Error [OPERATION_FAILED].\n");
 });
 
 test("dependency failures expose only a safe code and safe account context", async () => {
