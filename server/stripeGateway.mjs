@@ -26,6 +26,7 @@ const SUBSCRIPTION_STATUSES = new Set([
   "paused",
   "canceled",
 ]);
+const CHECKOUT_STATUSES = new Set(["open", "complete", "expired"]);
 
 class BillingGatewayError extends Error {
   constructor(code, message) {
@@ -132,6 +133,36 @@ const requireHostedUrl = (value, host, kind) => {
       `Billing provider returned an invalid hosted ${kind} URL.`,
     );
   }
+};
+
+const normalizeCheckoutExpiry = (value) => {
+  if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(value * 1_000)) {
+    throw providerFailure();
+  }
+  try {
+    return new Date(value * 1_000).toISOString();
+  } catch {
+    throw providerFailure();
+  }
+};
+
+const normalizeCheckoutSession = (session) => {
+  const id = requireStripeId(session?.id, "cs_", "Checkout Session ID");
+  if (!CHECKOUT_STATUSES.has(session?.status)) throw providerFailure();
+  const normalized = {
+    id,
+    status: session.status,
+    expiresAt: normalizeCheckoutExpiry(session.expires_at),
+  };
+  if (session.status === "open") {
+    return {
+      id,
+      url: requireHostedUrl(session.url, CHECKOUT_HOST, "Checkout"),
+      status: session.status,
+      expiresAt: normalized.expiresAt,
+    };
+  }
+  return normalized;
 };
 
 const productIdFromPrice = (price) =>
@@ -467,10 +498,35 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
           "Billing Checkout Session is not open.",
         );
       }
-      return {
-        id: requiredText(session.id, "Checkout Session ID"),
-        url: requireHostedUrl(session.url, CHECKOUT_HOST, "Checkout"),
-      };
+      return normalizeCheckoutSession(session);
+    });
+  };
+
+  const retrieveCheckoutSession = async (sessionId) => {
+    const normalizedSessionId = requireStripeId(sessionId, "cs_", "Checkout Session ID");
+    return runProviderRequest(async () => {
+      const session = normalizeCheckoutSession(
+        await stripe.checkout.sessions.retrieve(normalizedSessionId),
+      );
+      if (session.id !== normalizedSessionId) throw providerFailure();
+      return session;
+    });
+  };
+
+  const expireCheckoutSession = async (sessionId) => {
+    const normalizedSessionId = requireStripeId(sessionId, "cs_", "Checkout Session ID");
+    return runProviderRequest(async () => {
+      const session = normalizeCheckoutSession(
+        await stripe.checkout.sessions.expire(normalizedSessionId),
+      );
+      if (session.id !== normalizedSessionId) throw providerFailure();
+      if (session.status !== "expired") {
+        throw gatewayError(
+          "BILLING_CHECKOUT_NOT_EXPIRED",
+          "Billing Checkout Session is not expired.",
+        );
+      }
+      return session;
     });
   };
 
@@ -582,6 +638,8 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
     verifyPlans,
     findOrCreateCustomer,
     createCheckoutSession,
+    retrieveCheckoutSession,
+    expireCheckoutSession,
     createPortalSession,
     listBlockingSubscriptions,
     retrieveSubscription,

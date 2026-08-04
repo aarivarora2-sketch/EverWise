@@ -149,6 +149,205 @@ test("the default store path is optional and remains fail-closed when absent", a
   assert.deepEqual(await store.health(), { configured: false, healthy: false });
 });
 
+test("pending first-trial Checkout reservation is minimal, durable, and first-writer-wins", async (t) => {
+  const { filePath, store, advance } = await setupStore(t);
+  await bind(store);
+
+  const first = await store.reservePendingTrialCheckout({
+    uid: "uid-1",
+    plan: "monthly",
+    attemptId: "trial_attempt_monthly_1",
+    checkoutUrl: "https://checkout.stripe.com/must-not-persist",
+    email: "private@example.com",
+    providerObject: { secret: "sk_test_must_not_persist" },
+  });
+  assert.deepEqual(first, {
+    plan: "monthly",
+    attemptId: "trial_attempt_monthly_1",
+    sessionId: null,
+    reservedAt: "2026-08-03T12:00:00.000Z",
+    expiresAt: null,
+  });
+
+  advance(60_000);
+  assert.deepEqual(
+    await store.reservePendingTrialCheckout({
+      uid: "uid-1",
+      plan: "annual",
+      attemptId: "trial_attempt_annual_2",
+    }),
+    first,
+  );
+  assert.deepEqual(await store.getPendingTrialCheckout("uid-1"), first);
+
+  const diskText = await readFile(filePath, "utf8");
+  assert.doesNotMatch(
+    diskText,
+    /checkout\.stripe|private@example|sk_test|providerObject|checkoutUrl/i,
+  );
+  const pending = JSON.parse(diskText).learners["uid-1"].pendingTrialCheckout;
+  assert.deepEqual(Object.keys(pending).sort(), [
+    "attemptId",
+    "expiresAt",
+    "plan",
+    "reservedAt",
+    "sessionId",
+  ]);
+});
+
+test("pending Checkout attach and clear require the owning UID and exact attempt", async (t) => {
+  const { store } = await setupStore(t);
+  await bind(store);
+  await store.reservePendingTrialCheckout({
+    uid: "uid-1",
+    plan: "monthly",
+    attemptId: "trial_attempt_1",
+  });
+
+  const attached = await store.attachPendingTrialCheckout({
+    uid: "uid-1",
+    attemptId: "trial_attempt_1",
+    sessionId: "cs_pending_1",
+    expiresAt: "2026-08-03T13:00:00.000Z",
+    url: "https://checkout.stripe.com/must-not-persist",
+  });
+  assert.deepEqual(attached, {
+    plan: "monthly",
+    attemptId: "trial_attempt_1",
+    sessionId: "cs_pending_1",
+    reservedAt: "2026-08-03T12:00:00.000Z",
+    expiresAt: "2026-08-03T13:00:00.000Z",
+  });
+  assert.deepEqual(
+    await store.attachPendingTrialCheckout({
+      uid: "uid-1",
+      attemptId: "trial_attempt_1",
+      sessionId: "cs_pending_1",
+      expiresAt: "2026-08-03T13:00:00.000Z",
+    }),
+    attached,
+  );
+
+  await expectStoreError(
+    () => store.attachPendingTrialCheckout({
+      uid: "uid-1",
+      attemptId: "different_attempt",
+      sessionId: "cs_pending_2",
+      expiresAt: "2026-08-03T13:30:00.000Z",
+    }),
+    "BILLING_STORE_RESERVATION_CONFLICT",
+  );
+  await expectStoreError(
+    () => store.clearPendingTrialCheckout({ uid: "uid-1", attemptId: "different_attempt" }),
+    "BILLING_STORE_RESERVATION_CONFLICT",
+  );
+  assert.deepEqual(
+    await store.clearPendingTrialCheckout({ uid: "uid-1", attemptId: "trial_attempt_1" }),
+    { cleared: true },
+  );
+  assert.equal(await store.getPendingTrialCheckout("uid-1"), null);
+  assert.deepEqual(
+    await store.clearPendingTrialCheckout({ uid: "uid-1", attemptId: "trial_attempt_1" }),
+    { cleared: false },
+  );
+});
+
+test("pending Checkout inputs and persisted shape are strict and fail closed", async (t) => {
+  const setup = await setupStore(t);
+  await bind(setup.store);
+
+  for (const input of [
+    { uid: "uid-1", plan: "weekly", attemptId: "attempt_1" },
+    { uid: "uid-1", plan: "monthly", attemptId: "" },
+    { uid: "uid-1", plan: "monthly", attemptId: "x".repeat(65) },
+  ]) {
+    await expectStoreError(
+      () => setup.store.reservePendingTrialCheckout(input),
+      "BILLING_STORE_INVALID_INPUT",
+    );
+  }
+
+  await setup.store.reservePendingTrialCheckout({
+    uid: "uid-1",
+    plan: "monthly",
+    attemptId: "attempt_1",
+  });
+  for (const input of [
+    { sessionId: "sub_wrong", expiresAt: "2026-08-03T13:00:00.000Z" },
+    { sessionId: "cs_valid", expiresAt: "not-a-date" },
+    { sessionId: "cs_valid", expiresAt: "2026-08-03T11:00:00.000Z" },
+  ]) {
+    await expectStoreError(
+      () => setup.store.attachPendingTrialCheckout({
+        uid: "uid-1",
+        attemptId: "attempt_1",
+        ...input,
+      }),
+      "BILLING_STORE_INVALID_INPUT",
+    );
+  }
+
+  const disk = JSON.parse(await readFile(setup.filePath, "utf8"));
+  disk.learners["uid-1"].pendingTrialCheckout.expiresAt =
+    "2026-08-03T13:00:00.000Z";
+  await writeFile(setup.filePath, JSON.stringify(disk), { mode: 0o600 });
+  assert.deepEqual(await setup.store.health(), { configured: true, healthy: false });
+});
+
+test("independent store instances atomically converge on one pending attempt", async (t) => {
+  const { filePath, store: firstStore } = await setupStore(t);
+  await bind(firstStore);
+  const secondStore = createBillingStore({
+    filePath,
+    now: () => new Date(START + 1_000),
+  });
+
+  const [first, second] = await Promise.all([
+    firstStore.reservePendingTrialCheckout({
+      uid: "uid-1",
+      plan: "monthly",
+      attemptId: "attempt_from_api_1",
+    }),
+    secondStore.reservePendingTrialCheckout({
+      uid: "uid-1",
+      plan: "annual",
+      attemptId: "attempt_from_api_2",
+    }),
+  ]);
+
+  assert.deepEqual(first, second);
+  assert.equal(
+    ["attempt_from_api_1", "attempt_from_api_2"].includes(first.attemptId),
+    true,
+  );
+  assert.deepEqual(await firstStore.getPendingTrialCheckout("uid-1"), first);
+  assert.deepEqual(await secondStore.getPendingTrialCheckout("uid-1"), first);
+});
+
+test("prototype-like UIDs support the pending Checkout lifecycle", async (t) => {
+  const { store } = await setupStore(t);
+  await bind(store, "__proto__", "cus_prototype_pending");
+  const reservation = await store.reservePendingTrialCheckout({
+    uid: "__proto__",
+    plan: "annual",
+    attemptId: "prototype_attempt",
+  });
+  assert.deepEqual(await store.getPendingTrialCheckout("__proto__"), reservation);
+  await store.attachPendingTrialCheckout({
+    uid: "__proto__",
+    attemptId: "prototype_attempt",
+    sessionId: "cs_prototype_pending",
+    expiresAt: "2026-08-03T14:00:00.000Z",
+  });
+  assert.deepEqual(
+    await store.clearPendingTrialCheckout({
+      uid: "__proto__",
+      attemptId: "prototype_attempt",
+    }),
+    { cleared: true },
+  );
+});
+
 test("snapshots persist only allowlisted fields and normalize timestamps to UTC ISO", async (t) => {
   const { filePath, store } = await setupStore(t);
   await bind(store);

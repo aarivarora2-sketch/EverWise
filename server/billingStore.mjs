@@ -22,6 +22,13 @@ const RECORD_KEYS = [
   "uid",
   "updatedAt",
 ];
+const PENDING_TRIAL_CHECKOUT_KEYS = [
+  "attemptId",
+  "expiresAt",
+  "plan",
+  "reservedAt",
+  "sessionId",
+];
 const EVENT_KEYS = ["created", "id"];
 const PLANS = new Set(["monthly", "annual"]);
 const SUBSCRIPTION_STATUSES = new Set([
@@ -38,6 +45,8 @@ const ACCESS_STATUSES = new Set(["trialing", "active"]);
 const CUSTOMER_ID_PATTERN = /^cus_[A-Za-z0-9_]+$/u;
 const SUBSCRIPTION_ID_PATTERN = /^sub_[A-Za-z0-9_]+$/u;
 const EVENT_ID_PATTERN = /^evt_[A-Za-z0-9_]+$/u;
+const CHECKOUT_SESSION_ID_PATTERN = /^cs_[A-Za-z0-9_]+$/u;
+const CHECKOUT_ATTEMPT_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/u;
 
 let temporaryFileCounter = 0;
 
@@ -376,10 +385,36 @@ function compareEvents(left, right) {
   return 0;
 }
 
+function validatePendingTrialCheckout(value) {
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, PENDING_TRIAL_CHECKOUT_KEYS) ||
+    !PLANS.has(value.plan) ||
+    typeof value.attemptId !== "string" ||
+    !CHECKOUT_ATTEMPT_PATTERN.test(value.attemptId) ||
+    !canonicalIso(value.reservedAt)
+  ) {
+    return false;
+  }
+  if (value.sessionId === null || value.expiresAt === null) {
+    return value.sessionId === null && value.expiresAt === null;
+  }
+  return (
+    typeof value.sessionId === "string" &&
+    CHECKOUT_SESSION_ID_PATTERN.test(value.sessionId) &&
+    canonicalIso(value.expiresAt) &&
+    Date.parse(value.expiresAt) > Date.parse(value.reservedAt)
+  );
+}
+
 function validateRecord(uid, record) {
+  const hasPendingTrialCheckout = Object.hasOwn(record || {}, "pendingTrialCheckout");
+  const allowedKeys = hasPendingTrialCheckout
+    ? [...RECORD_KEYS, "pendingTrialCheckout"]
+    : RECORD_KEYS;
   if (
     !isPlainObject(record) ||
-    !hasExactKeys(record, RECORD_KEYS) ||
+    !hasExactKeys(record, allowedKeys) ||
     record.uid !== uid ||
     !validUid(record.uid) ||
     !CUSTOMER_ID_PATTERN.test(record.customerId) ||
@@ -387,7 +422,9 @@ function validateRecord(uid, record) {
     !validOptionalIso(record.trialEndsAt) ||
     !validOptionalIso(record.currentPeriodEndsAt) ||
     typeof record.cancelAtPeriodEnd !== "boolean" ||
-    !canonicalIso(record.updatedAt)
+    !canonicalIso(record.updatedAt) ||
+    (hasPendingTrialCheckout &&
+      !validatePendingTrialCheckout(record.pendingTrialCheckout))
   ) {
     return false;
   }
@@ -516,6 +553,17 @@ function requireIdentifier(value, pattern) {
 function requireEventCreated(value) {
   if (!validEventCreated(value)) throw invalidInput();
   return value;
+}
+
+function requireCheckoutAttempt(value) {
+  return requireIdentifier(value, CHECKOUT_ATTEMPT_PATTERN);
+}
+
+function reservationConflict() {
+  return storeError(
+    "BILLING_STORE_RESERVATION_CONFLICT",
+    "The pending billing reservation conflicts with stored state.",
+  );
 }
 
 function normalizeOptionalTimestamp(value) {
@@ -1028,6 +1076,105 @@ export function createBillingStore({
     }, { allowMissing: true });
   }
 
+  async function getPendingTrialCheckout(uid) {
+    const normalizedUid = requireUid(uid);
+    const anchor = await openStoreAnchor();
+    try {
+      const data = await readData(anchor);
+      const record = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
+      return record?.pendingTrialCheckout
+        ? clone(record.pendingTrialCheckout)
+        : null;
+    } finally {
+      await anchor.close().catch(() => {});
+    }
+  }
+
+  function reservePendingTrialCheckout({ uid, plan, attemptId } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      const normalizedUid = requireUid(uid);
+      if (!PLANS.has(plan)) throw invalidInput();
+      const normalizedAttemptId = requireCheckoutAttempt(attemptId);
+      const record = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
+      if (!record) throw invalidInput();
+      if (record.pendingTrialCheckout) {
+        return mutation(clone(record.pendingTrialCheckout), false);
+      }
+      const timestamp = currentDate.toISOString();
+      record.pendingTrialCheckout = {
+        plan,
+        attemptId: normalizedAttemptId,
+        sessionId: null,
+        reservedAt: timestamp,
+        expiresAt: null,
+      };
+      record.updatedAt = timestamp;
+      return mutation(clone(record.pendingTrialCheckout));
+    });
+  }
+
+  function attachPendingTrialCheckout({
+    uid,
+    attemptId,
+    sessionId,
+    expiresAt,
+  } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      const normalizedUid = requireUid(uid);
+      const normalizedAttemptId = requireCheckoutAttempt(attemptId);
+      const normalizedSessionId = requireIdentifier(
+        sessionId,
+        CHECKOUT_SESSION_ID_PATTERN,
+      );
+      if (!canonicalIso(expiresAt)) throw invalidInput();
+      const record = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
+      if (!record) throw invalidInput();
+      const pending = record.pendingTrialCheckout;
+      if (!pending || pending.attemptId !== normalizedAttemptId) {
+        throw reservationConflict();
+      }
+      if (Date.parse(expiresAt) <= Date.parse(pending.reservedAt)) {
+        throw invalidInput();
+      }
+      if (pending.sessionId !== null || pending.expiresAt !== null) {
+        if (
+          pending.sessionId !== normalizedSessionId ||
+          pending.expiresAt !== expiresAt
+        ) {
+          throw reservationConflict();
+        }
+        return mutation(clone(pending), false);
+      }
+      pending.sessionId = normalizedSessionId;
+      pending.expiresAt = expiresAt;
+      record.updatedAt = currentDate.toISOString();
+      return mutation(clone(pending));
+    });
+  }
+
+  function clearPendingTrialCheckout({ uid, attemptId } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      const normalizedUid = requireUid(uid);
+      const normalizedAttemptId = requireCheckoutAttempt(attemptId);
+      const record = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
+      if (!record) throw invalidInput();
+      const pending = record.pendingTrialCheckout;
+      if (!pending) return mutation({ cleared: false }, false);
+      if (pending.attemptId !== normalizedAttemptId) throw reservationConflict();
+      delete record.pendingTrialCheckout;
+      record.updatedAt = currentDate.toISOString();
+      return mutation({ cleared: true });
+    });
+  }
+
   function applySubscriptionSnapshot(snapshot = {}) {
     return enqueueMutation((data, currentDate) => {
       if (!isPlainObject(snapshot)) throw invalidInput();
@@ -1146,6 +1293,10 @@ export function createBillingStore({
     getByUid,
     getByCustomerId,
     bindCustomer,
+    getPendingTrialCheckout,
+    reservePendingTrialCheckout,
+    attachPendingTrialCheckout,
+    clearPendingTrialCheckout,
     applySubscriptionSnapshot,
     hasUsedTrial,
     recordProcessedEvent,

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { FIREBASE_CERTIFICATES_UNAVAILABLE_CODE } from "./firebaseTokenVerifier.mjs";
 
 const MAXIMUM_BODY_BYTES = 256 * 1024;
@@ -213,6 +215,13 @@ const existingSubscriptionError = () =>
     { canManage: true },
   );
 
+const checkoutConfirmingError = () =>
+  apiError(
+    409,
+    "CHECKOUT_CONFIRMING",
+    "Your subscription is being confirmed.",
+  );
+
 const SUBSCRIPTION_STATUSES = new Set([
   "trialing",
   "active",
@@ -287,6 +296,60 @@ const hostedUrl = (value, hostname) => {
   } catch {
     throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
   }
+};
+
+const canonicalDate = (value) => {
+  if (typeof value !== "string") return null;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return null;
+  const canonical = new Date(milliseconds).toISOString();
+  return canonical === value ? canonical : null;
+};
+
+const checkoutSessionId = (value) =>
+  typeof value === "string" && /^cs_[A-Za-z0-9_]+$/u.test(value) ? value : null;
+
+const pendingTrialCheckout = (value) => {
+  if (!isPlainObject(value)) return null;
+  const keys = Object.keys(value).sort();
+  const expected = ["attemptId", "expiresAt", "plan", "reservedAt", "sessionId"];
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return null;
+  }
+  if (
+    (value.plan !== "monthly" && value.plan !== "annual") ||
+    typeof value.attemptId !== "string" ||
+    !/^[A-Za-z0-9._:-]{1,64}$/u.test(value.attemptId) ||
+    !canonicalDate(value.reservedAt)
+  ) {
+    return null;
+  }
+  if (value.sessionId === null && value.expiresAt === null) return value;
+  if (
+    !checkoutSessionId(value.sessionId) ||
+    !canonicalDate(value.expiresAt) ||
+    Date.parse(value.expiresAt) <= Date.parse(value.reservedAt)
+  ) {
+    return null;
+  }
+  return value;
+};
+
+const checkoutLifecycle = (value) => {
+  if (!isPlainObject(value) || !checkoutSessionId(value.id) || !canonicalDate(value.expiresAt)) {
+    return null;
+  }
+  const expected = value.status === "open"
+    ? ["expiresAt", "id", "status", "url"]
+    : ["expiresAt", "id", "status"];
+  const keys = Object.keys(value).sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return null;
+  }
+  if (value.status === "open") {
+    return typeof value.url === "string" ? value : null;
+  }
+  return value.status === "expired" || value.status === "complete" ? value : null;
 };
 
 export const createBillingApi = ({
@@ -430,18 +493,124 @@ export const createBillingApi = ({
         throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
       }
 
-      const session = await gateway.createCheckoutSession({
-        uid,
-        customerId: customer.id,
-        planKey,
-        appOrigin: config.appOrigin,
-        trialEligible: !trialUsed,
-        operationAttempt: trialUsed ? operationAttempt("checkout") : "first-trial",
-      });
-      if (!isPlainObject(session)) {
-        throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+      const requireOpenSession = (value) => {
+        const session = checkoutLifecycle(value);
+        if (!session || session.status !== "open") {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        return session;
+      };
+      const requirePending = (value) => {
+        const pending = pendingTrialCheckout(value);
+        if (!pending) {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        return pending;
+      };
+      const clearPending = async (pending) => {
+        const result = await store.clearPendingTrialCheckout({
+          uid,
+          attemptId: pending.attemptId,
+        });
+        if (!isPlainObject(result) || result.cleared !== true) {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+      };
+      const createNoTrialCheckout = async () => {
+        const session = requireOpenSession(await gateway.createCheckoutSession({
+          uid,
+          customerId: customer.id,
+          planKey,
+          appOrigin: config.appOrigin,
+          trialEligible: false,
+          operationAttempt: randomUUID(),
+        }));
+        return { url: hostedUrl(session.url, "checkout.stripe.com") };
+      };
+      const recheckEligibility = async () => {
+        await rejectActiveSponsorship(uid);
+        const latestRecord = await store.getByUid(uid);
+        if (!isPlainObject(latestRecord) || latestRecord.customerId !== customer.id) {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        await rejectBlockingSubscriptions(customer.id);
+        const latestTrialUsed = await store.hasUsedTrial(uid);
+        if (typeof latestTrialUsed !== "boolean") {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        return latestTrialUsed;
+      };
+
+      const existingPendingValue = await store.getPendingTrialCheckout(uid);
+      const existingPending = existingPendingValue === null
+        ? null
+        : requirePending(existingPendingValue);
+      if (trialUsed) {
+        if (existingPending) await clearPending(existingPending);
+        return createNoTrialCheckout();
       }
-      return { url: hostedUrl(session.url, "checkout.stripe.com") };
+
+      const reserve = async () => requirePending(await store.reservePendingTrialCheckout({
+        uid,
+        plan: planKey,
+        attemptId: randomUUID(),
+      }));
+      let pending = existingPending || await reserve();
+
+      for (let transition = 0; transition < 4; transition += 1) {
+        let session;
+        if (pending.sessionId === null) {
+          session = requireOpenSession(await gateway.createCheckoutSession({
+            uid,
+            customerId: customer.id,
+            planKey: pending.plan,
+            appOrigin: config.appOrigin,
+            trialEligible: true,
+            operationAttempt: pending.attemptId,
+          }));
+          const attached = requirePending(await store.attachPendingTrialCheckout({
+            uid,
+            attemptId: pending.attemptId,
+            sessionId: session.id,
+            expiresAt: session.expiresAt,
+          }));
+          if (attached.sessionId !== session.id || attached.expiresAt !== session.expiresAt) {
+            throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+          }
+          pending = attached;
+        } else {
+          session = checkoutLifecycle(
+            await gateway.retrieveCheckoutSession(pending.sessionId),
+          );
+          if (!session || session.id !== pending.sessionId) {
+            throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+          }
+        }
+
+        if (session.status === "complete") throw checkoutConfirmingError();
+        if (session.status === "open" && pending.plan === planKey) {
+          return { url: hostedUrl(session.url, "checkout.stripe.com") };
+        }
+        if (session.status === "open") {
+          const expired = checkoutLifecycle(
+            await gateway.expireCheckoutSession(pending.sessionId),
+          );
+          if (
+            !expired ||
+            expired.id !== pending.sessionId ||
+            expired.status !== "expired"
+          ) {
+            throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+          }
+        } else if (session.status !== "expired") {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+
+        await clearPending(pending);
+        if (await recheckEligibility()) return createNoTrialCheckout();
+        pending = await reserve();
+      }
+      throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
     });
 
   const getAccess = async (uid) => {

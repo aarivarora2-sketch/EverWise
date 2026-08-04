@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
 import { BILLING_PLANS } from "../server/billingConfig.mjs";
 import { createBillingApi } from "../server/billingApi.mjs";
+import { createBillingStore } from "../server/billingStore.mjs";
 
 const AUTHORIZATION = "Bearer firebase-id-token";
 const UID = "learner-uid";
 const NOW = new Date("2026-08-03T12:00:00.000Z");
+const CHECKOUT_EXPIRES_AT = "2026-08-03T13:00:00.000Z";
 
 const CONFIG = Object.freeze({
   configured: true,
@@ -80,6 +85,7 @@ function defaultRecord(overrides = {}) {
 
 function createHarness(overrides = {}) {
   let storedRecord = null;
+  let pendingTrialCheckout = null;
   const calls = {
     verifyIdToken: [],
     verifyPlans: [],
@@ -90,6 +96,12 @@ function createHarness(overrides = {}) {
     findOrCreateCustomer: [],
     listBlockingSubscriptions: [],
     createCheckoutSession: [],
+    retrieveCheckoutSession: [],
+    expireCheckoutSession: [],
+    getPendingTrialCheckout: [],
+    reservePendingTrialCheckout: [],
+    attachPendingTrialCheckout: [],
+    clearPendingTrialCheckout: [],
     createPortalSession: [],
   };
   const store = {
@@ -106,6 +118,38 @@ function createHarness(overrides = {}) {
     hasUsedTrial: async (uid) => {
       calls.hasUsedTrial.push(uid);
       return false;
+    },
+    getPendingTrialCheckout: async (uid) => {
+      calls.getPendingTrialCheckout.push(uid);
+      return pendingTrialCheckout;
+    },
+    reservePendingTrialCheckout: async (input) => {
+      calls.reservePendingTrialCheckout.push(input);
+      pendingTrialCheckout ||= {
+        plan: input.plan,
+        attemptId: input.attemptId,
+        sessionId: null,
+        reservedAt: NOW.toISOString(),
+        expiresAt: null,
+      };
+      return pendingTrialCheckout;
+    },
+    attachPendingTrialCheckout: async (input) => {
+      calls.attachPendingTrialCheckout.push(input);
+      pendingTrialCheckout = {
+        ...pendingTrialCheckout,
+        sessionId: input.sessionId,
+        expiresAt: input.expiresAt,
+      };
+      return pendingTrialCheckout;
+    },
+    clearPendingTrialCheckout: async (input) => {
+      calls.clearPendingTrialCheckout.push(input);
+      if (pendingTrialCheckout?.attemptId === input.attemptId) {
+        pendingTrialCheckout = null;
+        return { cleared: true };
+      }
+      return { cleared: false };
     },
     ...overrides.store,
   };
@@ -127,7 +171,22 @@ function createHarness(overrides = {}) {
       return {
         id: "cs_private",
         url: "https://checkout.stripe.com/c/pay/test",
+        status: "open",
+        expiresAt: CHECKOUT_EXPIRES_AT,
       };
+    },
+    retrieveCheckoutSession: async (sessionId) => {
+      calls.retrieveCheckoutSession.push(sessionId);
+      return {
+        id: sessionId,
+        url: "https://checkout.stripe.com/c/pay/test",
+        status: "open",
+        expiresAt: CHECKOUT_EXPIRES_AT,
+      };
+    },
+    expireCheckoutSession: async (sessionId) => {
+      calls.expireCheckoutSession.push(sessionId);
+      return { id: sessionId, status: "expired", expiresAt: CHECKOUT_EXPIRES_AT };
     },
     createPortalSession: async (input) => {
       calls.createPortalSession.push(input);
@@ -158,6 +217,65 @@ function createHarness(overrides = {}) {
   });
   return { api, calls, gateway, partnerStore, store };
 }
+
+function createPendingStore({
+  customerId = "cus_pending_trial",
+  pending = null,
+  trialUsed = false,
+} = {}) {
+  let currentPending = pending;
+  const calls = { reserve: [], attach: [], clear: [] };
+  const record = () => defaultRecord({
+    customerId,
+    trialUsedAt: trialUsed ? "2026-07-01T00:00:00.000Z" : null,
+    ...(currentPending ? { pendingTrialCheckout: currentPending } : {}),
+  });
+  return {
+    calls,
+    pending: () => currentPending,
+    store: {
+      getByUid: async () => record(),
+      hasUsedTrial: async () => trialUsed,
+      getPendingTrialCheckout: async () => currentPending,
+      reservePendingTrialCheckout: async (input) => {
+        calls.reserve.push(input);
+        currentPending ||= {
+          plan: input.plan,
+          attemptId: input.attemptId,
+          sessionId: null,
+          reservedAt: NOW.toISOString(),
+          expiresAt: null,
+        };
+        return currentPending;
+      },
+      attachPendingTrialCheckout: async (input) => {
+        calls.attach.push(input);
+        assert.equal(input.attemptId, currentPending.attemptId);
+        currentPending = {
+          ...currentPending,
+          sessionId: input.sessionId,
+          expiresAt: input.expiresAt,
+        };
+        return currentPending;
+      },
+      clearPendingTrialCheckout: async (input) => {
+        calls.clear.push(input);
+        assert.equal(input.attemptId, currentPending.attemptId);
+        currentPending = null;
+        return { cleared: true };
+      },
+    },
+  };
+}
+
+const pendingCheckout = (overrides = {}) => ({
+  plan: "monthly",
+  attemptId: "trial-attempt-durable",
+  sessionId: "cs_pending_trial",
+  reservedAt: NOW.toISOString(),
+  expiresAt: CHECKOUT_EXPIRES_AT,
+  ...overrides,
+});
 
 async function invoke(api, pathname, options = {}) {
   const body = Object.hasOwn(options, "body") ? options.body : {};
@@ -443,7 +561,12 @@ test("Checkout snapshots a stateful JSON plan exactly once before validation", a
     gateway: {
       createCheckoutSession: async (input) => {
         calls.push(input);
-        return { id: "cs_private", url: "https://checkout.stripe.com/c/pay/snapshot" };
+        return {
+          id: "cs_private",
+          url: "https://checkout.stripe.com/c/pay/snapshot",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
       },
     },
   });
@@ -554,7 +677,12 @@ test("Checkout binds a server-owned customer and applies a trial only once per U
         },
         createCheckoutSession: async (input) => {
           calls.checkout.push(input);
-          return { id: "cs_private", url: "https://checkout.stripe.com/c/pay/trial" };
+          return {
+            id: "cs_private",
+            url: "https://checkout.stripe.com/c/pay/trial",
+            status: "open",
+            expiresAt: CHECKOUT_EXPIRES_AT,
+          };
         },
       },
     });
@@ -583,113 +711,225 @@ test("Checkout binds a server-owned customer and applies a trial only once per U
   }
 });
 
-test("sequential first-trial Checkout requests reuse one durable Stripe operation", async () => {
-  const sessions = new Map();
-  const checkoutCalls = [];
-  let blockingSubscriptions = [];
-  const record = defaultRecord({ customerId: "cus_durable_trial" });
-  const store = {
-    getByUid: async () => record,
-    hasUsedTrial: async () => false,
-  };
-  const gateway = {
-    findOrCreateCustomer: async () => ({ id: record.customerId }),
-    listBlockingSubscriptions: async () => blockingSubscriptions,
-    createCheckoutSession: async (input) => {
-      checkoutCalls.push(input);
-      const key = `${input.uid}:${input.operationAttempt}`;
-      if (!sessions.has(key)) {
-        sessions.set(key, {
-          planKey: input.planKey,
-          trialEligible: input.trialEligible,
-          session: {
-            id: "cs_durable_first_trial",
-            url: "https://checkout.stripe.com/c/pay/durable-first-trial",
-          },
-        });
-      }
-      const saved = sessions.get(key);
-      if (saved.planKey !== input.planKey || saved.trialEligible !== input.trialEligible) {
-        throw new Error("Stripe idempotency parameters changed");
-      }
-      return saved.session;
+test("same-plan restart retrieves the durable open first-trial Checkout without creating", async () => {
+  const state = createPendingStore({ pending: pendingCheckout() });
+  const retrieveCalls = [];
+  const createCalls = [];
+  const overrides = {
+    store: state.store,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_pending_trial" }),
+      retrieveCheckoutSession: async (sessionId) => {
+        retrieveCalls.push(sessionId);
+        return {
+          id: sessionId,
+          url: "https://checkout.stripe.com/c/pay/durable-first-trial",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+      createCheckoutSession: async (input) => {
+        createCalls.push(input);
+        throw new Error("must not create a second Session");
+      },
     },
   };
 
-  const firstApi = createHarness({ store, gateway }).api;
-  const first = await invoke(firstApi, "/api/billing/checkout", {
+  const first = await invoke(createHarness(overrides).api, "/api/billing/checkout", {
     body: { plan: "monthly" },
   });
+  const afterRestart = await invoke(createHarness(overrides).api, "/api/billing/checkout", {
+    body: { plan: "monthly" },
+  });
+
   assert.equal(first.response.status, 200);
+  assert.deepEqual(afterRestart.response.json(), first.response.json());
+  assert.deepEqual(retrieveCalls, ["cs_pending_trial", "cs_pending_trial"]);
+  assert.equal(createCalls.length, 0);
+  assert.deepEqual(state.pending(), pendingCheckout());
+});
 
-  // A new API instance models in-memory queue cleanup plus a server restart.
-  const restartedApi = createHarness({ store, gateway }).api;
-  const second = await invoke(restartedApi, "/api/billing/checkout", {
-    body: { plan: "monthly" },
+test("crash before attach recreates the stored plan and attempt, then attaches atomically", async () => {
+  const state = createPendingStore({
+    pending: pendingCheckout({ sessionId: null, expiresAt: null }),
   });
-  assert.equal(second.response.status, 200);
-  assert.deepEqual(second.response.json(), first.response.json());
-  assert.deepEqual(
-    checkoutCalls.map((call) => call.operationAttempt),
-    ["first-trial", "first-trial"],
-  );
-  assert.equal(sessions.size, 1);
+  const createCalls = [];
+  const { api } = createHarness({
+    store: state.store,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_pending_trial" }),
+      createCheckoutSession: async (input) => {
+        createCalls.push(input);
+        return {
+          id: "cs_recovered_trial",
+          url: "https://checkout.stripe.com/c/pay/recovered-first-trial",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+    },
+  });
 
-  blockingSubscriptions = [{
-    id: "sub_now_active",
-    customerId: record.customerId,
-    status: "active",
-    priceId: "price_test_monthly_private",
-    livemode: false,
-    cancelAtPeriodEnd: false,
-    currentPeriodEnd: 1_800_000_000,
-    trialEnd: null,
-  }];
-  const blocked = await invoke(createHarness({ store, gateway }).api, "/api/billing/checkout", {
-    body: { plan: "monthly" },
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 200);
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].planKey, "monthly");
+  assert.equal(createCalls[0].operationAttempt, "trial-attempt-durable");
+  assert.equal(createCalls[0].trialEligible, true);
+  assert.deepEqual(state.calls.attach, [{
+    uid: UID,
+    attemptId: "trial-attempt-durable",
+    sessionId: "cs_recovered_trial",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  }]);
+});
+
+test("monthly to annual first-trial switch expires, confirms, clears, and reserves fresh", async () => {
+  const state = createPendingStore({ pending: pendingCheckout() });
+  const createCalls = [];
+  const expireCalls = [];
+  const { api } = createHarness({
+    store: state.store,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_pending_trial" }),
+      retrieveCheckoutSession: async (sessionId) => ({
+        id: sessionId,
+        url: "https://checkout.stripe.com/c/pay/monthly-old",
+        status: "open",
+        expiresAt: CHECKOUT_EXPIRES_AT,
+      }),
+      expireCheckoutSession: async (sessionId) => {
+        expireCalls.push(sessionId);
+        return { id: sessionId, status: "expired", expiresAt: CHECKOUT_EXPIRES_AT };
+      },
+      createCheckoutSession: async (input) => {
+        createCalls.push(input);
+        return {
+          id: "cs_annual_fresh",
+          url: "https://checkout.stripe.com/c/pay/annual-fresh",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+    },
   });
-  assert.equal(blocked.response.status, 409);
-  assert.equal(blocked.response.json().error.code, "SUBSCRIPTION_EXISTS");
-  assert.equal(checkoutCalls.length, 2);
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "annual" } });
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(expireCalls, ["cs_pending_trial"]);
+  assert.deepEqual(state.calls.clear, [{ uid: UID, attemptId: "trial-attempt-durable" }]);
+  assert.equal(state.calls.reserve.length, 1);
+  assert.equal(state.calls.reserve[0].plan, "annual");
+  assert.notEqual(state.calls.reserve[0].attemptId, "trial-attempt-durable");
+  assert.deepEqual(createCalls.map((call) => ({
+    planKey: call.planKey,
+    operationAttempt: call.operationAttempt,
+    trialEligible: call.trialEligible,
+  })), [{
+    planKey: "annual",
+    operationAttempt: state.calls.reserve[0].attemptId,
+    trialEligible: true,
+  }]);
+});
+
+test("expired pending Checkout clears and rotates while complete fails closed", async () => {
+  for (const status of ["expired", "complete"]) {
+    const state = createPendingStore({ pending: pendingCheckout() });
+    const createCalls = [];
+    const { api } = createHarness({
+      store: state.store,
+      gateway: {
+        findOrCreateCustomer: async () => ({ id: "cus_pending_trial" }),
+        retrieveCheckoutSession: async (sessionId) => ({
+          id: sessionId,
+          status,
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        }),
+        createCheckoutSession: async (input) => {
+          createCalls.push(input);
+          return {
+            id: "cs_rotated",
+            url: "https://checkout.stripe.com/c/pay/rotated",
+            status: "open",
+            expiresAt: CHECKOUT_EXPIRES_AT,
+          };
+        },
+      },
+    });
+
+    const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+    if (status === "expired") {
+      assert.equal(result.response.status, 200);
+      assert.equal(state.calls.clear.length, 1);
+      assert.equal(state.calls.reserve.length, 1);
+      assert.equal(createCalls.length, 1);
+    } else {
+      assert.equal(result.response.status, 409);
+      assert.equal(result.response.json().error.code, "CHECKOUT_CONFIRMING");
+      assert.equal(state.calls.clear.length, 0);
+      assert.equal(state.calls.reserve.length, 0);
+      assert.equal(createCalls.length, 0);
+      assert.deepEqual(state.pending(), pendingCheckout());
+    }
+  }
+});
+
+test("uncertain pending Checkout retrieval preserves its durable reservation", async () => {
+  const state = createPendingStore({ pending: pendingCheckout() });
+  const { api } = createHarness({
+    store: state.store,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_pending_trial" }),
+      retrieveCheckoutSession: async () => {
+        throw new Error("private provider uncertainty");
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 503);
+  assert.equal(result.response.json().error.code, "BILLING_UNAVAILABLE");
+  assert.equal(state.calls.clear.length, 0);
+  assert.deepEqual(state.pending(), pendingCheckout());
 });
 
 test("trial-used resubscriptions keep fresh no-trial Checkout operations", async () => {
   const attempts = [];
-  const record = defaultRecord({
+  const state = createPendingStore({
     customerId: "cus_prior_trial",
-    trialUsedAt: "2026-07-01T00:00:00.000Z",
+    pending: pendingCheckout(),
+    trialUsed: true,
   });
   const overrides = {
-    store: {
-      getByUid: async () => record,
-      hasUsedTrial: async () => true,
-    },
+    store: state.store,
     gateway: {
-      findOrCreateCustomer: async () => ({ id: record.customerId }),
+      findOrCreateCustomer: async () => ({ id: "cus_prior_trial" }),
       createCheckoutSession: async (input) => {
         attempts.push(input);
         return {
           id: `cs_resubscribe_${attempts.length}`,
           url: `https://checkout.stripe.com/c/pay/resubscribe-${attempts.length}`,
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
         };
       },
     },
   };
 
-  const api = createHarness(overrides).api;
-  const first = await invoke(api, "/api/billing/checkout", {
+  const first = await invoke(createHarness(overrides).api, "/api/billing/checkout", {
     body: { plan: "monthly" },
   });
-  const second = await invoke(api, "/api/billing/checkout", {
+  const second = await invoke(createHarness(overrides).api, "/api/billing/checkout", {
     body: { plan: "monthly" },
   });
   assert.equal(first.response.status, 200);
   assert.equal(second.response.status, 200);
   assert.equal(attempts[0].trialEligible, false);
   assert.equal(attempts[1].trialEligible, false);
-  assert.notEqual(attempts[0].operationAttempt, "first-trial");
-  assert.notEqual(attempts[1].operationAttempt, "first-trial");
   assert.notEqual(attempts[0].operationAttempt, attempts[1].operationAttempt);
+  assert.deepEqual(state.calls.clear, [{ uid: UID, attemptId: "trial-attempt-durable" }]);
+  assert.equal(state.calls.reserve.length, 0);
+  assert.equal(state.pending(), null);
 });
 
 test("Checkout rechecks all eligibility immediately before creating its Session", async () => {
@@ -756,7 +996,12 @@ test("concurrent Checkout attempts for one UID cannot both create Sessions", asy
       createCheckoutSession: async () => {
         createCalls += 1;
         await firstCreated;
-        return { id: "cs_private", url: "https://checkout.stripe.com/c/pay/one" };
+        return {
+          id: "cs_private",
+          url: "https://checkout.stripe.com/c/pay/one",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
       },
     },
   });
@@ -776,6 +1021,82 @@ test("concurrent Checkout attempts for one UID cannot both create Sessions", asy
       message: "A Checkout request is already in progress.",
     },
   });
+});
+
+test("independent APIs and a real store converge on one first-trial reservation and persist no URL", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "everwise-billing-api-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const filePath = path.join(root, "billing.json");
+  const storeA = createBillingStore({ filePath, now: () => new Date(NOW) });
+  const storeB = createBillingStore({ filePath, now: () => new Date(NOW) });
+  await storeA.bindCustomer({ uid: UID, customerId: "cus_cross_instance" });
+
+  const createCalls = [];
+  const sessions = new Map();
+  let releaseCreates;
+  const createsReleased = new Promise((resolve) => {
+    releaseCreates = resolve;
+  });
+  const gateway = {
+    verifyPlans: async (plans) => plans,
+    findOrCreateCustomer: async () => ({ id: "cus_cross_instance" }),
+    listBlockingSubscriptions: async () => [],
+    createCheckoutSession: async (input) => {
+      createCalls.push(input);
+      await createsReleased;
+      const existing = sessions.get(input.operationAttempt);
+      if (existing) return existing;
+      const session = {
+        id: "cs_cross_instance",
+        url: "https://checkout.stripe.com/c/pay/cross-instance",
+        status: "open",
+        expiresAt: CHECKOUT_EXPIRES_AT,
+      };
+      sessions.set(input.operationAttempt, session);
+      return session;
+    },
+    retrieveCheckoutSession: async () => ({
+      id: "cs_cross_instance",
+      url: "https://checkout.stripe.com/c/pay/cross-instance",
+      status: "open",
+      expiresAt: CHECKOUT_EXPIRES_AT,
+    }),
+    expireCheckoutSession: async (sessionId) => ({
+      id: sessionId,
+      status: "expired",
+      expiresAt: CHECKOUT_EXPIRES_AT,
+    }),
+  };
+  const common = {
+    config: CONFIG,
+    gateway,
+    partnerStore: { getAccess: async () => ({ status: "none" }) },
+    verifyIdToken: async () => ({ uid: UID }),
+    now: () => new Date(NOW),
+  };
+  const apiA = createBillingApi({ ...common, store: storeA });
+  const apiB = createBillingApi({ ...common, store: storeB });
+
+  const first = invoke(apiA, "/api/billing/checkout", { body: { plan: "monthly" } });
+  const second = invoke(apiB, "/api/billing/checkout", { body: { plan: "monthly" } });
+  for (let index = 0; index < 100 && createCalls.length < 2; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  releaseCreates();
+  const results = await Promise.all([first, second]);
+
+  assert.deepEqual(results.map((result) => result.response.status), [200, 200]);
+  assert.deepEqual(results[0].response.json(), results[1].response.json());
+  assert.equal(createCalls.length, 2);
+  assert.equal(createCalls[0].operationAttempt, createCalls[1].operationAttempt);
+  assert.equal(sessions.size, 1);
+  const pending = await storeB.getPendingTrialCheckout(UID);
+  assert.equal(pending.attemptId, createCalls[0].operationAttempt);
+  assert.equal(pending.sessionId, "cs_cross_instance");
+  const disk = await readFile(filePath, "utf8");
+  assert.equal(disk.includes("checkout.stripe.com"), false);
+  assert.equal(disk.includes("cross-instance"), false);
+  assert.equal(Object.hasOwn(JSON.parse(disk).learners[UID].pendingTrialCheckout, "url"), false);
 });
 
 test("Price verification failure closes Checkout before customer or Session creation", async () => {

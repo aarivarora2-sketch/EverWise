@@ -9,6 +9,8 @@ const SECRET_KEY = "sk_test_gateway_secret_do_not_expose";
 const WEBHOOK_SECRET = "whsec_gateway_secret_do_not_expose";
 const CUSTOMER_EMAIL = "private.learner@example.com";
 const APP_ORIGIN = "https://app.everwise.example";
+const CHECKOUT_EXPIRES_AT = "2027-01-15T08:00:00.000Z";
+const CHECKOUT_EXPIRES_AT_SECONDS = 1_800_000_000;
 
 const PLAN_CONFIG = Object.freeze({
   monthly: Object.freeze({ ...BILLING_PLANS.monthly, priceId: "price_test_monthly" }),
@@ -56,6 +58,17 @@ const subscriptionResponse = (id, status, overrides = {}) => ({
     has_more: false,
     url: `/v1/subscription_items?subscription=${id}`,
   },
+  ...overrides,
+});
+
+const checkoutSessionResponse = (id, status = "open", overrides = {}) => ({
+  id,
+  object: "checkout.session",
+  mode: "subscription",
+  livemode: false,
+  status,
+  url: `https://checkout.stripe.com/c/pay/${id}`,
+  expires_at: CHECKOUT_EXPIRES_AT_SECONDS,
   ...overrides,
 });
 
@@ -411,16 +424,7 @@ test("customer lookup rejects an already-duplicated Firebase UID instead of choo
 
 test("Checkout uses only a verified server plan, server URLs, UID metadata, and eligible trial", async () => {
   const { gateway, fake } = await createVerifiedGateway([
-    {
-      body: {
-        id: "cs_test_created",
-        object: "checkout.session",
-        mode: "subscription",
-        livemode: false,
-        status: "open",
-        url: "https://checkout.stripe.com/c/pay/cs_test_created",
-      },
-    },
+    { body: checkoutSessionResponse("cs_test_created") },
   ]);
 
   assert.deepEqual(
@@ -435,6 +439,8 @@ test("Checkout uses only a verified server plan, server URLs, UID metadata, and 
     {
       id: "cs_test_created",
       url: "https://checkout.stripe.com/c/pay/cs_test_created",
+      status: "open",
+      expiresAt: CHECKOUT_EXPIRES_AT,
     },
   );
 
@@ -463,16 +469,7 @@ test("Checkout uses only a verified server plan, server URLs, UID metadata, and 
 
 test("Checkout omits a trial when the server says the learner is ineligible", async () => {
   const { gateway, fake } = await createVerifiedGateway([
-    {
-      body: {
-        id: "cs_test_no_trial",
-        object: "checkout.session",
-        mode: "subscription",
-        livemode: false,
-        status: "open",
-        url: "https://checkout.stripe.com/c/pay/cs_test_no_trial",
-      },
-    },
+    { body: checkoutSessionResponse("cs_test_no_trial") },
   ]);
 
   await gateway.createCheckoutSession({
@@ -510,11 +507,7 @@ test("Checkout refuses unverified plans and non-Stripe hosted URLs", async () =>
   const { gateway } = await createVerifiedGateway([
     {
       body: {
-        id: "cs_test_bad_url",
-        object: "checkout.session",
-        mode: "subscription",
-        livemode: false,
-        status: "open",
+        ...checkoutSessionResponse("cs_test_bad_url"),
         url: "https://evil.example/collect",
       },
     },
@@ -533,14 +526,8 @@ test("Checkout refuses unverified plans and non-Stripe hosted URLs", async () =>
 });
 
 test("Checkout returns only an open Session URL and uses a fresh attempt after terminal Sessions", async () => {
-  const session = (id, status) => ({
-    id,
-    object: "checkout.session",
-    mode: "subscription",
-    livemode: false,
-    ...(status === undefined ? {} : { status }),
-    url: `https://checkout.stripe.com/c/pay/${id}`,
-  });
+  const session = (id, status) =>
+    checkoutSessionResponse(id, status, status === undefined ? { status: undefined } : {});
   const { gateway, fake } = await createVerifiedGateway([
     { body: session("cs_test_complete", "complete") },
     { body: session("cs_test_expired", "expired") },
@@ -568,6 +555,8 @@ test("Checkout returns only an open Session URL and uses a fresh attempt after t
   assert.deepEqual(await create("fresh-open"), {
     id: "cs_test_fresh",
     url: "https://checkout.stripe.com/c/pay/cs_test_fresh",
+    status: "open",
+    expiresAt: CHECKOUT_EXPIRES_AT,
   });
   assert.deepEqual(
     fake.calls.slice(2).map((call) => requestHeader(call, "idempotency-key")),
@@ -578,6 +567,96 @@ test("Checkout returns only an open Session URL and uses a fresh attempt after t
       "checkout:firebase-uid-123:fresh-open",
     ],
   );
+});
+
+test("Checkout retrieval returns only normalized open and terminal lifecycle fields", async () => {
+  const { gateway, fake } = await createVerifiedGateway([
+    { body: checkoutSessionResponse("cs_test_restart") },
+    { body: checkoutSessionResponse("cs_test_complete", "complete") },
+    { body: checkoutSessionResponse("cs_test_expired", "expired") },
+  ]);
+
+  assert.deepEqual(await gateway.retrieveCheckoutSession("cs_test_restart"), {
+    id: "cs_test_restart",
+    url: "https://checkout.stripe.com/c/pay/cs_test_restart",
+    status: "open",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  });
+  assert.deepEqual(await gateway.retrieveCheckoutSession("cs_test_complete"), {
+    id: "cs_test_complete",
+    status: "complete",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  });
+  assert.deepEqual(await gateway.retrieveCheckoutSession("cs_test_expired"), {
+    id: "cs_test_expired",
+    status: "expired",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  });
+
+  assert.deepEqual(
+    fake.calls.slice(2).map((call) => [call.init.method ?? "GET", new URL(call.url).pathname]),
+    [
+      ["GET", "/v1/checkout/sessions/cs_test_restart"],
+      ["GET", "/v1/checkout/sessions/cs_test_complete"],
+      ["GET", "/v1/checkout/sessions/cs_test_expired"],
+    ],
+  );
+});
+
+test("Checkout expiration requires Stripe to confirm an expired terminal Session", async () => {
+  const { gateway, fake } = await createVerifiedGateway([
+    { body: checkoutSessionResponse("cs_test_expire", "expired") },
+  ]);
+
+  assert.deepEqual(await gateway.expireCheckoutSession("cs_test_expire"), {
+    id: "cs_test_expire",
+    status: "expired",
+    expiresAt: CHECKOUT_EXPIRES_AT,
+  });
+  assert.equal(fake.calls[2].init.method, "POST");
+  assert.equal(new URL(fake.calls[2].url).pathname, "/v1/checkout/sessions/cs_test_expire/expire");
+
+  const notExpired = await createVerifiedGateway([
+    { body: checkoutSessionResponse("cs_test_still_open", "open") },
+  ]);
+  await assert.rejects(notExpired.gateway.expireCheckoutSession("cs_test_still_open"), (error) => {
+    assert.equal(error.code, "BILLING_CHECKOUT_NOT_EXPIRED");
+    assert.match(error.message, /not expired/i);
+    return true;
+  });
+});
+
+test("Checkout lifecycle rejects malformed IDs, expiry, status, and open URLs without leaking them", async () => {
+  const noRequests = await createVerifiedGateway();
+  await assert.rejects(
+    noRequests.gateway.retrieveCheckoutSession("session_private_bad"),
+    /Checkout Session ID is invalid/i,
+  );
+  await assert.rejects(
+    noRequests.gateway.expireCheckoutSession("cs_bad/slash"),
+    /Checkout Session ID is invalid/i,
+  );
+  assert.equal(noRequests.fake.calls.length, 2);
+
+  for (const [response, expectedCode] of [
+    [checkoutSessionResponse("not_a_session"), "BILLING_INVALID_REQUEST"],
+    [checkoutSessionResponse("cs_test_missing_expiry", "open", { expires_at: undefined }), "BILLING_PROVIDER_ERROR"],
+    [checkoutSessionResponse("cs_test_fractional_expiry", "open", { expires_at: 1.5 }), "BILLING_PROVIDER_ERROR"],
+    [checkoutSessionResponse("cs_test_status", "unknown"), "BILLING_PROVIDER_ERROR"],
+    [
+      checkoutSessionResponse("cs_test_private_url", "open", {
+        url: "https://private.example/secret-token",
+      }),
+      "BILLING_PROVIDER_INVALID_URL",
+    ],
+  ]) {
+    const candidate = await createVerifiedGateway([{ body: response }]);
+    await assert.rejects(candidate.gateway.retrieveCheckoutSession(response.id), (error) => {
+      assert.equal(error.code, expectedCode);
+      assert.equal(error.message.includes("secret-token"), false);
+      return true;
+    });
+  }
 });
 
 test("Portal uses only the configured origin and accepts only Stripe's billing host", async () => {
