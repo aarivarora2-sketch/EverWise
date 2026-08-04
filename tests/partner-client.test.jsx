@@ -256,6 +256,18 @@ function installStylesForWidth(width) {
   return () => active.remove();
 }
 
+function installMatchMedia(width = 1280) {
+  vi.stubGlobal("matchMedia", (query) => ({
+    matches: mediaMatchesWidth(query, width),
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.scrollTo = vi.fn();
+}
+
 function partnerReport({
   branding = PARTNER,
   consentedCount = 5,
@@ -1252,7 +1264,93 @@ describe("sponsored signup orchestration", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete Element.prototype.scrollIntoView;
+    delete Element.prototype.scrollTo;
     window.history.replaceState(null, "", "/");
+  });
+
+  test("roster-style username remains gated when authoritative sponsorship is none", async () => {
+    installMatchMedia();
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "roster-style-public-user",
+      email: "everwise001@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "roster-style-public-token"),
+    };
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(
+        learnerProfile({
+          username: "everwise001",
+          subscriptionStatus: "expired",
+          completedLessons: ["welcome", "internet"],
+        }),
+      ),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await user.click(screen.getByRole("button", { name: "Open Course" }));
+    await user.click(
+      screen.getByRole("button", { name: "Start lesson: What is AI?" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Pricing and subscription" }),
+    ).toBeVisible();
+  });
+
+  test("authoritative sponsored membership opens paid lessons and hides subscription controls", async () => {
+    installMatchMedia();
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "authoritative-sponsored-user",
+      email: "everwise001@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "authoritative-sponsored-token"),
+    };
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(
+        learnerProfile({
+          username: "everwise001",
+          subscriptionStatus: "expired",
+          completedLessons: ["welcome", "internet"],
+        }),
+      ),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await user.click(screen.getByRole("button", { name: "Open Course" }));
+    await user.click(
+      screen.getByRole("button", { name: "Start lesson: What is AI?" }),
+    );
+
+    expect(screen.getByRole("heading", { name: "What is AI?" })).toBeVisible();
+    expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(
+      screen.getByText("Full access provided by Community Partner"),
+    ).toBeVisible();
+    expect(screen.queryByText("Subscription")).not.toBeInTheDocument();
+    expect(screen.queryByText("Start free trial")).not.toBeInTheDocument();
   });
 
   test("claims before writing the profile and routes the active learner Home without Paywall", async () => {

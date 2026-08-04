@@ -34,6 +34,18 @@ test("public expired users remain gated", () => {
   );
 });
 
+test("an EverWise roster-style username does not grant access without server sponsorship", () => {
+  assert.equal(
+    resolveFullAccess({
+      username: "EverWise001",
+      sponsoredStatus: "none",
+      subscriptionStatus: "expired",
+      developmentBypass: false,
+    }),
+    false,
+  );
+});
+
 test("public learners can complete the introduction and Lesson 1 only", () => {
   assert.equal(
     canOpenLesson({ lessonId: "welcome", completed: false, fullAccess: false }),
