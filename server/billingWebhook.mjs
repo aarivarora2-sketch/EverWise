@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const MAXIMUM_BODY_BYTES = 256 * 1024;
 
 const ACCESS_CHANGING_EVENTS = new Set([
@@ -209,9 +211,12 @@ export const createBillingWebhook = ({ config, store, gateway, logger } = {}) =>
     !logger ||
     typeof store.getByCustomerId !== "function" ||
     typeof store.applySubscriptionSnapshot !== "function" ||
+    typeof store.beginSubscriptionReconciliation !== "function" ||
+    typeof store.reconcileSubscriptionSnapshot !== "function" ||
     typeof store.recordProcessedEvent !== "function" ||
     typeof gateway.constructWebhookEvent !== "function" ||
     typeof gateway.retrieveSubscription !== "function" ||
+    typeof gateway.listNonTerminalSubscriptions !== "function" ||
     typeof gateway.cancelSubscription !== "function"
   ) {
     throw new TypeError("config, store, gateway, and logger are required");
@@ -236,74 +241,107 @@ export const createBillingWebhook = ({ config, store, gateway, logger } = {}) =>
     const eventUid = object.metadata.firebaseUid;
     if (!validUid(eventUid) || eventUid !== record.uid) throw invalidWebhook();
 
+    const expectedSubscriptionId = record.subscriptionId;
+    if (
+      expectedSubscriptionId !== null &&
+      (typeof expectedSubscriptionId !== "string" ||
+        !SUBSCRIPTION_ID_PATTERN.test(expectedSubscriptionId))
+    ) throw invalidWebhook();
+    const hold = await store.beginSubscriptionReconciliation({
+      uid: record.uid,
+      customerId: object.customerId,
+      expectedSubscriptionId,
+      eventId: event.id,
+    });
+    if (
+      !validStoreResult(
+        hold,
+        "held",
+        new Set(["held", "not_granting", "duplicate"]),
+      )
+    ) throw new Error("invalid billing store result");
+    if (hold.reason === "duplicate") return;
+
     const authoritative = validateSubscription(
       await gateway.retrieveSubscription(object.subscriptionId),
       object,
       config.livemode,
     );
-    const plan = planForPrice(config.plans, authoritative.priceId);
-
-    if (
-      typeof record.subscriptionId === "string" &&
-      record.subscriptionId !== authoritative.id
-    ) {
-      if (!SUBSCRIPTION_ID_PATTERN.test(record.subscriptionId)) throw invalidWebhook();
-      const existing = validateSubscription(
-        await gateway.retrieveSubscription(record.subscriptionId),
-        {
-          customerId: object.customerId,
-          subscriptionId: record.subscriptionId,
-        },
+    planForPrice(config.plans, authoritative.priceId);
+    const listed = await gateway.listNonTerminalSubscriptions({
+      customerId: object.customerId,
+    });
+    if (!Array.isArray(listed)) throw invalidWebhook();
+    const seen = new Set();
+    const candidates = listed.map((candidate) => {
+      if (!isPlainObject(candidate) || seen.has(candidate.id)) throw invalidWebhook();
+      const validated = validateSubscription(
+        candidate,
+        { customerId: object.customerId, subscriptionId: candidate.id },
         config.livemode,
       );
-      planForPrice(config.plans, existing.priceId);
-      if (isNonTerminal(existing.status)) {
-        if (!isNonTerminal(authoritative.status)) {
-          await recordEventOnly(event);
-          return;
-        }
-
-        const incomingIsEarlier =
-          authoritative.created !== existing.created
-            ? authoritative.created < existing.created
-            : authoritative.id < existing.id;
-        const duplicateSubscriptionId = incomingIsEarlier
-          ? existing.id
-          : authoritative.id;
-        await gateway.cancelSubscription({
-          uid: record.uid,
-          subscriptionId: duplicateSubscriptionId,
-          operationAttempt: event.id,
-        });
-        logger.warn("BILLING_DUPLICATE_SUBSCRIPTION");
-        if (!incomingIsEarlier) {
-          await recordEventOnly(event);
-          return;
-        }
-      } else if (!isNonTerminal(authoritative.status)) {
-        await recordEventOnly(event);
-        return;
+      if (!isNonTerminal(validated.status)) throw invalidWebhook();
+      planForPrice(config.plans, validated.priceId);
+      seen.add(validated.id);
+      return validated;
+    });
+    if (isNonTerminal(authoritative.status)) {
+      const listedIncoming = candidates.find(({ id }) => id === authoritative.id);
+      if (!listedIncoming || JSON.stringify(listedIncoming) !== JSON.stringify(authoritative)) {
+        throw invalidWebhook();
       }
     }
+    candidates.sort((left, right) =>
+      left.created !== right.created
+        ? left.created - right.created
+        : left.id < right.id
+          ? -1
+          : 1);
+    const winner = candidates[0] || authoritative;
+    const plan = planForPrice(config.plans, winner.priceId);
 
-    const result = await store.applySubscriptionSnapshot({
-      eventId: event.id,
-      created: event.created,
-      uid: record.uid,
-      customerId: authoritative.customerId,
-      subscriptionId: authoritative.id,
-      plan,
-      status: authoritative.status,
-      deleted: event.type === "customer.subscription.deleted",
-      cancelAtPeriodEnd: authoritative.cancelAtPeriodEnd,
-      trialEndsAt: optionalIsoDate(authoritative.trialEnd),
-      currentPeriodEndsAt: optionalIsoDate(authoritative.currentPeriodEnd),
+    for (const loser of candidates.slice(1)) {
+      const operationAttempt = `reconcile-${createHash("sha256")
+        .update(`${event.id}:${loser.id}`)
+        .digest("hex")
+        .slice(0, 32)}`;
+      const canceled = validateSubscription(
+        await gateway.cancelSubscription({
+          uid: record.uid,
+          subscriptionId: loser.id,
+          operationAttempt,
+        }),
+        { customerId: object.customerId, subscriptionId: loser.id },
+        config.livemode,
+      );
+      if (!TERMINAL_SUBSCRIPTION_STATUSES.has(canceled.status)) {
+        throw new Error("duplicate subscription cancellation was not confirmed");
+      }
+      logger.warn("BILLING_DUPLICATE_SUBSCRIPTION");
+    }
+
+    const result = await store.reconcileSubscriptionSnapshot({
+      expectedSubscriptionId,
+      snapshot: {
+        eventId: event.id,
+        created: event.created,
+        uid: record.uid,
+        customerId: winner.customerId,
+        subscriptionId: winner.id,
+        plan,
+        status: winner.status,
+        deleted:
+          event.type === "customer.subscription.deleted" && winner.id === authoritative.id,
+        cancelAtPeriodEnd: winner.cancelAtPeriodEnd,
+        trialEndsAt: optionalIsoDate(winner.trialEnd),
+        currentPeriodEndsAt: optionalIsoDate(winner.currentPeriodEnd),
+      },
     });
     if (
       !validStoreResult(
         result,
         "applied",
-        new Set(["updated", "duplicate", "stale"]),
+        new Set(["reconciled", "duplicate"]),
       )
     ) {
       throw new Error("invalid billing store result");

@@ -25,13 +25,6 @@ const DEFAULT_PARTNER_STORE_PATH = "/var/lib/everwise/partners.json";
 const DEFAULT_BILLING_STORE_PATH = "/var/lib/everwise/billing.json";
 const MAXIMUM_BILLING_BODY_BYTES = 256 * 1024;
 const GITHUB_PAGES_ORIGIN = "https://aarivarora2-sketch.github.io";
-const BILLING_ENVIRONMENT_NAMES = Object.freeze([
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
-  "STRIPE_MONTHLY_PRICE_ID",
-  "STRIPE_ANNUAL_PRICE_ID",
-  "EVERWISE_PUBLIC_APP_ORIGIN",
-]);
 const BILLING_API_PATHS = new Set([
   "/api/billing/plans",
   "/api/billing/access",
@@ -168,6 +161,7 @@ const unavailableBillingGateway = () => {
     expireCheckoutSession: unavailable,
     createPortalSession: unavailable,
     listBlockingSubscriptions: unavailable,
+    listNonTerminalSubscriptions: unavailable,
     retrieveSubscription: unavailable,
     cancelSubscription: unavailable,
     constructWebhookEvent() {
@@ -175,11 +169,6 @@ const unavailableBillingGateway = () => {
     },
   });
 };
-
-const billingSettingsPresent = (env) =>
-  BILLING_ENVIRONMENT_NAMES.some(
-    (name) => typeof env[name] === "string" && env[name].trim(),
-  );
 
 const billingLivemode = (env) =>
   typeof env.STRIPE_SECRET_KEY === "string" &&
@@ -381,7 +370,6 @@ export async function createEverWiseApplication({
     verifyIdToken,
   });
 
-  const hasAnyBillingSetting = billingSettingsPresent(env);
   let config;
   let configurationValid = true;
   try {
@@ -439,8 +427,6 @@ export async function createEverWiseApplication({
     elevenLabsVoiceId:
       env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_VOICE_ID,
   };
-  const includeBillingHealth = hasAnyBillingSetting || config?.configured === true;
-
   const handle = async (request, response) => {
     try {
       const pathname = new URL(request.url, "http://localhost").pathname;
@@ -480,24 +466,22 @@ export async function createEverWiseApplication({
           partnerAccessConfigured: partnerHealth.configured,
           partnerStoreHealthy: partnerHealth.healthy,
         };
-        if (includeBillingHealth) {
-          let storeHealthy = false;
-          if (configurationValid && config?.configured === true) {
-            try {
-              const storeHealth = await billingStore.health();
-              storeHealthy =
-                storeHealth?.configured === true && storeHealth.healthy === true;
-            } catch {
-              storeHealthy = false;
-            }
+        let storeHealthy = false;
+        if (configurationValid && config?.configured === true) {
+          try {
+            const storeHealth = await billingStore.health();
+            storeHealthy =
+              storeHealth?.configured === true && storeHealth.healthy === true;
+          } catch {
+            storeHealthy = false;
           }
-          Object.assign(health, {
-            billingConfigured:
-              configurationValid && config?.configured === true,
-            billingPlansVerified: plansVerified,
-            billingStoreHealthy: storeHealthy,
-          });
         }
+        Object.assign(health, {
+          billingConfigured:
+            configurationValid && config?.configured === true,
+          billingPlansVerified: plansVerified,
+          billingStoreHealthy: storeHealthy,
+        });
         jsonResponse(response, 200, health);
         return;
       }
@@ -506,6 +490,12 @@ export async function createEverWiseApplication({
 
       if (BILLING_API_PATHS.has(pathname)) {
         if (request.method === "POST") {
+          const authorization = await billingApi.authorize({
+            request,
+            response,
+            pathname,
+          });
+          if (!authorization) return;
           let parsed;
           try {
             parsed = await readMeasuredJsonBody(request);
@@ -519,7 +509,8 @@ export async function createEverWiseApplication({
             throw error;
           }
           if (
-            await billingApi.handle({
+            await billingApi.handleVerified({
+              authorization,
               request,
               response,
               pathname,

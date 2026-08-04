@@ -149,6 +149,84 @@ test("the default store path is optional and remains fail-closed when absent", a
   assert.deepEqual(await store.health(), { configured: false, healthy: false });
 });
 
+test("subscription reconciliation revokes a loser before replacing it with the authoritative winner", async (t) => {
+  const { store } = await setupStore(t);
+  await bind(store);
+  await store.applySubscriptionSnapshot(subscriptionSnapshot({
+    subscriptionId: "sub_later",
+    eventId: "evt_later",
+    created: 200,
+  }));
+
+  assert.deepEqual(
+    await store.beginSubscriptionReconciliation({
+      uid: "uid-1",
+      customerId: "cus_one",
+      expectedSubscriptionId: "sub_later",
+      eventId: "evt_earlier",
+    }),
+    { held: true, reason: "held" },
+  );
+  assert.equal((await store.getByUid("uid-1")).access, "none");
+
+  const earlier = subscriptionSnapshot({
+    subscriptionId: "sub_earlier",
+    eventId: "evt_earlier",
+    created: 100,
+  });
+  assert.deepEqual(
+    await store.reconcileSubscriptionSnapshot({
+      expectedSubscriptionId: "sub_later",
+      snapshot: earlier,
+    }),
+    { applied: true, reason: "reconciled" },
+  );
+  const winner = await store.getByUid("uid-1");
+  assert.equal(winner.subscriptionId, "sub_earlier");
+  assert.equal(winner.status, "active");
+  assert.equal(winner.access, "full");
+  assert.equal(winner.lastEventCreated, 200);
+  assert.equal(winner.lastEventId, "evt_later");
+
+  assert.deepEqual(
+    await store.reconcileSubscriptionSnapshot({
+      expectedSubscriptionId: "sub_later",
+      snapshot: earlier,
+    }),
+    { applied: false, reason: "duplicate" },
+  );
+  assert.deepEqual(await store.getByUid("uid-1"), winner);
+
+  assert.deepEqual(
+    await store.applySubscriptionSnapshot(subscriptionSnapshot({
+      subscriptionId: "sub_attacker",
+      eventId: "evt_stale",
+      created: 150,
+    })),
+    { applied: false, reason: "stale" },
+  );
+  assert.equal((await store.getByUid("uid-1")).subscriptionId, "sub_earlier");
+});
+
+test("subscription reconciliation uses a compare-and-set boundary", async (t) => {
+  const { store } = await setupStore(t);
+  await bind(store);
+  await store.applySubscriptionSnapshot(subscriptionSnapshot({
+    subscriptionId: "sub_current",
+  }));
+
+  await expectStoreError(
+    () => store.beginSubscriptionReconciliation({
+      uid: "uid-1",
+      customerId: "cus_one",
+      expectedSubscriptionId: "sub_other",
+      eventId: "evt_reconcile",
+    }),
+    "BILLING_STORE_RECONCILIATION_CONFLICT",
+  );
+  assert.equal((await store.getByUid("uid-1")).access, "full");
+});
+
 test("pending first-trial Checkout reservation is minimal, durable, and first-writer-wins", async (t) => {
   const { filePath, store, advance } = await setupStore(t);
   await bind(store);

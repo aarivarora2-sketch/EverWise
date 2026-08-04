@@ -7,6 +7,7 @@ const CHECKOUT_HOST = "checkout.stripe.com";
 const PORTAL_HOST = "billing.stripe.com";
 const MAX_SUBSCRIPTION_PAGES = 20;
 const BLOCKING_STATUSES = new Set(["trialing", "active", "incomplete", "past_due"]);
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["canceled", "incomplete_expired"]);
 const WEBHOOK_EVENT_TYPES = new Set([
   "checkout.session.completed",
   "customer.subscription.created",
@@ -602,6 +603,44 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
     });
   };
 
+  const listNonTerminalSubscriptions = async ({ customerId } = {}) => {
+    const normalizedCustomerId = requireStripeId(customerId, "cus_", "Customer ID");
+    return runProviderRequest(async () => {
+      const nonterminal = [];
+      const seenCursors = new Set();
+      let startingAfter;
+      for (let pageNumber = 0; pageNumber < MAX_SUBSCRIPTION_PAGES; pageNumber += 1) {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: normalizedCustomerId,
+          status: "all",
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+        if (!Array.isArray(subscriptions.data) || typeof subscriptions.has_more !== "boolean") {
+          throw providerFailure();
+        }
+        nonterminal.push(
+          ...subscriptions.data
+            .filter(({ status }) =>
+              SUBSCRIPTION_STATUSES.has(status) &&
+              !TERMINAL_SUBSCRIPTION_STATUSES.has(status))
+            .map(normalizeSubscription),
+        );
+        if (!subscriptions.has_more) return nonterminal;
+        const nextCursor = subscriptions.data.at(-1)?.id;
+        if (
+          !nextCursor ||
+          typeof nextCursor !== "string" ||
+          seenCursors.has(nextCursor) ||
+          nextCursor === startingAfter
+        ) throw providerFailure();
+        seenCursors.add(nextCursor);
+        startingAfter = nextCursor;
+      }
+      throw providerFailure();
+    });
+  };
+
   const retrieveSubscription = async (subscriptionId) => {
     const normalizedSubscriptionId = requireStripeId(
       subscriptionId,
@@ -653,6 +692,7 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
     expireCheckoutSession,
     createPortalSession,
     listBlockingSubscriptions,
+    listNonTerminalSubscriptions,
     retrieveSubscription,
     cancelSubscription,
     constructWebhookEvent,

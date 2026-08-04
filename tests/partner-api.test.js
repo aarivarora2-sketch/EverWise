@@ -1249,6 +1249,9 @@ test("server composes partner health without changing narration and scam-checker
     scamCheckerConfigured: false,
     partnerAccessConfigured: false,
     partnerStoreHealthy: false,
+    billingConfigured: false,
+    billingPlansVerified: false,
+    billingStoreHealthy: false,
   });
 
   const narration = await fetch(`${baseUrl}/api/read-aloud`, {

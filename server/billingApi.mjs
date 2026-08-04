@@ -382,6 +382,7 @@ export const createBillingApi = ({
   let verifiedPlansPromise = null;
   let operationCounter = 0;
   const checkoutQueues = new Map();
+  const authorizations = new WeakMap();
 
   const operationAttempt = (kind) => {
     const value = now();
@@ -706,49 +707,109 @@ export const createBillingApi = ({
     return { url: hostedUrl(session.url, "billing.stripe.com") };
   };
 
-  return Object.freeze({
-    async handle({ request, response, pathname, body, bodyByteLength } = {}) {
-      const route = BILLING_PATHS.get(pathname);
-      if (!route) return false;
+  const respondForRoute = async ({ route, learner, request, response, body, bodyByteLength }) => {
+    const parsedBody = await resolveBody(request, body, bodyByteLength);
+    if (route === "plans") {
+      requireExactKeys(parsedBody, []);
+      await requireHealthyBilling();
+      jsonResponse(response, 200, publicPlans(config.plans));
+      return;
+    }
+    if (route === "checkout") {
+      requireExactKeys(parsedBody, ["plan"]);
+      if (parsedBody.plan !== "monthly" && parsedBody.plan !== "annual") {
+        throw apiError(400, "INVALID_INPUT", "The request is invalid.");
+      }
+      jsonResponse(response, 200, await createCheckout(learner.uid, parsedBody.plan));
+      return;
+    }
+    if (route === "access") {
+      requireExactKeys(parsedBody, []);
+      jsonResponse(response, 200, await getAccess(learner.uid));
+      return;
+    }
+    if (route === "portal") {
+      requireExactKeys(parsedBody, []);
+      jsonResponse(response, 200, await createPortal(learner.uid));
+      return;
+    }
+    throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+  };
 
-      if (request?.method !== "POST") {
-        jsonResponse(
+  const requirePostRoute = (request, response, pathname) => {
+    const route = BILLING_PATHS.get(pathname);
+    if (!route) return null;
+    if (request?.method !== "POST") {
+      jsonResponse(
+        response,
+        405,
+        { error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed." } },
+        { Allow: "POST" },
+      );
+      return false;
+    }
+    return route;
+  };
+
+  return Object.freeze({
+    async authorize({ request, response, pathname } = {}) {
+      const route = requirePostRoute(request, response, pathname);
+      if (!route) return null;
+      try {
+        const learner = await verifiedLearner(request, verifyIdToken);
+        const authorization = Object.freeze({});
+        authorizations.set(authorization, { request, response, pathname, route, learner });
+        return authorization;
+      } catch (error) {
+        errorResponse(response, error);
+        return null;
+      }
+    },
+    async handleVerified({
+      authorization,
+      request,
+      response,
+      pathname,
+      body,
+      bodyByteLength,
+    } = {}) {
+      const authorized = authorizations.get(authorization);
+      if (
+        !authorized ||
+        authorized.request !== request ||
+        authorized.response !== response ||
+        authorized.pathname !== pathname
+      ) {
+        errorResponse(
           response,
-          405,
-          { error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed." } },
-          { Allow: "POST" },
+          apiError(401, "UNAUTHENTICATED", "Authentication is required."),
         );
         return true;
       }
+      authorizations.delete(authorization);
+      try {
+        await respondForRoute({
+          route: authorized.route,
+          learner: authorized.learner,
+          request,
+          response,
+          body,
+          bodyByteLength,
+        });
+      } catch (error) {
+        errorResponse(response, error);
+      }
+      return true;
+    },
+    async handle({ request, response, pathname, body, bodyByteLength } = {}) {
+      const route = requirePostRoute(request, response, pathname);
+      if (route === null) return false;
+      if (route === false) return true;
 
       try {
         const learner = await verifiedLearner(request, verifyIdToken);
-        const parsedBody = await resolveBody(request, body, bodyByteLength);
-        if (route === "plans") {
-          requireExactKeys(parsedBody, []);
-          await requireHealthyBilling();
-          jsonResponse(response, 200, publicPlans(config.plans));
-          return true;
-        }
-        if (route === "checkout") {
-          requireExactKeys(parsedBody, ["plan"]);
-          if (parsedBody.plan !== "monthly" && parsedBody.plan !== "annual") {
-            throw apiError(400, "INVALID_INPUT", "The request is invalid.");
-          }
-          jsonResponse(response, 200, await createCheckout(learner.uid, parsedBody.plan));
-          return true;
-        }
-        if (route === "access") {
-          requireExactKeys(parsedBody, []);
-          jsonResponse(response, 200, await getAccess(learner.uid));
-          return true;
-        }
-        if (route === "portal") {
-          requireExactKeys(parsedBody, []);
-          jsonResponse(response, 200, await createPortal(learner.uid));
-          return true;
-        }
-        throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        await respondForRoute({ route, learner, request, response, body, bodyByteLength });
+        return true;
       } catch (error) {
         errorResponse(response, error);
         return true;

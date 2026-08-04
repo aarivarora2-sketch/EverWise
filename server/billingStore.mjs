@@ -1258,6 +1258,121 @@ export function createBillingStore({
     });
   }
 
+  function beginSubscriptionReconciliation({
+    uid,
+    customerId,
+    expectedSubscriptionId,
+    eventId,
+  } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      const normalizedEventId = requireIdentifier(eventId, EVENT_ID_PATTERN);
+      const normalizedUid = requireUid(uid);
+      const normalizedCustomerId = requireIdentifier(customerId, CUSTOMER_ID_PATTERN);
+      const normalizedExpected = expectedSubscriptionId === null
+        ? null
+        : requireIdentifier(expectedSubscriptionId, SUBSCRIPTION_ID_PATTERN);
+      const record = Object.hasOwn(data.learners, normalizedUid)
+        ? data.learners[normalizedUid]
+        : null;
+      if (
+        !record ||
+        record.customerId !== normalizedCustomerId ||
+        record.subscriptionId !== normalizedExpected
+      ) {
+        throw storeError(
+          "BILLING_STORE_RECONCILIATION_CONFLICT",
+          "The billing reconciliation conflicts with stored state.",
+        );
+      }
+      if (includesProcessedEvent(data, normalizedEventId)) {
+        return mutation({ held: false, reason: "duplicate" }, false);
+      }
+      if (!ACCESS_STATUSES.has(record.status)) {
+        return mutation({ held: false, reason: "not_granting" }, false);
+      }
+      record.status = "incomplete";
+      record.updatedAt = currentDate.toISOString();
+      return mutation({ held: true, reason: "held" });
+    });
+  }
+
+  function reconcileSubscriptionSnapshot({ expectedSubscriptionId, snapshot } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      if (!isPlainObject(snapshot)) throw invalidInput();
+      const eventId = requireIdentifier(snapshot.eventId, EVENT_ID_PATTERN);
+      const created = requireEventCreated(snapshot.created);
+      if (includesProcessedEvent(data, eventId)) {
+        return mutation({ applied: false, reason: "duplicate" }, false);
+      }
+      const normalizedExpected = expectedSubscriptionId === null
+        ? null
+        : requireIdentifier(expectedSubscriptionId, SUBSCRIPTION_ID_PATTERN);
+      const uid = requireUid(snapshot.uid);
+      const customerId = requireIdentifier(snapshot.customerId, CUSTOMER_ID_PATTERN);
+      const subscriptionId = requireIdentifier(
+        snapshot.subscriptionId,
+        SUBSCRIPTION_ID_PATTERN,
+      );
+      if (!PLANS.has(snapshot.plan) || !SUBSCRIPTION_STATUSES.has(snapshot.status)) {
+        throw invalidInput();
+      }
+      if (snapshot.deleted !== undefined && typeof snapshot.deleted !== "boolean") {
+        throw invalidInput();
+      }
+      if (typeof snapshot.cancelAtPeriodEnd !== "boolean") throw invalidInput();
+      const trialEndsAt = normalizeOptionalTimestamp(snapshot.trialEndsAt);
+      const currentPeriodEndsAt = normalizeOptionalTimestamp(snapshot.currentPeriodEndsAt);
+      const record = Object.hasOwn(data.learners, uid) ? data.learners[uid] : null;
+      if (
+        !record ||
+        record.customerId !== customerId ||
+        (record.subscriptionId !== normalizedExpected && record.subscriptionId !== subscriptionId)
+      ) {
+        throw storeError(
+          "BILLING_STORE_RECONCILIATION_CONFLICT",
+          "The billing reconciliation conflicts with stored state.",
+        );
+      }
+      const customerOwner = Object.values(data.learners).find(
+        (candidate) => candidate.customerId === customerId,
+      );
+      const subscriptionOwner = Object.values(data.learners).find(
+        (candidate) => candidate.subscriptionId === subscriptionId,
+      );
+      if (
+        customerOwner?.uid !== uid ||
+        (subscriptionOwner && subscriptionOwner.uid !== uid)
+      ) {
+        throw storeError(
+          "BILLING_STORE_IDENTITY_CONFLICT",
+          "The billing identity conflicts with another learner.",
+        );
+      }
+
+      addProcessedEvent(data, { id: eventId, created });
+      const status = snapshot.deleted === true ? "canceled" : snapshot.status;
+      const timestamp = currentDate.toISOString();
+      const advanceEventWatermark = eventIsNewer(created, eventId, record);
+      const trialUsedAt =
+        record.trialUsedAt ||
+        (status === "trialing" || trialEndsAt !== null ? timestamp : null);
+      Object.assign(record, {
+        subscriptionId,
+        plan: snapshot.plan,
+        status,
+        trialUsedAt,
+        trialEndsAt,
+        currentPeriodEndsAt,
+        cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+        lastEventCreated: advanceEventWatermark ? created : record.lastEventCreated,
+        lastEventId: advanceEventWatermark ? eventId : record.lastEventId,
+        updatedAt: timestamp,
+      });
+      if (trialUsedAt !== null) delete record.pendingTrialCheckout;
+      return mutation({ applied: true, reason: "reconciled" });
+    });
+  }
+
   async function hasUsedTrial(uid) {
     const normalizedUid = requireUid(uid);
     const anchor = await openStoreAnchor();
@@ -1308,6 +1423,8 @@ export function createBillingStore({
     attachPendingTrialCheckout,
     clearPendingTrialCheckout,
     applySubscriptionSnapshot,
+    beginSubscriptionReconciliation,
+    reconcileSubscriptionSnapshot,
     hasUsedTrial,
     recordProcessedEvent,
   });

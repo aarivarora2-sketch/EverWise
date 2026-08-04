@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
+import { createBillingStore } from "../server/billingStore.mjs";
 import { createBillingWebhook } from "../server/billingWebhook.mjs";
 
 const UID = "firebase-uid-123";
@@ -114,7 +118,10 @@ function createHarness(overrides = {}) {
     construct: [],
     getByCustomerId: [],
     retrieveSubscription: [],
+    listNonTerminalSubscriptions: [],
     cancelSubscription: [],
+    beginSubscriptionReconciliation: [],
+    reconcileSubscriptionSnapshot: [],
     applySubscriptionSnapshot: [],
     recordProcessedEvent: [],
     logs: [],
@@ -136,6 +143,14 @@ function createHarness(overrides = {}) {
       }
       return overrides.subscription || subscription();
     },
+    async listNonTerminalSubscriptions(input) {
+      calls.listNonTerminalSubscriptions.push(input);
+      return overrides.nonterminalSubscriptions ||
+        (overrides.subscriptions
+          ? Object.values(overrides.subscriptions).filter(({ status }) =>
+              !["canceled", "incomplete_expired"].includes(status))
+          : [overrides.subscription || subscription()]);
+    },
     async cancelSubscription(input) {
       calls.cancelSubscription.push(input);
       return subscription({ id: input.subscriptionId, status: "canceled" });
@@ -150,6 +165,14 @@ function createHarness(overrides = {}) {
     async applySubscriptionSnapshot(snapshot) {
       calls.applySubscriptionSnapshot.push(snapshot);
       return overrides.applyResult || { applied: true, reason: "updated" };
+    },
+    async beginSubscriptionReconciliation(input) {
+      calls.beginSubscriptionReconciliation.push(input);
+      return { held: false, reason: "not_granting" };
+    },
+    async reconcileSubscriptionSnapshot(input) {
+      calls.reconcileSubscriptionSnapshot.push(input);
+      return overrides.applyResult || { applied: true, reason: "reconciled" };
     },
     async recordProcessedEvent(input) {
       calls.recordProcessedEvent.push(input);
@@ -308,7 +331,7 @@ test("verified irrelevant and duplicate events return 200 so Stripe will not ret
   });
   const duplicateResult = await invoke(duplicate.webhook);
   assertSafeJson(duplicateResult.response, 200, true);
-  assert.equal(duplicate.calls.applySubscriptionSnapshot.length, 1);
+  assert.equal(duplicate.calls.reconcileSubscriptionSnapshot.length, 1);
 });
 
 test("every access-changing lifecycle retrieves and persists one authoritative snapshot", async () => {
@@ -336,8 +359,8 @@ test("every access-changing lifecycle retrieves and persists one authoritative s
 
     assertSafeJson(result.response, 200, true);
     assert.deepEqual(calls.retrieveSubscription, ["sub_current"], type);
-    assert.deepEqual(calls.applySubscriptionSnapshot, [
-      {
+    assert.deepEqual(calls.reconcileSubscriptionSnapshot, [
+      { expectedSubscriptionId: null, snapshot: {
         eventId: `evt_${objectId}`,
         created: 1_800_000_000,
         uid: UID,
@@ -349,7 +372,7 @@ test("every access-changing lifecycle retrieves and persists one authoritative s
         cancelAtPeriodEnd: false,
         trialEndsAt: "2027-01-15T20:00:00.000Z",
         currentPeriodEndsAt: "2027-01-16T08:00:00.000Z",
-      },
+      } },
     ], type);
   }
 });
@@ -454,17 +477,17 @@ test("a later duplicate subscription is canceled and can never grant access", as
   const result = await invoke(webhook);
 
   assertSafeJson(result.response, 200, true);
-  assert.deepEqual(calls.cancelSubscription, [
-    {
-      uid: UID,
-      subscriptionId: "sub_later",
-      operationAttempt: "evt_later_duplicate",
-    },
-  ]);
+  assert.equal(calls.cancelSubscription.length, 1);
+  assert.equal(calls.cancelSubscription[0].uid, UID);
+  assert.equal(calls.cancelSubscription[0].subscriptionId, "sub_later");
+  assert.match(calls.cancelSubscription[0].operationAttempt, /^reconcile-[a-f0-9]{32}$/u);
   assert.equal(calls.applySubscriptionSnapshot.length, 0);
-  assert.deepEqual(calls.recordProcessedEvent, [
-    { eventId: "evt_later_duplicate", created: 1_799_000_000 },
-  ]);
+  assert.equal(calls.reconcileSubscriptionSnapshot.length, 1);
+  assert.equal(
+    calls.reconcileSubscriptionSnapshot[0].snapshot.subscriptionId,
+    "sub_earliest",
+  );
+  assert.deepEqual(calls.recordProcessedEvent, []);
   assert.deepEqual(calls.logs, [["warn", "BILLING_DUPLICATE_SUBSCRIPTION"]]);
 });
 
@@ -490,11 +513,15 @@ test("an earlier subscription arriving out of order replaces and cancels the lat
   const result = await invoke(webhook);
 
   assertSafeJson(result.response, 200, true);
-  assert.deepEqual(calls.cancelSubscription, [
-    { uid: UID, subscriptionId: "sub_later", operationAttempt: "evt_earlier" },
-  ]);
-  assert.equal(calls.applySubscriptionSnapshot.length, 1);
-  assert.equal(calls.applySubscriptionSnapshot[0].subscriptionId, "sub_earlier");
+  assert.equal(calls.cancelSubscription.length, 1);
+  assert.equal(calls.cancelSubscription[0].uid, UID);
+  assert.equal(calls.cancelSubscription[0].subscriptionId, "sub_later");
+  assert.match(calls.cancelSubscription[0].operationAttempt, /^reconcile-[a-f0-9]{32}$/u);
+  assert.equal(calls.reconcileSubscriptionSnapshot.length, 1);
+  assert.equal(
+    calls.reconcileSubscriptionSnapshot[0].snapshot.subscriptionId,
+    "sub_earlier",
+  );
 });
 
 test("error logs contain only stable codes even when dependencies throw private details", async () => {
@@ -512,5 +539,178 @@ test("error logs contain only stable codes even when dependencies throw private 
   const serialized = JSON.stringify({ response: result.response.json(), logs: calls.logs });
   for (const privateValue of PRIVATE_VALUES) {
     assert.equal(serialized.includes(privateValue), false);
+  }
+});
+
+async function composedStore(t) {
+  const root = await mkdtemp(join(tmpdir(), "everwise-webhook-reconcile-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return createBillingStore({ filePath: join(root, "billing.json") });
+}
+
+function reconciliationGateway(providerSubscriptions, normalizedEvent, calls) {
+  let current = [...providerSubscriptions];
+  return {
+    constructWebhookEvent() {
+      return normalizedEvent;
+    },
+    async retrieveSubscription(subscriptionId) {
+      return current.find(({ id }) => id === subscriptionId);
+    },
+    async listNonTerminalSubscriptions({ customerId }) {
+      calls.lists.push(customerId);
+      return [...current];
+    },
+    async cancelSubscription(input) {
+      calls.cancels.push(input);
+      const canceled = current.find(({ id }) => id === input.subscriptionId);
+      current = current.filter(({ id }) => id !== input.subscriptionId);
+      return { ...canceled, status: "canceled" };
+    },
+  };
+}
+
+test("an unbound record discovers two subscriptions and stores only the authoritative earliest", async (t) => {
+  const store = await composedStore(t);
+  await store.bindCustomer({ uid: UID, customerId: "cus_server_bound" });
+  const later = subscription({ id: "sub_later", created: 200, status: "active" });
+  const earlier = subscription({ id: "sub_earlier", created: 100, status: "trialing" });
+  const normalizedEvent = event({
+    id: "evt_unbound_reconcile",
+    object: { ...event().object, id: later.id, subscriptionId: later.id },
+  });
+  const calls = { lists: [], cancels: [] };
+  const webhook = createBillingWebhook({
+    config: CONFIG,
+    store,
+    gateway: reconciliationGateway([later, earlier], normalizedEvent, calls),
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const result = await invoke(webhook);
+  assertSafeJson(result.response, 200, true);
+  assert.deepEqual(calls.cancels.map(({ subscriptionId }) => subscriptionId), ["sub_later"]);
+  assert.deepEqual(calls.cancels[0], {
+    uid: UID,
+    subscriptionId: "sub_later",
+    operationAttempt: calls.cancels[0].operationAttempt,
+  });
+  const stored = await store.getByUid(UID);
+  assert.equal(stored.subscriptionId, "sub_earlier");
+  assert.equal(stored.status, "trialing");
+  assert.equal(stored.access, "full");
+});
+
+test("an older event atomically replaces a cached loser and replay is an exact no-op", async (t) => {
+  const store = await composedStore(t);
+  await store.bindCustomer({ uid: UID, customerId: "cus_server_bound" });
+  await store.applySubscriptionSnapshot({
+    eventId: "evt_later_first",
+    created: 200,
+    uid: UID,
+    customerId: "cus_server_bound",
+    subscriptionId: "sub_later",
+    plan: "monthly",
+    status: "active",
+    deleted: false,
+    cancelAtPeriodEnd: false,
+    trialEndsAt: null,
+    currentPeriodEndsAt: null,
+  });
+  const later = subscription({ id: "sub_later", created: 200, status: "active" });
+  const earlier = subscription({ id: "sub_earlier", created: 100, status: "active" });
+  const normalizedEvent = event({
+    id: "evt_earlier_arrives_late",
+    created: 100,
+    object: { ...event().object, id: earlier.id, subscriptionId: earlier.id },
+  });
+  const calls = { lists: [], cancels: [] };
+  const webhook = createBillingWebhook({
+    config: CONFIG,
+    store,
+    gateway: reconciliationGateway([later, earlier], normalizedEvent, calls),
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  assertSafeJson((await invoke(webhook)).response, 200, true);
+  const winner = await store.getByUid(UID);
+  assert.equal(winner.subscriptionId, "sub_earlier");
+  assert.equal(winner.lastEventCreated, 200);
+  assert.equal(winner.access, "full");
+  assert.deepEqual(calls.cancels.map(({ subscriptionId }) => subscriptionId), ["sub_later"]);
+
+  assertSafeJson((await invoke(webhook)).response, 200, true);
+  assert.deepEqual(await store.getByUid(UID), winner);
+  assert.deepEqual(calls.cancels.map(({ subscriptionId }) => subscriptionId), ["sub_later"]);
+  assert.equal(calls.lists.length, 1);
+});
+
+test("provider, cancellation, and final-store uncertainty leave cached access revoked", async (t) => {
+  for (const failureStage of ["list", "cancel", "store"]) {
+    const store = await composedStore(t);
+    const uid = `${UID}-${failureStage}`;
+    const customerId = `cus_server_${failureStage}`;
+    await store.bindCustomer({ uid, customerId });
+    await store.applySubscriptionSnapshot({
+      eventId: `evt_later_${failureStage}`,
+      created: 200,
+      uid,
+      customerId,
+      subscriptionId: `sub_later_${failureStage}`,
+      plan: "monthly",
+      status: "active",
+      deleted: false,
+      cancelAtPeriodEnd: false,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+    });
+    const later = subscription({
+      id: `sub_later_${failureStage}`,
+      customerId,
+      created: 200,
+    });
+    const earlier = subscription({
+      id: `sub_earlier_${failureStage}`,
+      customerId,
+      created: 100,
+    });
+    const normalizedEvent = event({
+      id: `evt_reconcile_${failureStage}`,
+      created: 100,
+      object: {
+        ...event().object,
+        customerId,
+        id: earlier.id,
+        subscriptionId: earlier.id,
+        metadata: { firebaseUid: uid },
+      },
+    });
+    const calls = { lists: [], cancels: [] };
+    const baseGateway = reconciliationGateway([later, earlier], normalizedEvent, calls);
+    const gateway = {
+      ...baseGateway,
+      ...(failureStage === "list" ? {
+        async listNonTerminalSubscriptions() { throw new Error("provider uncertain"); },
+      } : {}),
+      ...(failureStage === "cancel" ? {
+        async cancelSubscription() { throw new Error("cancel uncertain"); },
+      } : {}),
+    };
+    const usedStore = failureStage === "store"
+      ? {
+          ...store,
+          async reconcileSubscriptionSnapshot() { throw new Error("store uncertain"); },
+        }
+      : store;
+    const webhook = createBillingWebhook({
+      config: CONFIG,
+      store: usedStore,
+      gateway,
+      logger: { info() {}, warn() {}, error() {} },
+    });
+
+    const result = await invoke(webhook);
+    assert.equal(result.response.status, 500, failureStage);
+    assert.equal((await store.getByUid(uid)).access, "none", failureStage);
   }
 });

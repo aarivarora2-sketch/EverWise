@@ -832,6 +832,25 @@ test("listBlockingSubscriptions rejects empty and repeated non-progress pages", 
   }
 });
 
+test("listNonTerminalSubscriptions discovers every nonterminal status for reconciliation", async () => {
+  const statuses = [
+    "trialing", "active", "past_due", "unpaid", "incomplete", "paused",
+    "canceled", "incomplete_expired",
+  ];
+  const fake = createFakeFetch([{ body: {
+    object: "list",
+    data: statuses.map((status, index) => subscriptionResponse(`sub_nonterminal_${index}`, status)),
+    has_more: false,
+    url: "/v1/subscriptions",
+  } }]);
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+
+  const records = await gateway.listNonTerminalSubscriptions({ customerId: "cus_learner" });
+  assert.deepEqual(records.map(({ status }) => status), statuses.slice(0, 6));
+  assert.equal(records.every(({ created }) => created === SUBSCRIPTION_CREATED_AT_SECONDS), true);
+  assert.equal(requestParameters(fake.calls[0]).get("status"), "all");
+});
+
 test("subscription retrieval and cancellation expose normalized records only", async () => {
   const fake = createFakeFetch([
     { body: subscriptionResponse("sub_retrieve", "active") },

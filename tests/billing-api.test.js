@@ -337,6 +337,44 @@ test("billing API handles only its four exact paths and rejects non-POST methods
   }
 });
 
+test("server composition uses an opaque single-use authorization capability", async () => {
+  const { api, calls } = createHarness();
+  const requestValue = request();
+  const responseValue = response();
+  const authorization = await api.authorize({
+    request: requestValue,
+    response: responseValue,
+    pathname: "/api/billing/access",
+  });
+  assert.ok(authorization);
+  assert.deepEqual(calls.verifyIdToken, ["firebase-id-token"]);
+
+  assert.equal(await api.handleVerified({
+    authorization,
+    request: requestValue,
+    response: responseValue,
+    pathname: "/api/billing/access",
+    body: {},
+    bodyByteLength: 2,
+  }), true);
+  assert.equal(responseValue.status, 200);
+  assert.deepEqual(calls.verifyIdToken, ["firebase-id-token"]);
+
+  for (const invalidAuthorization of [{}, authorization]) {
+    const rejectedResponse = response();
+    assert.equal(await api.handleVerified({
+      authorization: invalidAuthorization,
+      request: requestValue,
+      response: rejectedResponse,
+      pathname: "/api/billing/access",
+      body: {},
+      bodyByteLength: 2,
+    }), true);
+    assert.equal(rejectedResponse.status, 401);
+    assert.equal(rejectedResponse.json().error.code, "UNAUTHENTICATED");
+  }
+});
+
 test("every billing route requires one verified Firebase bearer and owns only its UID", async () => {
   for (const pathname of [
     "/api/billing/plans",

@@ -27,7 +27,11 @@ function request(pathname, {
   body = "{}",
   headers = {},
 } = {}) {
-  const stream = Readable.from(body === null ? [] : [Buffer.from(body)]);
+  let iterations = 0;
+  const stream = Readable.from((async function* chunks() {
+    iterations += 1;
+    if (body !== null) yield Buffer.from(body);
+  })());
   stream.url = pathname;
   stream.method = method;
   stream.headers = Object.fromEntries(
@@ -39,6 +43,7 @@ function request(pathname, {
   Object.defineProperty(stream, "socket", {
     value: { remoteAddress: "127.0.0.1" },
   });
+  stream.iterations = () => iterations;
   return stream;
 }
 
@@ -148,8 +153,15 @@ function createDependencies({
     createBillingApi(options) {
       calls.createBillingApi += 1;
       if (billingApiImplementation) return billingApiImplementation(options, calls);
+      const authorizations = new WeakSet();
       return {
-        async handle(input) {
+        async authorize({ request: requestValue }) {
+          const authorization = {};
+          authorizations.add(authorization);
+          return authorization;
+        },
+        async handleVerified(input) {
+          assert.equal(authorizations.has(input.authorization), true);
           calls.billingApi.push(input);
           input.response.writeHead(200, { "Content-Type": "application/json" });
           input.response.end(JSON.stringify({ billing: true }));
@@ -261,6 +273,53 @@ test("billing JSON reader failures preserve the billing error and cache contract
   assert.equal(calls.billingApi.length, 0);
 });
 
+test("billing authentication runs before malformed or oversized bodies are read", async () => {
+  for (const body of ["{not json", "x".repeat(256 * 1024 + 1)]) {
+    let authAttempts = 0;
+    const { dependencies, logger } = createDependencies({
+      billingApiImplementation() {
+        return {
+          async authorize({ response: responseValue }) {
+            authAttempts += 1;
+            responseValue.writeHead(401, { "Content-Type": "application/json" });
+            responseValue.end(JSON.stringify({ error: { code: "UNAUTHENTICATED" } }));
+            return null;
+          },
+          async handleVerified() {
+            assert.fail("unauthenticated bodies must never reach the verified handler");
+          },
+        };
+      },
+    });
+    const requestValue = request("/api/billing/checkout", { body });
+    const result = await invoke(
+      await createEverWiseApplication({ env: BILLING_ENV, dependencies, logger }),
+      requestValue,
+    );
+    assert.equal(result.status, 401);
+    assert.equal(authAttempts, 1);
+    assert.equal(requestValue.iterations(), 0);
+  }
+});
+
+test("health always includes a stable false billing shape when configuration is absent", async () => {
+  const { dependencies, logger } = createDependencies({
+    config: { configured: false, appOrigin: null, webhookSecret: null, plans: {} },
+  });
+  const application = await createEverWiseApplication({ env: {}, dependencies, logger });
+  const result = await invoke(application, request("/healthz", { method: "GET", body: null }));
+  assert.deepEqual(result.json(), {
+    ok: true,
+    readAloudConfigured: false,
+    scamCheckerConfigured: false,
+    partnerAccessConfigured: false,
+    partnerStoreHealthy: false,
+    billingConfigured: false,
+    billingPlansVerified: false,
+    billingStoreHealthy: false,
+  });
+});
+
 test("enabled billing is composed once and health reports verified live state", async () => {
   const { calls, dependencies, logger } = createDependencies();
   const application = await createEverWiseApplication({
@@ -357,7 +416,10 @@ test("disabled local billing keeps partner and AI routes while Checkout and Port
     billingApiImplementation(options) {
       assert.equal(options.config.configured, false);
       return {
-        async handle({ response: responseValue, pathname }) {
+        async authorize() {
+          return {};
+        },
+        async handleVerified({ response: responseValue, pathname }) {
           if (!["/api/billing/checkout", "/api/billing/portal"].includes(pathname)) {
             return false;
           }
