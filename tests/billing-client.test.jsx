@@ -467,21 +467,59 @@ describe("browser billing bootstrap and provider selection", () => {
     }
   );
 
-  test("suspended sponsorship falls through to an active native Apple entitlement", async () => {
+  test("keeps an active native Apple entitlement authoritative when it resolves before a delayed inactive profile", async () => {
     mocks.native = true;
-    mocks.getCurrentEntitlement.mockResolvedValue({
-      active: true,
-      productId: "com.everwise.app.annual",
+    const entitlement = deferred();
+    const profileLoad = deferred();
+    mocks.getCurrentEntitlement.mockReturnValue(entitlement.promise);
+    mocks.getDoc.mockReturnValue(profileLoad.promise);
+    mocks.fetchPartnerAccess.mockResolvedValue(SUSPENDED_SPONSOR);
+    const user = firebaseUser("suspended-native-race-user");
+    render(<App />);
+    await settleLaunch();
+
+    let authPromise;
+    await act(async () => {
+      authPromise = mocks.authCallback(user);
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    await openAuthenticatedApp({
-      access: NONE,
-      partner: SUSPENDED_SPONSOR,
-      profileOverrides: { subscriptionStatus: "active", plan: "annual" },
-      uid: "suspended-native-user",
+    expect(mocks.getCurrentEntitlement).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      entitlement.resolve({
+        active: true,
+        productId: "com.everwise.app.annual",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
     });
+    await act(async () => {
+      profileLoad.resolve(snapshot(profile({ subscriptionStatus: "expired", plan: null })));
+      await authPromise;
+      await Promise.resolve();
+    });
+
     expect(mocks.fetchBillingAccess).not.toHaveBeenCalled();
     await openProtected("lesson");
     expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+  });
+
+  test("fails closed when native Apple entitlement is inactive despite a stale active profile", async () => {
+    mocks.native = true;
+    mocks.getCurrentEntitlement.mockResolvedValue({ active: false });
+    mocks.getDoc.mockResolvedValue(
+      snapshot(profile({ subscriptionStatus: "active", plan: "annual" }))
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue(SUSPENDED_SPONSOR);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("suspended-native-inactive-user")));
+
+    expect(mocks.getCurrentEntitlement).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
   });
 
   test("suspended sponsorship with no personal provider stays closed and offers logout", async () => {
@@ -750,10 +788,14 @@ describe("Checkout return confirmation", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  test("removes a success marker, grants nothing from the query, and polls on the bounded schedule", async () => {
+  test("polls at absolute offsets and waits for the hard deadline after the unsuccessful 8-second poll", async () => {
     window.history.replaceState({ safe: true }, "", "/?keep=1&billing=success&session_id=cs_test_public#course");
     const replaceState = vi.spyOn(window.history, "replaceState");
-    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    const callTimes = [];
+    mocks.fetchBillingAccess.mockImplementation(async () => {
+      callTimes.push(Date.now());
+      return NONE;
+    });
     const user = firebaseUser("return-user");
     render(<App />);
     await settleLaunch();
@@ -765,22 +807,76 @@ describe("Checkout return confirmation", () => {
     expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(2);
 
+    const pollStartedAt = callTimes[1];
     for (const [elapsed, calls] of [
       [999, 2],
       [1, 3],
-      [1999, 3],
+      [999, 3],
       [1, 4],
-      [3000, 5],
-      [5000, 6],
-      [8000, 7],
+      [999, 4],
+      [1, 5],
+      [1999, 5],
+      [1, 6],
+      [2999, 6],
+      [1, 7],
     ]) {
       await act(async () => vi.advanceTimersByTimeAsync(elapsed));
       expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(calls);
     }
+    expect(callTimes.slice(1).map((calledAt) => calledAt - pollStartedAt)).toEqual([
+      0,
+      1_000,
+      2_000,
+      3_000,
+      5_000,
+      8_000,
+    ]);
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
+    await act(async () => vi.advanceTimersByTimeAsync(11_999));
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(7);
     expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Back to free lessons" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
+  });
+
+  test("subtracts provider time from the next absolute poll target without overlapping requests", async () => {
+    window.history.replaceState(null, "", "/?billing=success");
+    const callTimes = [];
+    let requestIndex = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.fetchBillingAccess.mockImplementation(() => {
+      callTimes.push(Date.now());
+      requestIndex += 1;
+      if (requestIndex === 1) return Promise.resolve(NONE);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise((resolve) => window.setTimeout(() => {
+        inFlight -= 1;
+        resolve(NONE);
+      }, 1_400));
+    });
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("absolute-slow-user")));
+    const pollStartedAt = callTimes[1];
+
+    await act(async () => vi.advanceTimersByTimeAsync(9_400));
+
+    expect(callTimes.slice(1).map((calledAt) => calledAt - pollStartedAt)).toEqual([
+      0,
+      1_400,
+      2_800,
+      4_200,
+      5_600,
+      8_000,
+    ]);
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(7);
+    expect(maxInFlight).toBe(1);
   });
 
   test("composes the gateway success URL with a real unload/remount and scrubs every return marker", async () => {
@@ -875,7 +971,7 @@ describe("Checkout return confirmation", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
       await Promise.resolve();
       await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(19_000);
+      await vi.advanceTimersByTimeAsync(20_000);
     });
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
     expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
@@ -891,7 +987,7 @@ describe("Checkout return confirmation", () => {
     expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
   });
 
-  test("Retry clears an intent that expires between confirmation attempts", async () => {
+  test("Retry clears an expired intent before an inactive attempt and later access cannot reopen it", async () => {
     const createdAt = Date.now();
     window.sessionStorage.setItem(
       BILLING_RETURN_INTENT_KEY,
@@ -902,11 +998,22 @@ describe("Checkout return confirmation", () => {
     render(<App />);
     await settleLaunch();
     await act(async () => mocks.authCallback(firebaseUser("expired-retry-user")));
-    await act(async () => vi.advanceTimersByTimeAsync(19_000));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
     expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
 
     vi.setSystemTime(createdAt + BILLING_RETURN_INTENT_TTL_MS + 1);
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
     mocks.fetchBillingAccess.mockResolvedValue(ACTIVE);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -916,7 +1023,6 @@ describe("Checkout return confirmation", () => {
     });
     expect(screen.getByRole("heading", { name: "Home" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
-    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
   });
 
   test("fails closed when an access microtask wins after a stalled event loop has crossed the deadline", async () => {
@@ -1035,7 +1141,7 @@ describe("Checkout return confirmation", () => {
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
     expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
     const callsAfterInvalidation = mocks.fetchBillingAccess.mock.calls.length;
-    await act(async () => vi.advanceTimersByTimeAsync(19_000));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(callsAfterInvalidation);
     expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
@@ -1338,7 +1444,7 @@ describe("Checkout return confirmation", () => {
     render(<App />);
     await settleLaunch();
     await act(async () => mocks.authCallback(firebaseUser("portal-user")));
-    await act(async () => vi.advanceTimersByTimeAsync(19_000));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
 
     expect(screen.getByRole("button", { name: "Manage billing" })).toBeVisible();
     await act(async () => {

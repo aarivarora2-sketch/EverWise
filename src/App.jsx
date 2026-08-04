@@ -109,7 +109,7 @@ const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
 const PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY =
   "everwise-partner-release-confirmable";
 const PARTNER_ACCESS_REFRESH_INTERVAL_MS = 60_000;
-const BILLING_CONFIRMATION_DELAYS_MS = [0, 1_000, 2_000, 3_000, 5_000, 8_000];
+const BILLING_CONFIRMATION_OFFSETS_MS = [0, 1_000, 2_000, 3_000, 5_000, 8_000];
 const BILLING_CONFIRMATION_DEADLINE_MS = 20_000;
 const BILLING_RETURN_INTENT_STORAGE_KEY = "everwise.billing-return-intent.v1";
 const BILLING_RETURN_INTENT_TTL_MS = 10 * 60 * 1000;
@@ -945,6 +945,10 @@ function LearnerApp({ initialPartnerFragment }) {
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingRecovery, setBillingRecovery] = useState(null);
   const [billingPollAttempt, setBillingPollAttempt] = useState(0);
+  const [nativeEntitlement, setNativeEntitlement] = useState({
+    uid: null,
+    subscriptionStatus: "expired",
+  });
   const authGenerationRef = useRef(0);
   const authSettledRef = useRef(false);
   const currentAuthUidRef = useRef(null);
@@ -1220,18 +1224,33 @@ function LearnerApp({ initialPartnerFragment }) {
   }, [screen]);
 
   useEffect(() => {
-    if (!user || platform !== "native") return undefined;
+    if (!user?.uid || platform !== "native") return undefined;
 
     let cancelled = false;
+    const uid = user.uid;
+    const generation = authGenerationRef.current;
+    setNativeEntitlement({ uid, subscriptionStatus: "expired" });
     getCurrentEntitlement()
       .then(async (entitlement) => {
-        if (cancelled || !entitlement.active) return;
+        if (
+          cancelled ||
+          !appMountedRef.current ||
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== uid
+        ) {
+          return;
+        }
+        setNativeEntitlement({
+          uid,
+          subscriptionStatus: entitlement.active ? "active" : "expired",
+        });
+        if (!entitlement.active) return;
         const updates = {
           subscriptionStatus: "active",
           plan: planForProduct(entitlement.productId),
         };
         setProfile((current) => (current ? { ...current, ...updates } : current));
-        await updateDoc(doc(db, "users", user.uid), updates);
+        await updateDoc(doc(db, "users", uid), updates);
       })
       .catch((error) => {
         if (import.meta.env.DEV) {
@@ -1289,6 +1308,10 @@ function LearnerApp({ initialPartnerFragment }) {
       setBillingPlans([]);
       setBillingBusy(false);
       setBillingRecovery(null);
+      setNativeEntitlement({
+        uid: u?.uid || null,
+        subscriptionStatus: "expired",
+      });
 
       const activeOperation = activeOperationRef.current;
       const normalizedUserEmail = u?.email?.trim().toLowerCase() || null;
@@ -1554,6 +1577,10 @@ function LearnerApp({ initialPartnerFragment }) {
   };
   const allDone = isCourseComplete(completedLessons, requiredLearningIds);
   const subscriptionStatus = profile?.subscriptionStatus ?? "expired";
+  const nativeSubscriptionStatus =
+    user?.uid && nativeEntitlement.uid === user.uid
+      ? nativeEntitlement.subscriptionStatus
+      : "expired";
   const sponsoredActive = Boolean(
     user?.uid &&
       partnerStatus === "active" &&
@@ -1564,7 +1591,7 @@ function LearnerApp({ initialPartnerFragment }) {
   const access = resolveFullAccess({
     sponsoredStatus: sponsoredActive ? "active" : "none",
     billingStatus: ownedBillingStatus,
-    nativeSubscriptionStatus: subscriptionStatus,
+    nativeSubscriptionStatus,
     platform,
     developmentBypass: subscriptionBypassEnabled,
   });
@@ -2577,7 +2604,7 @@ function LearnerApp({ initialPartnerFragment }) {
       sponsoredStatus:
         authoritativeAccess.status === "active" ? "active" : "none",
       billingStatus: nextBillingStatus,
-      nativeSubscriptionStatus: subscriptionStatus,
+      nativeSubscriptionStatus,
       platform,
       developmentBypass: subscriptionBypassEnabled,
     });
@@ -2652,6 +2679,56 @@ function LearnerApp({ initialPartnerFragment }) {
   const clearPendingProtectedNavigation = () => {
     pendingProtectedNavigationRef.current = null;
     clearStoredBillingReturnIntent();
+  };
+
+  const revalidatePendingProtectedNavigationForRetry = () => {
+    const uid = user?.uid;
+    const generation = authGenerationRef.current;
+    const now = Date.now();
+    const pending = pendingProtectedNavigationRef.current;
+    let storedSerialized = null;
+    let storageReadable = true;
+    try {
+      storedSerialized = window.sessionStorage.getItem(
+        BILLING_RETURN_INTENT_STORAGE_KEY,
+      );
+    } catch {
+      storageReadable = false;
+    }
+    const storedIntent = uid ? readBillingReturnIntent(uid) : null;
+    const storedDestination = resolveBillingReturnDestination(storedIntent);
+    const pendingDestination = resolveBillingReturnDestination(pending);
+    const pendingIsValid =
+      !pending ||
+      (Boolean(uid) &&
+        pending.uid === uid &&
+        pending.generation === generation &&
+        Number.isSafeInteger(pending.createdAt) &&
+        Number.isSafeInteger(pending.expiresAt) &&
+        pending.expiresAt ===
+          pending.createdAt + BILLING_RETURN_INTENT_TTL_MS &&
+        pending.createdAt <= now &&
+        pending.createdAt >= now - BILLING_RETURN_INTENT_TTL_MS &&
+        pending.expiresAt > now &&
+        Boolean(pendingDestination) &&
+        (pending.screen === "lesson"
+          ? pending.index === pendingDestination.index
+          : pending.item?.id === pendingDestination.item?.id));
+    const storedIsValid =
+      storageReadable &&
+      (storedSerialized === null ||
+        (Boolean(storedIntent) && Boolean(storedDestination)));
+    const sourcesAgree =
+      !pending ||
+      !storedIntent ||
+      (pending.uid === storedIntent.uid &&
+        pending.screen === storedIntent.screen &&
+        pending.itemId === storedIntent.itemId &&
+        pending.createdAt === storedIntent.createdAt &&
+        pending.expiresAt === storedIntent.expiresAt);
+    if (!uid || !pendingIsValid || !storedIsValid || !sourcesAgree) {
+      clearPendingProtectedNavigation();
+    }
   };
 
   useEffect(() => {
@@ -2837,13 +2914,19 @@ function LearnerApp({ initialPartnerFragment }) {
     setScreen("billing-confirmation");
     void (async () => {
       let latestAccess = null;
-      for (const delay of BILLING_CONFIRMATION_DELAYS_MS) {
-        if (!pollAcceptsResult()) {
+      for (const offset of BILLING_CONFIRMATION_OFFSETS_MS) {
+        if (!pollIdentityCurrent() || !Number.isFinite(deadlineAt)) {
           transitionToTimeout(latestAccess);
           return;
         }
-        if (delay > 0) {
-          const delayed = await wait(delay);
+        const beforeTarget = readMonotonicNow();
+        if (beforeTarget === null || beforeTarget >= deadlineAt) {
+          transitionToTimeout(latestAccess);
+          return;
+        }
+        const remaining = Math.max(0, startedAt + offset - beforeTarget);
+        if (remaining > 0) {
+          const delayed = await wait(remaining);
           if (delayed === deadlineReached || !pollAcceptsResult()) {
             transitionToTimeout(latestAccess);
             return;
@@ -2878,7 +2961,8 @@ function LearnerApp({ initialPartnerFragment }) {
           return;
         }
       }
-      transitionToTimeout(latestAccess);
+      const deadline = await deadlinePromise;
+      if (deadline === deadlineReached) transitionToTimeout(latestAccess);
     })();
 
     return () => {
@@ -3063,6 +3147,12 @@ function LearnerApp({ initialPartnerFragment }) {
     if (!entitlement.active) {
       throw new Error("The subscription is not active yet.");
     }
+    if (user?.uid && currentAuthUidRef.current === user.uid) {
+      setNativeEntitlement({
+        uid: user.uid,
+        subscriptionStatus: "active",
+      });
+    }
     await updateSubscription({
       subscriptionStatus: "active",
       trialStartedAt: null,
@@ -3107,6 +3197,12 @@ function LearnerApp({ initialPartnerFragment }) {
     if (!entitlement.active) {
       throw new Error("No active subscription was found for this Apple Account.");
     }
+    if (user?.uid && currentAuthUidRef.current === user.uid) {
+      setNativeEntitlement({
+        uid: user.uid,
+        subscriptionStatus: "active",
+      });
+    }
     await updateSubscription({
       subscriptionStatus: "active",
       trialStartedAt: null,
@@ -3137,6 +3233,7 @@ function LearnerApp({ initialPartnerFragment }) {
     setBillingPlans([]);
     setBillingBusy(false);
     setBillingRecovery(null);
+    setNativeEntitlement({ uid: null, subscriptionStatus: "expired" });
     setPartnerOwnerUid(null);
     setPartner(null);
     setPartnerStatus("idle");
@@ -3943,7 +4040,10 @@ function LearnerApp({ initialPartnerFragment }) {
         <BillingConfirmation
           phase={billingRecovery?.phase || "checking"}
           onRetry={billingRecovery?.phase === "timeout"
-            ? () => setBillingPollAttempt((attempt) => attempt + 1)
+            ? () => {
+                revalidatePendingProtectedNavigationForRetry();
+                setBillingPollAttempt((attempt) => attempt + 1);
+              }
             : undefined}
           onManageBilling={
             billingRecovery?.phase === "timeout" &&
