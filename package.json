@@ -11,7 +11,8 @@
     "test:unit": "node --test tests/*.test.js tests/*.test.mjs",
     "test:ui": "vitest run --passWithNoTests",
     "preview": "vite preview",
-    "start:api": "node server.mjs"
+    "start:api": "node server.mjs",
+    "provision:sponsored": "node scripts/provision-sponsored-accounts.mjs"
   },
   "dependencies": {
     "@capacitor/cli": "^8.4.2",
