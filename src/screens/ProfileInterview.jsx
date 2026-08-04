@@ -213,6 +213,7 @@ export default function ProfileInterview({
   onLogIn,
 }) {
   const contentRef = useRef(null);
+  const stepHeadingRef = useRef(null);
   const activeStepIds =
     partner && !existingAccount ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
   const totalSteps = activeStepIds.length;
@@ -220,6 +221,7 @@ export default function ProfileInterview({
   const [stepIndex, setStepIndex] = useState(
     initialInterview ? totalSteps - 1 : 0,
   );
+  const previousStepIndexRef = useRef(stepIndex);
   const [name, setName] = useState(initial.name || "");
   const [age, setAge] = useState(
     initial.age == null ? "" : String(initial.age),
@@ -257,6 +259,10 @@ export default function ProfileInterview({
   useEffect(() => {
     if (contentRef.current) {
       contentRef.current.scrollTop = 0;
+    }
+    if (previousStepIndexRef.current !== stepIndex) {
+      stepHeadingRef.current?.focus();
+      previousStepIndexRef.current = stepIndex;
     }
   }, [stepIndex]);
 
@@ -442,7 +448,7 @@ export default function ProfileInterview({
       >
         <div className="flex items-start justify-between gap-3 pt-2">
           <div>
-            <h1 className="page-title">
+            <h1 ref={stepHeadingRef} tabIndex={-1} className="page-title">
               {existingAccount && step === 1
                 ? "Let’s personalize your EverWise lessons"
                 : step === 1

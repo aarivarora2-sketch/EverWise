@@ -16,6 +16,8 @@ const PARTNER_PATHS = [
   "/api/partner/preview",
   "/api/partner/claim",
   "/api/partner/access",
+  "/api/partner/login",
+  "/api/partner/admin/register-login",
   "/api/partner/release-intent",
   "/api/partner/release-cancel",
   "/api/partner/release-confirm",
@@ -213,12 +215,14 @@ async function directRequest(api, {
   body,
   remoteAddress,
   forwardedFor,
+  requestHeaders = {},
 }) {
   const request = Readable.from([Buffer.from(JSON.stringify(body))]);
   request.method = "POST";
   request.headers = {
     "content-type": "application/json",
     ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+    ...requestHeaders,
   };
   Object.defineProperty(request, "socket", {
     value: { remoteAddress },
@@ -417,6 +421,49 @@ test("previews valid invitations and returns generic invalid and suspended error
   assertGenericError(suspended.json, "PARTNER_SUSPENDED");
 });
 
+test("a missing runtime store fails preview, access, and claim safely unavailable", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-missing-partner-store-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = createPartnerStore({
+    filePath: join(directory, "not-created", "partners.json"),
+  });
+  const api = createPartnerApi({
+    store,
+    verifyIdToken: async () => ({
+      uid: "missing-store-learner",
+      email: "learner@private.example",
+      authTime: START_SECONDS,
+    }),
+    now: () => new Date(START_SECONDS * 1000),
+  });
+
+  for (const { pathname, body, authenticated } of [
+    {
+      pathname: "/api/partner/preview",
+      body: { inviteToken: "not-used" },
+      authenticated: false,
+    },
+    { pathname: "/api/partner/access", body: {}, authenticated: true },
+    {
+      pathname: "/api/partner/claim",
+      body: { inviteToken: "not-used", researchConsent: false },
+      authenticated: true,
+    },
+  ]) {
+    const result = await directRequest(api, {
+      pathname,
+      body,
+      remoteAddress: "127.0.0.1",
+      requestHeaders: authenticated ? { authorization: "Bearer learner-token" } : {},
+    });
+    assert.equal(result.statusCode, 503, pathname);
+    assert.deepEqual(result.json, {
+      code: "STORE_NOT_CONFIGURED",
+      message: "Sponsored access is temporarily unavailable.",
+    });
+  }
+});
+
 test("requires a valid Authorization bearer for every authenticated learner route", async (t) => {
   const { request } = await setupApi(t);
   const authenticatedRoutes = [
@@ -542,6 +589,42 @@ test("supports claim, returning access, release cancellation, and receipt-only c
   });
   assert.equal(idempotent.response.status, 200);
   assert.deepEqual(idempotent.json, { released: true, idempotent: true });
+});
+
+test("registers fixed logins only with learner authentication and partner admin authority", async (t) => {
+  const authEmail = "ewp-0123456789abcdef0123456789abcdef0123456789abcdef@accounts.everwise.app";
+  const { created, request } = await setupApi(t, {
+    learnerIdentityOverrides: { email: authEmail },
+  });
+  await request("/api/partner/claim", {
+    headers: AUTHORIZATION,
+    body: { inviteToken: created.inviteToken, researchConsent: false },
+  });
+
+  const unauthorized = await request("/api/partner/admin/register-login", {
+    body: { adminToken: created.adminToken, username: "EverWise001" },
+  });
+  assert.equal(unauthorized.response.status, 401);
+  assertGenericError(unauthorized.json, "UNAUTHENTICATED");
+
+  const registered = await request("/api/partner/admin/register-login", {
+    headers: AUTHORIZATION,
+    body: { adminToken: created.adminToken, username: "EverWise001" },
+  });
+  assert.equal(registered.response.status, 200);
+  assert.deepEqual(registered.json, {
+    status: "active",
+    partnerId: "pilot",
+    name: "Community Partner",
+    branding: BRANDING,
+    username: "everwise001",
+  });
+
+  const resolved = await request("/api/partner/login", {
+    body: { username: "EVERWISE001" },
+  });
+  assert.equal(resolved.response.status, 200);
+  assert.deepEqual(resolved.json, { authEmail });
 });
 
 test("release intent requires authentication no older than five minutes", async (t) => {
@@ -1165,7 +1248,7 @@ test("server composes partner health without changing narration and scam-checker
     readAloudConfigured: false,
     scamCheckerConfigured: false,
     partnerAccessConfigured: false,
-    partnerStoreHealthy: true,
+    partnerStoreHealthy: false,
   });
 
   const narration = await fetch(`${baseUrl}/api/read-aloud`, {

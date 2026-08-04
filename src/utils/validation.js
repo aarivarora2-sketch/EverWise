@@ -5,6 +5,9 @@
 export const USERNAME_AUTH_DOMAIN = "accounts.everwise.app";
 export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 30;
+const RESERVED_SPONSORED_USERNAME_PATTERN = /^everwise(?:00[1-9]|0[1-9]\d|[1-4]\d{2}|500)$/;
+const PROVISIONED_SPONSORED_AUTH_EMAIL_PATTERN =
+  /^ewp-[a-f0-9]{48}@accounts\.everwise\.app$/;
 
 export function normalizeUsername(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -18,7 +21,16 @@ export function isValidUsername(value) {
   ) {
     return false;
   }
+  if (isReservedSponsoredUsername(username)) return false;
   return /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/.test(username);
+}
+
+export function isReservedSponsoredUsername(value) {
+  return RESERVED_SPONSORED_USERNAME_PATTERN.test(normalizeUsername(value));
+}
+
+export function isProvisionedSponsoredAuthEmail(value) {
+  return PROVISIONED_SPONSORED_AUTH_EMAIL_PATTERN.test(normalizeEmail(value));
 }
 
 export function usernameToAuthEmail(value) {

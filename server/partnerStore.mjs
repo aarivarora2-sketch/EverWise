@@ -10,6 +10,12 @@ import {
 } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import {
+  isProvisionedSponsoredAuthEmail,
+  isReservedSponsoredUsername,
+  normalizeEmail,
+  normalizeUsername,
+} from "../src/utils/validation.js";
 import { PartnerStoreError } from "./partnerErrors.mjs";
 import {
   aggregateResearch,
@@ -59,7 +65,10 @@ async function acquireInterprocessMutationLock(filePath) {
   let lockHandle;
   try {
     lockHandle = await open(`${filePath}.lock`, "a+", 0o600);
-  } catch {
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw storeError("STORE_NOT_CONFIGURED", "The partner store is not configured.");
+    }
     throw storeError("STORE_LOCK_FAILED", "The partner store lock could not open.");
   }
 
@@ -179,6 +188,17 @@ function validRelease(release) {
   );
 }
 
+function validProvisionedLogin(login) {
+  return (
+    isPlainObject(login) &&
+    hasExactKeys(login, ["authEmail", "username"]) &&
+    isReservedSponsoredUsername(login.username) &&
+    login.username === normalizeUsername(login.username) &&
+    isProvisionedSponsoredAuthEmail(login.authEmail) &&
+    login.authEmail === normalizeEmail(login.authEmail)
+  );
+}
+
 function validateData(data, { testOnlyAllowCustomSeatLimits = false } = {}) {
   if (
     !isPlainObject(data) ||
@@ -191,6 +211,8 @@ function validateData(data, { testOnlyAllowCustomSeatLimits = false } = {}) {
   }
   try {
     const seenUids = new Set();
+    const seenLoginUsernames = new Set();
+    const seenLoginEmails = new Set();
     for (const [partnerId, partner] of Object.entries(data.partners)) {
       if (
         !isPlainObject(partner) ||
@@ -217,6 +239,9 @@ function validateData(data, { testOnlyAllowCustomSeatLimits = false } = {}) {
         const membershipKeys = ["claimedAt"];
         if (Object.hasOwn(membership, "release")) membershipKeys.push("release");
         if (Object.hasOwn(membership, "research")) membershipKeys.push("research");
+        if (Object.hasOwn(membership, "provisionedLogin")) {
+          membershipKeys.push("provisionedLogin");
+        }
         membershipKeys.sort();
         if (
           !uid ||
@@ -231,6 +256,19 @@ function validateData(data, { testOnlyAllowCustomSeatLimits = false } = {}) {
         }
         if (Object.hasOwn(membership, "research")) {
           minimizeResearchSnapshot(membership.research);
+        }
+        if (Object.hasOwn(membership, "provisionedLogin")) {
+          if (!validProvisionedLogin(membership.provisionedLogin)) {
+            throw new Error("invalid provisioned login");
+          }
+          if (
+            seenLoginUsernames.has(membership.provisionedLogin.username) ||
+            seenLoginEmails.has(membership.provisionedLogin.authEmail)
+          ) {
+            throw new Error("duplicate provisioned login");
+          }
+          seenLoginUsernames.add(membership.provisionedLogin.username);
+          seenLoginEmails.add(membership.provisionedLogin.authEmail);
         }
         if (seenUids.has(uid)) throw new Error("duplicate membership");
         seenUids.add(uid);
@@ -313,12 +351,15 @@ function partnerForUid(data, uid) {
   return null;
 }
 
-function publicAccess(partner) {
+function publicAccess(partner, membership = null) {
   return {
     status: partner.status === "active" ? "active" : "suspended",
     partnerId: partner.partnerId,
     name: partner.name,
     branding: clone(partner.branding),
+    ...(membership?.provisionedLogin
+      ? { username: membership.provisionedLogin.username }
+      : {}),
   };
 }
 
@@ -479,7 +520,7 @@ export function createPartnerStore({
   }
 
   async function dataForQuery() {
-    return (await readData({ allowMissing: true })) || emptyData();
+    return readData();
   }
 
   async function committedDataMatches(expected) {
@@ -542,7 +583,7 @@ export function createPartnerStore({
   }
 
   async function listPartners() {
-    const data = await dataForQuery();
+    const data = (await readData({ allowMissing: true })) || emptyData();
     return Object.values(data.partners)
       .map((partner) => ({
         partnerId: partner.partnerId,
@@ -582,7 +623,10 @@ export function createPartnerStore({
         if (existingPartner.partnerId !== partner.partnerId) {
           throw storeError("ALREADY_SPONSORED", "The learner already has sponsored access.");
         }
-        return mutation(publicAccess(partner), false);
+        return mutation(publicAccess(
+          partner,
+          partner.memberships[uid],
+        ), false);
       }
       if (Object.keys(partner.memberships).length >= partner.seatLimit) {
         throw storeError("PARTNER_FULL", "All sponsored places are in use.");
@@ -604,7 +648,67 @@ export function createPartnerStore({
     requireUid(uid);
     const data = await dataForQuery();
     const partner = partnerForUid(data, uid);
-    return partner ? publicAccess(partner) : { status: "none" };
+    return partner
+      ? publicAccess(partner, partner.memberships[uid])
+      : { status: "none" };
+  }
+
+  function registerProvisionedLogin({ uid, username, authEmail, adminToken } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      requireUid(uid);
+      const partner = partnerByToken(data, adminToken, "adminTokenHash");
+      if (!partner) throw storeError("INVALID_ADMIN", "The admin link is invalid.");
+      const membership = partner.memberships[uid];
+      if (!membership) {
+        throw storeError("MEMBERSHIP_NOT_FOUND", "Sponsored access was not found.");
+      }
+      const provisionedLogin = {
+        username: normalizeUsername(username),
+        authEmail: normalizeEmail(authEmail),
+      };
+      if (!validProvisionedLogin(provisionedLogin)) {
+        throw storeError("INVALID_INPUT", "The request is invalid.");
+      }
+      for (const candidatePartner of Object.values(data.partners)) {
+        for (const [candidateUid, candidateMembership] of Object.entries(
+          candidatePartner.memberships,
+        )) {
+          const candidate = candidateMembership.provisionedLogin;
+          if (!candidate || candidateUid === uid) continue;
+          if (
+            candidate.username === provisionedLogin.username ||
+            candidate.authEmail === provisionedLogin.authEmail
+          ) {
+            throw storeError("LOGIN_CONFLICT", "The provisioned login conflicts.");
+          }
+        }
+      }
+      if (membership.provisionedLogin) {
+        if (!isDeepStrictEqual(membership.provisionedLogin, provisionedLogin)) {
+          throw storeError("LOGIN_CONFLICT", "The provisioned login conflicts.");
+        }
+        return mutation(publicAccess(partner, membership), false);
+      }
+      membership.provisionedLogin = provisionedLogin;
+      partner.updatedAt = currentDate.toISOString();
+      return mutation(publicAccess(partner, membership));
+    });
+  }
+
+  async function resolveProvisionedLogin({ username } = {}) {
+    const normalized = normalizeUsername(username);
+    if (!isReservedSponsoredUsername(normalized)) {
+      throw storeError("INVALID_INPUT", "The request is invalid.");
+    }
+    const data = await dataForQuery();
+    for (const partner of Object.values(data.partners)) {
+      for (const membership of Object.values(partner.memberships)) {
+        if (membership.provisionedLogin?.username === normalized) {
+          return { authEmail: membership.provisionedLogin.authEmail };
+        }
+      }
+    }
+    throw storeError("LOGIN_NOT_FOUND", "The provisioned login was not found.");
   }
 
   function beginRelease({ uid } = {}) {
@@ -760,7 +864,7 @@ export function createPartnerStore({
   async function health() {
     try {
       const data = await readData({ allowMissing: true });
-      return { configured: data !== null, healthy: true };
+      return { configured: data !== null, healthy: data !== null };
     } catch {
       return { configured: true, healthy: false };
     }
@@ -772,6 +876,8 @@ export function createPartnerStore({
     previewInvite,
     claimSeat,
     getAccess,
+    registerProvisionedLogin,
+    resolveProvisionedLogin,
     beginRelease,
     cancelRelease,
     confirmRelease,

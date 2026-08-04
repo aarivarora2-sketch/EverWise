@@ -23,6 +23,9 @@ function messageFor(code, partnerName) {
   if (code === "PARTNER_PROFILE_MISSING") {
     return "Your sponsored access is active, but your personal profile still needs to be completed. You can retake the short assessment without creating another account.";
   }
+  if (code === "ACCOUNT_PROFILE_UNAVAILABLE") {
+    return "We could not load your account right now. Your progress is safe. Please try again or log out.";
+  }
   if (code === "PARTNER_CLEANUP_INCOMPLETE") {
     return "We could not safely finish cleaning up your new account. Do not create another account. Try to log out, then contact support for help.";
   }
@@ -42,7 +45,8 @@ export default function PartnerAccessError({
     (code === "PARTNER_UNAVAILABLE" ||
       code === "PARTNER_ACCESS_UNCONFIRMED" ||
       code === "PARTNER_PROFILE_INCOMPLETE" ||
-      code === "PARTNER_PROFILE_MISSING") &&
+      code === "PARTNER_PROFILE_MISSING" ||
+      code === "ACCOUNT_PROFILE_UNAVAILABLE") &&
     typeof onRetry === "function";
   const heading =
     code === "PARTNER_CLEANUP_INCOMPLETE" ? "Account setup" : "Sponsored access";

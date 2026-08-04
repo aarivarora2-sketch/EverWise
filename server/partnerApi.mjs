@@ -16,6 +16,8 @@ const ROUTES = new Map([
   ["/api/partner/preview", "preview"],
   ["/api/partner/claim", "claim"],
   ["/api/partner/access", "access"],
+  ["/api/partner/login", "login"],
+  ["/api/partner/admin/register-login", "registerLogin"],
   ["/api/partner/release-intent", "releaseIntent"],
   ["/api/partner/release-cancel", "releaseCancel"],
   ["/api/partner/release-confirm", "releaseConfirm"],
@@ -59,6 +61,14 @@ const ERROR_RESPONSES = {
   INVALID_RESEARCH: {
     status: 400,
     message: "The research response is invalid.",
+  },
+  LOGIN_NOT_FOUND: {
+    status: 401,
+    message: "The username or password is incorrect.",
+  },
+  LOGIN_CONFLICT: {
+    status: 409,
+    message: "The provisioned login conflicts with an existing account.",
   },
   STORE_NOT_CONFIGURED: {
     status: 503,
@@ -422,7 +432,7 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
 
       try {
         let learner = null;
-        if (["claim", "access", "releaseIntent", "releaseCancel"].includes(route)) {
+        if (["claim", "access", "registerLogin", "releaseIntent", "releaseCancel"].includes(route)) {
           learner = await verifiedLearner(request, verifyIdToken);
         }
         const body = await readJsonBody(request);
@@ -457,6 +467,25 @@ export function createPartnerApi({ store, verifyIdToken, now = () => new Date() 
           case "access": {
             requireAllowedKeys(body, []);
             result = await store.getAccess(learner.uid);
+            break;
+          }
+          case "login": {
+            requireAllowedKeys(body, ["username"]);
+            result = await store.resolveProvisionedLogin({
+              username: body.username,
+            });
+            break;
+          }
+          case "registerLogin": {
+            requireAllowedKeys(body, ["adminToken", "username"]);
+            result = await runAdmin(request, body, (adminToken) =>
+              store.registerProvisionedLogin({
+                uid: learner.uid,
+                authEmail: learner.email,
+                username: body.username,
+                adminToken,
+              }),
+            );
             break;
           }
           case "releaseIntent": {

@@ -19,7 +19,13 @@ const PASSWORD_ALPHABET =
 const MAX_PASSWORD_ATTEMPTS = 10_000;
 const BYTE_ACCEPTANCE_LIMIT =
   256 - (256 % PASSWORD_ALPHABET.length);
-const CSV_HEADER = "account_number,username,password,status";
+const CSV_HEADER = "account_number,username,auth_email,password,status";
+const AUTH_EMAIL_RANDOM_BYTES = 24;
+const DARWIN_SYSTEM_ROOT_ALIASES = new Map([
+  ["/etc", "/private/etc"],
+  ["/tmp", "/private/tmp"],
+  ["/var", "/private/var"],
+]);
 
 function generatePassword(randomBytesImpl, length) {
   let password = "";
@@ -48,6 +54,7 @@ function hasRequiredPasswordClasses(password) {
 export function buildSponsoredRoster({ randomBytesImpl = randomBytes } = {}) {
   const rows = [];
   const passwords = new Set();
+  const authEmails = new Set();
 
   for (
     let accountNumber = 1;
@@ -65,9 +72,19 @@ export function buildSponsoredRoster({ randomBytesImpl = randomBytes } = {}) {
     } while (passwords.has(password) || !hasRequiredPasswordClasses(password));
 
     passwords.add(password);
+    let authEmail;
+    do {
+      const bytes = randomBytesImpl(AUTH_EMAIL_RANDOM_BYTES);
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength !== AUTH_EMAIL_RANDOM_BYTES) {
+        throw new Error("Unable to generate a sponsored authentication address");
+      }
+      authEmail = `ewp-${Buffer.from(bytes).toString("hex")}@accounts.everwise.app`;
+    } while (authEmails.has(authEmail));
+    authEmails.add(authEmail);
     rows.push({
       accountNumber,
       username: `EverWise${String(accountNumber).padStart(3, "0")}`,
+      authEmail,
       password,
       status: "pending",
     });
@@ -143,17 +160,31 @@ async function assertNoSymlinkComponents(path) {
   }
 
   let candidate = dirname(path);
+  let foundExistingParent = false;
   while (true) {
     try {
-      if ((await lstat(candidate)).isSymbolicLink()) {
-        throw new Error("Roster paths may not use symlinks");
+      const candidateStat = await lstat(candidate);
+      if (candidateStat.isSymbolicLink()) {
+        const expectedSystemTarget =
+          process.platform === "darwin"
+            ? DARWIN_SYSTEM_ROOT_ALIASES.get(candidate)
+            : null;
+        if (
+          !expectedSystemTarget ||
+          (await realpath(candidate)) !== expectedSystemTarget
+        ) {
+          throw new Error("Roster paths may not use symlinks");
+        }
       }
-      return;
+      foundExistingParent = true;
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
     const parent = dirname(candidate);
-    if (parent === candidate) throw new Error("Roster output parent does not exist");
+    if (parent === candidate) {
+      if (!foundExistingParent) throw new Error("Roster output parent does not exist");
+      return;
+    }
     candidate = parent;
   }
 }
@@ -164,8 +195,10 @@ function quoteCsvField(value) {
 
 function serializeRoster(rows) {
   return `${CSV_HEADER}\n${rows
-    .map(({ accountNumber, username, password, status }) =>
-      [accountNumber, username, password, status].map(quoteCsvField).join(","),
+    .map(({ accountNumber, username, authEmail, password, status }) =>
+      [accountNumber, username, authEmail, password, status]
+        .map(quoteCsvField)
+        .join(","),
     )
     .join("\n")}\n`;
 }
@@ -242,8 +275,8 @@ function validatePassword(password) {
   return (
     typeof password === "string" &&
     password.length >= 16 &&
-    !/[0O1Il,\"'\s]/.test(password) &&
-    /^[ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*_\-]+$/.test(
+    !/[0O1Il,"'\s]/.test(password) &&
+    /^[ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*_-]+$/.test(
       password,
     ) &&
     hasRequiredPasswordClasses(password)
@@ -255,6 +288,7 @@ function validateRoster(rows) {
     throw new Error(`Roster must contain exactly ${SPONSORED_ACCOUNT_COUNT} rows`);
   }
   const usernames = new Set();
+  const authEmails = new Set();
   const passwords = new Set();
   const accountNumbers = new Set();
 
@@ -265,15 +299,19 @@ function validateRoster(rows) {
       !row ||
       row.accountNumber !== accountNumber ||
       row.username !== expectedUsername ||
+      typeof row.authEmail !== "string" ||
+      !/^ewp-[a-f0-9]{48}@accounts\.everwise\.app$/.test(row.authEmail) ||
       !validatePassword(row.password) ||
       !["pending", "active"].includes(row.status) ||
       usernames.has(row.username) ||
+      authEmails.has(row.authEmail) ||
       passwords.has(row.password) ||
       accountNumbers.has(row.accountNumber)
     ) {
       throw new Error(`Invalid roster row ${accountNumber}`);
     }
     usernames.add(row.username);
+    authEmails.add(row.authEmail);
     passwords.add(row.password);
     accountNumbers.add(row.accountNumber);
   }
@@ -283,18 +321,19 @@ function validateRoster(rows) {
 function parseRoster(contents) {
   const records = parseCsv(contents);
   const [header, ...dataRows] = records;
-  if (!header || header.join(",") !== CSV_HEADER || header.length !== 4) {
+  if (!header || header.join(",") !== CSV_HEADER || header.length !== 5) {
     throw new Error("Invalid roster CSV header");
   }
   const rows = dataRows.map((record) => {
-    if (record.length !== 4 || !/^\d+$/.test(record[0])) {
+    if (record.length !== 5 || !/^\d+$/.test(record[0])) {
       throw new Error("Invalid roster CSV row");
     }
     return {
       accountNumber: Number(record[0]),
       username: record[1],
-      password: record[2],
-      status: record[3],
+      authEmail: record[2],
+      password: record[3],
+      status: record[4],
     };
   });
   return validateRoster(rows);

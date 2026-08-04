@@ -13,15 +13,16 @@ const ERROR_MESSAGES = {
 };
 
 export class FirebaseIdentityError extends Error {
-  constructor(code) {
+  constructor(code, status = null) {
     super(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.UNAVAILABLE);
     this.name = "FirebaseIdentityError";
     this.code = ERROR_MESSAGES[code] ? code : "UNAVAILABLE";
+    this.status = Number.isInteger(status) ? status : null;
   }
 }
 
-function identityError(code) {
-  return new FirebaseIdentityError(code);
+function identityError(code, status = null) {
+  return new FirebaseIdentityError(code, status);
 }
 
 function isBoundedString(value, maxLength) {
@@ -181,10 +182,12 @@ export function createFirebaseIdentityClient({
         parsed = await readResponseJson(response);
       } catch (error) {
         if (ok) throw error;
-        if (response.status === 429) throw identityError("RATE_LIMITED");
-        throw identityError("UNAVAILABLE");
+        if (response.status === 429) throw identityError("RATE_LIMITED", 429);
+        throw identityError("UNAVAILABLE", response.status);
       }
-      if (!ok) throw identityError(firebaseFailureCode(parsed, response.status));
+      if (!ok) {
+        throw identityError(firebaseFailureCode(parsed, response.status), response.status);
+      }
       return parsed;
     } catch (error) {
       if (error instanceof FirebaseIdentityError) throw error;

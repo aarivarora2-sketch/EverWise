@@ -43,6 +43,7 @@ import {
   confirmPartnerRelease,
   fetchPartnerAccess,
   previewInvite,
+  resolveProvisionedLogin,
 } from "./services/partnerAccess.js";
 import AppShell from "./components/AppShell";
 import Badges from "./screens/Badges";
@@ -72,6 +73,7 @@ import {
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
 import {
   authEmailToUsername,
+  isReservedSponsoredUsername,
   loginIdentifierToAuthEmail,
   normalizeUsername,
   usernameToAuthEmail,
@@ -704,6 +706,7 @@ function LearnerApp({ initialPartnerFragment }) {
   const [profileCompletion, setProfileCompletion] = useState(null);
   const [partnerPreviewAttempt, setPartnerPreviewAttempt] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authBootstrapAttempt, setAuthBootstrapAttempt] = useState(0);
   const [launchAnimationDone, setLaunchAnimationDone] = useState(false);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -724,6 +727,8 @@ function LearnerApp({ initialPartnerFragment }) {
   const activeReleaseConfirmationRef = useRef(null);
   const partnerFragmentRef = useRef(partnerFragment);
   const partnerRecoveryRef = useRef(null);
+  const partnerAccessRefreshIdRef = useRef(0);
+  const refreshAuthoritativePartnerAccessRef = useRef(null);
 
   const updatePartnerFragment = (next) => {
     partnerFragmentRef.current = next;
@@ -1098,7 +1103,14 @@ function LearnerApp({ initialPartnerFragment }) {
               generation === authGenerationRef.current &&
               currentAuthUidRef.current === u.uid
             ) {
-              setPartnerStatus("idle");
+              setPartnerStatus("unavailable");
+              updatePartnerRecovery({
+                kind: "authenticated-bootstrap",
+                user: u,
+                phase: "access",
+                busy: false,
+              });
+              setScreen("partner-error");
             }
           }
           authSettledRef.current = true;
@@ -1187,6 +1199,15 @@ function LearnerApp({ initialPartnerFragment }) {
               err?.code || err?.name || "unknown",
             );
           }
+          setProfile(null);
+          setPartnerStatus("unavailable");
+          updatePartnerRecovery({
+            kind: "authenticated-bootstrap",
+            user: u,
+            phase: "profile",
+            busy: false,
+          });
+          setScreen("partner-error");
         }
       } finally {
         if (
@@ -1202,7 +1223,7 @@ function LearnerApp({ initialPartnerFragment }) {
       window.clearTimeout(startupFallback);
       unsub();
     };
-  }, []);
+  }, [authBootstrapAttempt]);
 
   const activeLesson = lessonsByOrder[activeIndex];
   const completedLessons = profile?.completedLessons ?? [];
@@ -1346,6 +1367,11 @@ function LearnerApp({ initialPartnerFragment }) {
     const normalizedUsername = sponsoredSignup
       ? null
       : normalizeUsername(username);
+    if (!sponsoredSignup && isReservedSponsoredUsername(normalizedUsername)) {
+      const error = new Error("This username is reserved.");
+      error.code = "auth/invalid-credential";
+      throw error;
+    }
     const authEmail = sponsoredSignup
       ? email
       : usernameToAuthEmail(normalizedUsername);
@@ -1688,6 +1714,14 @@ function LearnerApp({ initialPartnerFragment }) {
     setPartnerPreviewAttempt((current) => current + 1);
   };
 
+  const retryAuthenticatedBootstrap = () => {
+    const recovery = partnerRecoveryRef.current;
+    if (recovery?.kind !== "authenticated-bootstrap" || recovery.busy) return;
+    updatePartnerRecovery({ ...recovery, busy: true });
+    setAuthChecked(false);
+    setAuthBootstrapAttempt((current) => current + 1);
+  };
+
   const retryReturningPartnerAccess = async () => {
     const recovery = partnerRecoveryRef.current;
     if (recovery?.kind !== "returning-access") return;
@@ -1755,6 +1789,13 @@ function LearnerApp({ initialPartnerFragment }) {
     if (!operation || !strictPartnerOperationIsCurrent(operation)) return;
     updatePartnerRecovery({ ...recovery, busy: true });
     try {
+      const authoritativeAccess = await fetchAuthoritativePartnerAccess(
+        recovery.user,
+      );
+      if (!strictPartnerOperationIsCurrent(operation)) {
+        finishPartnerOperation(operation);
+        return;
+      }
       await setDoc(doc(db, "users", expectedUid), recovery.profile);
       if (!strictPartnerOperationIsCurrent(operation)) {
         finishPartnerOperation(operation);
@@ -1763,13 +1804,25 @@ function LearnerApp({ initialPartnerFragment }) {
       finishPartnerOperation(operation);
       setUser(recovery.user);
       setProfile(recovery.profile);
-      setPartnerOwnerUid(expectedUid);
-      setPartner(
-        recovery.entitlement.branding || { name: recovery.entitlement.name },
-      );
-      setPartnerStatus("active");
       updatePartnerRecovery(null);
-      setScreen("personal-plan");
+      if (
+        authoritativeAccess.status === "active" ||
+        authoritativeAccess.status === "suspended"
+      ) {
+        setPartnerOwnerUid(expectedUid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus(authoritativeAccess.status);
+        setScreen(
+          authoritativeAccess.status === "active"
+            ? "personal-plan"
+            : "partner-error",
+        );
+      } else {
+        clearAuthoritativePartner();
+        setScreen("home");
+      }
     } catch {
       if (strictPartnerOperationIsCurrent(operation)) {
         finishPartnerOperation(operation);
@@ -1811,8 +1864,9 @@ function LearnerApp({ initialPartnerFragment }) {
       ...profileInterview
     } = interview;
     const authEmail = completion.user.email || "";
-    const username = authEmailToUsername(authEmail);
-    const usesUsername = username !== authEmail;
+    const authoritativeUsername = completion.entitlement.username;
+    const username = authoritativeUsername || authEmailToUsername(authEmail);
+    const usesUsername = Boolean(authoritativeUsername) || username !== authEmail;
     const initial = {
       name,
       ...(usesUsername
@@ -1892,8 +1946,10 @@ function LearnerApp({ initialPartnerFragment }) {
   };
 
   const logIn = async (identifier, password) => {
-    const authEmail = loginIdentifierToAuthEmail(identifier);
     try {
+      const authEmail = isReservedSponsoredUsername(identifier)
+        ? (await resolveProvisionedLogin({ username: identifier })).authEmail
+        : loginIdentifierToAuthEmail(identifier);
       await signInWithEmailAndPassword(auth, authEmail, password);
     } catch (err) {
       if (import.meta.env.DEV) {
@@ -1935,14 +1991,107 @@ function LearnerApp({ initialPartnerFragment }) {
     }
   };
 
-  const startLesson = (index) => {
+  const refreshAuthoritativePartnerAccess = async () => {
+    const refreshUser = user;
+    if (
+      !refreshUser?.uid ||
+      partnerOwnerUid !== refreshUser.uid ||
+      partnerStatus !== "active"
+    ) {
+      return { status: partnerStatus === "active" ? "active" : "none" };
+    }
+    const generation = authGenerationRef.current;
+    const refreshId = partnerAccessRefreshIdRef.current + 1;
+    partnerAccessRefreshIdRef.current = refreshId;
+    try {
+      const authoritativeAccess = await fetchAuthoritativePartnerAccess(refreshUser);
+      if (
+        refreshId !== partnerAccessRefreshIdRef.current ||
+        generation !== authGenerationRef.current ||
+        currentAuthUidRef.current !== refreshUser.uid
+      ) {
+        return null;
+      }
+      if (authoritativeAccess.status === "active") {
+        setPartnerOwnerUid(refreshUser.uid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus("active");
+        updatePartnerRecovery(null);
+      } else if (authoritativeAccess.status === "suspended") {
+        setPartnerOwnerUid(refreshUser.uid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus("suspended");
+        updatePartnerRecovery(null);
+        setScreen("partner-error");
+      } else {
+        clearAuthoritativePartner();
+        updatePartnerRecovery(null);
+      }
+      return authoritativeAccess;
+    } catch {
+      if (
+        refreshId === partnerAccessRefreshIdRef.current &&
+        generation === authGenerationRef.current &&
+        currentAuthUidRef.current === refreshUser.uid
+      ) {
+        setPartnerStatus("unavailable");
+        updatePartnerRecovery({
+          kind: "returning-access",
+          user: refreshUser,
+          profile,
+          busy: false,
+        });
+        setScreen("partner-error");
+      }
+      return null;
+    }
+  };
+  refreshAuthoritativePartnerAccessRef.current =
+    refreshAuthoritativePartnerAccess;
+
+  useEffect(() => {
+    if (!sponsoredActive) return undefined;
+    const refresh = () => {
+      void refreshAuthoritativePartnerAccessRef.current?.();
+    };
+    const resume = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [sponsoredActive]);
+
+  const startLesson = async (index) => {
     const lesson = lessonsByOrder[index];
     const done = lesson && completedLessons.includes(lesson.id);
+    let currentAccess = access;
+    if (!done && sponsoredActive) {
+      const refreshed = await refreshAuthoritativePartnerAccess();
+      if (!refreshed || refreshed.status === "suspended") return;
+      currentAccess = resolveFullAccess({
+        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
+        subscriptionStatus,
+        developmentBypass: subscriptionBypassEnabled,
+      });
+      if (!currentAccess) {
+        setPaywallVariant("subscribe");
+        setScreen("paywall");
+        return;
+      }
+    }
     if (
       !canOpenLesson({
         lessonId: lesson?.id,
         completed: done,
-        fullAccess: access,
+        fullAccess: currentAccess,
       })
     ) {
       goPaywall();
@@ -1954,9 +2103,24 @@ function LearnerApp({ initialPartnerFragment }) {
     setScreen("lesson");
   };
 
-  const startChallenge = (challenge) => {
+  const startChallenge = async (challenge) => {
     const done = completedLessons.includes(challenge.id);
-    if (!access && !done) {
+    let currentAccess = access;
+    if (!done && sponsoredActive) {
+      const refreshed = await refreshAuthoritativePartnerAccess();
+      if (!refreshed || refreshed.status === "suspended") return;
+      currentAccess = resolveFullAccess({
+        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
+        subscriptionStatus,
+        developmentBypass: subscriptionBypassEnabled,
+      });
+      if (!currentAccess) {
+        setPaywallVariant("subscribe");
+        setScreen("paywall");
+        return;
+      }
+    }
+    if (!currentAccess && !done) {
       goPaywall();
       return;
     }
@@ -1965,9 +2129,24 @@ function LearnerApp({ initialPartnerFragment }) {
     setScreen("challenge");
   };
 
-  const startExam = (exam) => {
+  const startExam = async (exam) => {
     const done = completedLessons.includes(exam.id);
-    if (!access && !done) {
+    let currentAccess = access;
+    if (!done && sponsoredActive) {
+      const refreshed = await refreshAuthoritativePartnerAccess();
+      if (!refreshed || refreshed.status === "suspended") return;
+      currentAccess = resolveFullAccess({
+        sponsoredStatus: refreshed.status === "active" ? "active" : "none",
+        subscriptionStatus,
+        developmentBypass: subscriptionBypassEnabled,
+      });
+      if (!currentAccess) {
+        setPaywallVariant("subscribe");
+        setScreen("paywall");
+        return;
+      }
+    }
+    if (!currentAccess && !done) {
       goPaywall();
       return;
     }
@@ -2550,6 +2729,23 @@ function LearnerApp({ initialPartnerFragment }) {
     );
   }
 
+  if (partnerRecovery?.kind === "authenticated-bootstrap") {
+    return (
+      <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
+        <PartnerAccessError
+          code={
+            partnerRecovery.phase === "profile"
+              ? "ACCOUNT_PROFILE_UNAVAILABLE"
+              : "PARTNER_ACCESS_UNCONFIRMED"
+          }
+          onRetry={retryAuthenticatedBootstrap}
+          retryLabel={partnerRecovery.busy ? "Retrying…" : "Retry"}
+          onLogOut={logOut}
+        />
+      </AppShell>
+    );
+  }
+
   if (partnerRecovery?.kind === "claim") {
     return (
       <AppShell screen="partner-error" isAuthenticated={Boolean(user)}>
@@ -2558,6 +2754,7 @@ function LearnerApp({ initialPartnerFragment }) {
           partnerName={partnerRecovery.partner?.name || partner?.name}
           onRetry={retryPartnerClaim}
           retryLabel={partnerRecovery.busy ? "Retrying…" : "Retry"}
+          onLogOut={logOut}
         />
       </AppShell>
     );
@@ -2573,6 +2770,7 @@ function LearnerApp({ initialPartnerFragment }) {
           retryLabel={
             partnerRecovery.busy ? "Saving profile…" : "Retry saving profile"
           }
+          onLogOut={logOut}
         />
       </AppShell>
     );

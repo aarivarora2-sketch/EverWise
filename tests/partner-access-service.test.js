@@ -9,6 +9,8 @@ import {
   fetchPartnerAccess,
   fetchPartnerReport,
   previewInvite,
+  registerProvisionedLogin,
+  resolveProvisionedLogin,
   rotatePartnerInvite,
 } from "../src/services/partnerAccess.js";
 
@@ -77,6 +79,27 @@ function streamBody(chunks, { onCancel, keepOpen = false } = {}) {
 
 test("partner methods use POST, the shared endpoint resolver, JSON bodies, and correct authentication", async () => {
   const cases = [
+    {
+      method: resolveProvisionedLogin,
+      args: { username: "EverWise001" },
+      path: "/api/partner/login",
+      body: { username: "EverWise001" },
+      response: {
+        authEmail: "ewp-0123456789abcdef0123456789abcdef0123456789abcdef@accounts.everwise.app",
+      },
+    },
+    {
+      method: registerProvisionedLogin,
+      args: {
+        idToken: ID_TOKEN,
+        adminToken: ADMIN_TOKEN,
+        username: "EverWise001",
+      },
+      path: "/api/partner/admin/register-login",
+      body: { adminToken: ADMIN_TOKEN, username: "EverWise001" },
+      authenticated: true,
+      response: { ...ACTIVE_ACCESS, username: "everwise001" },
+    },
     {
       method: previewInvite,
       args: { inviteToken: INVITE_TOKEN },

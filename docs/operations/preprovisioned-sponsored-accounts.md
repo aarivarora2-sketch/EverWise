@@ -2,13 +2,15 @@
 
 This runbook is for a specifically authorized production operator. It creates the fixed `EverWise001` through `EverWise500` roster for Community Partner. Merging or deploying the application does not create any accounts; provisioning is a separate, explicit production operation.
 
+The fixed usernames are reserved from public signup. Each row also contains a random `auth_email` used internally by Firebase. Learners sign in with the fixed username and password; they must never be asked to use or share the internal address. The production API binds the fixed username to that opaque address only after the same authenticated Firebase UID has claimed its sponsored membership.
+
 Never test this procedure with production credentials or a real roster. The browser QA in the development workflow must use local fixtures and mocked authentication only.
 
 ## Safety rules
 
 - Use a private terminal session on an approved device. Turn off shell tracing before entering credentials.
 - Keep the roster CSV on approved encrypted local storage, outside every Git checkout and outside Dropbox, iCloud Drive, OneDrive, Google Drive, or any other cloud-synced folder.
-- Never paste credentials into a command, command-line option, shell history, document, issue, commit, build artifact, chat, or ordinary email.
+- Never paste credentials or internal `auth_email` values into a command, command-line option, shell history, document, issue, commit, build artifact, chat, or ordinary email.
 - Never copy the roster into a repository, temporary build directory, or test-results directory. The CSV contains account credentials.
 - Do not run a confirmed `create` or `resume` without a successful read-only preflight, review of its redacted output, and explicit user approval for that exact production run.
 - Do not run a second `create` for the same pilot. Never regenerate or replace an existing roster.
@@ -59,6 +61,8 @@ Preflight must report all of the following and must state that no accounts or cr
 - Firebase project `games-caf0e`
 - Seats `0 claimed, 500 available, 500 total`
 
+The deployed `/healthz` response must also show both `"partnerAccessConfigured":true` and `"partnerStoreHealthy":true`. A missing store is an unavailable service, not an empty pilot; do not continue when either value is false.
+
 Do not continue if any identity, status, or count differs. Present only this redacted preflight output to the user and obtain explicit approval to create the 500 production accounts. The three environment values and roster contents must never appear in the approval request.
 
 ## 3. Create only after explicit approval
@@ -76,7 +80,7 @@ npm run provision:sponsored -- create \
   --confirm-production
 ```
 
-The command creates the private CSV before it starts account provisioning and updates that same file as memberships become authoritative. Never delete, rename, edit, regenerate, or substitute the CSV during a run.
+The command creates the private CSV before it starts account provisioning and updates that same file as memberships and privileged username bindings become authoritative. Its exact schema is `account_number,username,auth_email,password,status`. Never delete, rename, edit, regenerate, or substitute the CSV during a run.
 
 Success is only the final summary:
 
@@ -85,6 +89,8 @@ Provisioning complete: 500 active, 0 pending, 0 failed.
 ```
 
 Any other counts mean the run is incomplete. Preserve the same private CSV and follow the recovery rules below.
+
+An exact result exits with status 0. Every result containing a pending or failed row prints `Provisioning incomplete`, includes same-file resume guidance, and exits non-zero. Treat a zero exit status plus the exact `500/0/0` summary as a single success condition; never rely on only one of them.
 
 ## 4. Resume boundary
 
@@ -109,6 +115,8 @@ Review the reported partner, Firebase project, and seat counts against the same 
 - For a fully active roster, the report must show `500 claimed, 0 available, 500 total`.
 
 The CLI fails closed if the partner identity, Firebase project, seat arithmetic, 500-seat limit, or roster-to-seat relationship differs. Do not edit the CSV, rerun `create`, release seats, delete accounts, or mutate Firebase to force a match. Preserve the CSV and output and escalate the mismatch for an approved reconciliation.
+
+During confirmed resume, every active or newly reconciled row also re-registers the same fixed username binding with the authenticated learner token and admin token. A mismatched username, UID, or opaque auth email is a terminal conflict; do not bypass or rewrite it manually.
 
 After the read-only resume preflight passes, present only its redacted output and the matching active/pending and claimed/available counts for explicit user approval. Do not include roster rows or credentials. Then rerun the same command with only `--confirm-production` added:
 
@@ -159,7 +167,7 @@ Preserve the exact CSV and terminal output. Do not run `create` again. Use the s
 
 ### `EMAIL_EXISTS`
 
-Stop. Do not delete or overwrite the existing Firebase account, do not change that row’s password, and do not generate another roster. Treat this as an identity collision requiring authorized investigation. The provisioner does not own an account that existed before the run and must never delete it.
+Stop. This refers to the row's high-entropy internal `auth_email`, not a predictable address derived from the public fixed username. Do not delete or overwrite the existing Firebase account, do not change that row’s password, and do not generate another roster. Treat this as an identity collision requiring authorized investigation. The provisioner does not own an account that existed before the run and must never delete it.
 
 ### Partner API unavailable
 
@@ -179,4 +187,4 @@ Stop immediately. Do not recreate the CSV or generate replacement passwords: the
 
 ### Firebase deletion after a definitive failed claim
 
-For a definitive claim rejection, the provisioner first verifies that authoritative partner access is `none`. It deletes a Firebase identity only when that identity was created by the current attempt; it never deletes a pre-existing account. If deletion fails or its ownership/outcome is uncertain, stop. Do not delete by username pattern alone. Reconcile the exact Firebase UID, creation ownership, authoritative membership, and saved roster row through approved Firebase operations before deciding whether deletion is safe.
+For a definitive claim rejection, the provisioner first verifies that authoritative partner access is `none`. It deletes a Firebase identity only when that identity was created by the current attempt; it never deletes a pre-existing account. It then persists the unchanged pending roster, reports the row failed for that run, and stops before authenticating or mutating any later row. If deletion fails or its ownership/outcome is uncertain, stop. Do not delete by username pattern alone. Reconcile the exact Firebase UID, creation ownership, authoritative membership, and saved roster row through approved Firebase operations before deciding whether deletion is safe.

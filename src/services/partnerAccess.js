@@ -28,6 +28,8 @@ const SAFE_MESSAGES = {
   RECENT_AUTH_REQUIRED: "Please sign in again before deleting your account.",
   RATE_LIMITED: "Too many requests. Try again later.",
   PARTNER_UNAVAILABLE: "Sponsored access is temporarily unavailable.",
+  LOGIN_NOT_FOUND: "The username or password is incorrect.",
+  LOGIN_CONFLICT: "The provisioned login conflicts with an existing account.",
 };
 
 export class PartnerAccessError extends Error {
@@ -127,10 +129,22 @@ function validAccess(value, { allowNone = true } = {}) {
   if (allowNone && hasExactKeys(value, ["status"]) && value.status === "none") {
     return true;
   }
+  const keys = ["branding", "name", "partnerId", "status"];
+  if (Object.hasOwn(value || {}, "username")) keys.push("username");
   return Boolean(
-    hasExactKeys(value, ["branding", "name", "partnerId", "status"]) &&
+    hasExactKeys(value, keys) &&
       (value.status === "active" || value.status === "suspended") &&
-      validPartnerIdentity(value),
+      validPartnerIdentity(value) &&
+      (!Object.hasOwn(value, "username") ||
+        /^everwise(?:00[1-9]|0[1-9]\d|[1-4]\d{2}|500)$/.test(value.username)),
+  );
+}
+
+function validProvisionedLoginResolution(value) {
+  return Boolean(
+    hasExactKeys(value, ["authEmail"]) &&
+      typeof value.authEmail === "string" &&
+      /^ewp-[a-f0-9]{48}@accounts\.everwise\.app$/.test(value.authEmail),
   );
 }
 
@@ -358,6 +372,37 @@ export function previewInvite(options) {
     fetchImpl,
     apiEndpointImpl,
     validateResponse: validPreview,
+  });
+}
+
+export function resolveProvisionedLogin(options) {
+  const values = readPublicOptions(options, ["username", "fetchImpl", "apiEndpointImpl"]);
+  if (!values) return rejectedUnsafeArguments();
+  const { username, fetchImpl, apiEndpointImpl } = values;
+  return partnerRequest("/api/partner/login", {
+    body: { username },
+    fetchImpl,
+    apiEndpointImpl,
+    validateResponse: validProvisionedLoginResolution,
+  });
+}
+
+export function registerProvisionedLogin(options) {
+  const values = readPublicOptions(options, [
+    "idToken",
+    "adminToken",
+    "username",
+    "fetchImpl",
+    "apiEndpointImpl",
+  ]);
+  if (!values) return rejectedUnsafeArguments();
+  const { idToken, adminToken, username, fetchImpl, apiEndpointImpl } = values;
+  return partnerRequest("/api/partner/admin/register-login", {
+    idToken,
+    body: { adminToken, username },
+    fetchImpl,
+    apiEndpointImpl,
+    validateResponse: (payload) => validAccess(payload, { allowNone: false }),
   });
 }
 

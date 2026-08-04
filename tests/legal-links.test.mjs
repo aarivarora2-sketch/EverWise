@@ -30,7 +30,12 @@ test("Privacy explains sponsored access, optional research, aggregate reports, a
   const copy = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
   assert.match(copy, /sponsored access/i);
+  assert.match(copy, /email address.*(?:only|when).*(?:invitation|invite)/i);
+  assert.match(copy, /fixed username.*synthetic.*internal.*email/i);
+  assert.match(copy, /fixed username.*not asked.*personal email/i);
   assert.match(copy, /optional research/i);
+  assert.match(copy, /pre-provisioned.*not asked.*research consent/i);
+  assert.match(copy, /invitation.*separate.*optional.*consent/i);
   assert.match(copy, /minimized/i);
   assert.match(copy, /pseudonymized/i);
   assert.match(copy, /internally linked.*(?:deletion|delete).*(?:aggregate|group totals)/i);

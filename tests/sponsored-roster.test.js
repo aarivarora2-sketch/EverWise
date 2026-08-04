@@ -48,6 +48,13 @@ test("buildSponsoredRoster creates 500 distinct pending EverWise accounts", () =
     ["EverWise001", "EverWise100", "EverWise500"],
   );
   assert.equal(new Set(rows.map(({ password }) => password)).size, 500);
+  assert.equal(new Set(rows.map(({ authEmail }) => authEmail)).size, 500);
+  assert.ok(
+    rows.every(({ authEmail, username }) =>
+      /^ewp-[a-f0-9]{48}@accounts\.everwise\.app$/.test(authEmail) &&
+      authEmail !== usernameToAuthEmail(username),
+    ),
+  );
   assert.ok(rows.every(({ status }) => status === "pending"));
   assert.equal(normalizeUsername(rows[0].username), "everwise001");
   assert.equal(
@@ -113,6 +120,24 @@ test("createRosterFile refuses repository and symlink destinations", async (t) =
   );
 });
 
+test("createRosterFile checks every existing ancestor for symlinks", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const realParent = join(directory, "real-parent");
+  const linkedParent = join(directory, "linked-parent");
+  const nested = join(realParent, "nested", "existing");
+  await mkdir(nested, { recursive: true });
+  await symlink(realParent, linkedParent);
+
+  await assert.rejects(
+    createRosterFile({
+      filePath: join(linkedParent, "nested", "existing", "roster.csv"),
+      repositoryRoot: process.cwd(),
+      rows: rosterRows(),
+    }),
+    /symlink/i,
+  );
+});
+
 test("createRosterFile will not replace an existing file or symlink", async (t) => {
   const directory = await temporaryDirectory(t);
   const existingPath = join(directory, "existing.csv");
@@ -140,16 +165,17 @@ test("readRosterFile rejects malformed or unsafe roster CSV", async (t) => {
   const filePath = join(directory, "malformed.csv");
   const rows = rosterRows();
   const csv = [
-    "account_number,username,password,status",
-    ...rows.map(({ accountNumber, username, password, status }) =>
-      `${accountNumber},${username},${password},${status}`,
+    "account_number,username,auth_email,password,status",
+    ...rows.map(({ accountNumber, username, authEmail, password, status }) =>
+      `${accountNumber},${username},${authEmail},${password},${status}`,
     ),
   ].join("\n");
 
   const invalidVariants = [
-    csv.replace("account_number,username,password,status", "wrong,header"),
+    csv.replace("account_number,username,auth_email,password,status", "wrong,header"),
     csv.replace("EverWise002", "EverWise001"),
     csv.replace(rows[1].password, rows[0].password),
+    csv.replace(rows[1].authEmail, rows[0].authEmail),
     csv.replace("2,EverWise002", "1,EverWise002"),
     csv.replace(",pending", ",unknown"),
     csv.split("\n").slice(0, -1).join("\n"),

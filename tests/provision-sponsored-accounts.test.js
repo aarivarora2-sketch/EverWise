@@ -54,6 +54,7 @@ function pendingRows() {
   return Array.from({ length: 500 }, (_, index) => ({
     accountNumber: index + 1,
     username: `EverWise${String(index + 1).padStart(3, "0")}`,
+    authEmail: `ewp-${String(index + 1).padStart(48, "0")}@accounts.everwise.app`,
     password: `SafePassword-A2!${passwordAlphabet[Math.floor(index / passwordAlphabet.length)]}${passwordAlphabet[index % passwordAlphabet.length]}`,
     status: "pending",
   }));
@@ -246,6 +247,7 @@ test("confirmed create saves a pending roster before provisioning and persists u
   assert.equal(provisionOptions.apiOrigin, API_ORIGIN);
   assert.deepEqual(provisionOptions.preflight, PREFLIGHT);
   assert.equal(provisionOptions.inviteToken, ENV.EVERWISE_PARTNER_INVITE_TOKEN);
+  assert.equal(provisionOptions.adminToken, ENV.EVERWISE_PARTNER_ADMIN_TOKEN);
   assert.equal(provisionOptions.firebaseClient, fixture.firebaseClient);
   assert.equal(provisionOptions.partnerOperations, fixture.partnerOperations);
   assert.equal(provisionOptions.backoff, fixture.dependencies.backoff);
@@ -307,6 +309,25 @@ test("confirmed resume reads the validated roster without regenerating passwords
   assert.equal(fixture.stderrText, "");
 });
 
+test("incomplete provisioning preserves the roster, exits nonzero, and gives resume guidance", async () => {
+  const fixture = makeFixture({
+    async provisionSponsoredRoster(options) {
+      fixture.calls.push(["provisionSponsoredRoster", options]);
+      await options.persistRows(options.rows);
+      return { active: 499, pending: 0, failed: 1 };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.match(
+    fixture.stdoutText,
+    /Provisioning incomplete: 499 active, 0 pending, 1 failed\./,
+  );
+  assert.match(fixture.stdoutText, /resume with the same private roster/i);
+  assert.equal(fixture.stdoutText.includes("Provisioning complete"), false);
+  assert.equal(fixture.stderrText, "");
+});
+
 test("partial resume validates the saved roster before accepting its matching occupied seats", async () => {
   const claimed = 237;
   const resumeRows = pendingRows().map((row, index) => ({
@@ -344,7 +365,7 @@ test("partial resume validates the saved roster before accepting its matching oc
     },
   });
 
-  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 0);
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
 
   assert.deepEqual(fixture.calls.map(([name]) => name), [
     "createFirebaseIdentityClient",
@@ -356,6 +377,11 @@ test("partial resume validates the saved roster before accepting its matching oc
     fixture.stdoutText,
     /Seats: 237 claimed, 263 available, 500 total/,
   );
+  assert.match(
+    fixture.stdoutText,
+    /Provisioning incomplete: 237 active, 263 pending, 0 failed/,
+  );
+  assert.match(fixture.stdoutText, /resume with the same private roster/i);
   assert.equal(fixture.stderrText, "");
 });
 

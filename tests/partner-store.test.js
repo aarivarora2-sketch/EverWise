@@ -223,6 +223,84 @@ test("previewInvite validates and rotates invite tokens without exposing stored 
   );
 });
 
+test("provisioned login aliases require an authoritative membership and partner admin token", async (t) => {
+  const { store } = await setupStore(t);
+  const { inviteToken, adminToken } = await createPilot(store);
+  const authEmail = "ewp-0123456789abcdef0123456789abcdef0123456789abcdef@accounts.everwise.app";
+  await store.claimSeat({ uid: "uid-1", inviteToken, researchConsent: false });
+
+  await expectStoreError(
+    () => store.registerProvisionedLogin({
+      uid: "uid-1",
+      username: "EverWise001",
+      authEmail,
+      adminToken: "invalid",
+    }),
+    "INVALID_ADMIN",
+  );
+  await expectStoreError(
+    () => store.registerProvisionedLogin({
+      uid: "not-a-member",
+      username: "EverWise001",
+      authEmail,
+      adminToken,
+    }),
+    "MEMBERSHIP_NOT_FOUND",
+  );
+
+  assert.deepEqual(
+    await store.registerProvisionedLogin({
+      uid: "uid-1",
+      username: "EverWise001",
+      authEmail,
+      adminToken,
+    }),
+    {
+      status: "active",
+      partnerId: "pilot",
+      name: "Community Partner",
+      branding: {
+        name: "Community Partner",
+        logoPath: null,
+        accent: "#2F6B61",
+      },
+      username: "everwise001",
+    },
+  );
+  assert.deepEqual(
+    await store.resolveProvisionedLogin({ username: "EVERWISE001" }),
+    { authEmail },
+  );
+  assert.equal((await store.getAccess("uid-1")).username, "everwise001");
+
+  await store.claimSeat({ uid: "uid-2", inviteToken, researchConsent: false });
+  await expectStoreError(
+    () => store.registerProvisionedLogin({
+      uid: "uid-2",
+      username: "EverWise001",
+      authEmail: "ewp-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef@accounts.everwise.app",
+      adminToken,
+    }),
+    "LOGIN_CONFLICT",
+  );
+});
+
+test("missing partner store is unavailable on runtime reads but list and create remain safe", async (t) => {
+  const { store } = await setupStore(t);
+  assert.deepEqual(await store.listPartners(), []);
+  assert.deepEqual(await store.health(), { configured: false, healthy: false });
+  await expectStoreError(() => store.getAccess("uid-1"), "STORE_NOT_CONFIGURED");
+  await expectStoreError(
+    () => store.previewInvite({ inviteToken: "A".repeat(43) }),
+    "STORE_NOT_CONFIGURED",
+  );
+  await expectStoreError(
+    () => store.getAdminReport({ adminToken: "B".repeat(43) }),
+    "STORE_NOT_CONFIGURED",
+  );
+  assert.match((await createPilot(store)).inviteToken, /^[A-Za-z0-9_-]{43}$/);
+});
+
 test("serialized concurrent claims cannot exceed the 500-seat limit", async (t) => {
   const { store } = await setupStore(t);
   const { inviteToken } = await createPilot(store);

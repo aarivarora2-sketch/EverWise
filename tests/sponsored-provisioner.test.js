@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createFirebaseIdentityClient } from "../scripts/firebaseIdentityClient.mjs";
 import { buildSponsoredRoster } from "../scripts/sponsoredRoster.mjs";
 import {
   preflightSponsoredProvisioning,
@@ -73,6 +74,21 @@ function codedError(code, { status = null, message = code } = {}) {
   return Object.assign(new Error(message), { code, status });
 }
 
+function firebaseResponse(body, { ok = true, status = 200, raw } = {}) {
+  const bytes = new TextEncoder().encode(raw ?? JSON.stringify(body));
+  return {
+    ok,
+    status,
+    body: new ReadableStream({
+      type: "bytes",
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
+  };
+}
+
 function provisioningOptions(overrides = {}) {
   const rows = overrides.rows ?? makeRoster();
   const active = rows.filter(({ status }) => status === "active").length;
@@ -80,6 +96,7 @@ function provisioningOptions(overrides = {}) {
     rows,
     apiOrigin: API_ORIGIN,
     inviteToken: INVITE_TOKEN,
+    adminToken: ADMIN_TOKEN,
     preflight: {
       ...PREFLIGHT,
       seats: { claimed: active, available: 500 - active, limit: 500 },
@@ -107,12 +124,13 @@ function pendingScenario({
     create: 0,
     access: 0,
     claim: 0,
+    register: 0,
     delete: 0,
     persist: 0,
     backoff: [],
     progress: [],
   };
-  const firstEmail = "everwise001@accounts.everwise.app";
+  const firstEmail = rows[0].authEmail;
   const firstIdToken = "id-token-1";
   const firebaseClient = {
     async signIn({ email }) {
@@ -139,6 +157,10 @@ function pendingScenario({
     async claimPartnerSeat(options) {
       calls.claim += 1;
       return claimImpl(calls.claim, options);
+    },
+    async registerProvisionedLogin({ username }) {
+      calls.register += 1;
+      return { ...ACTIVE_ACCESS, username: username.toLowerCase() };
     },
   };
   const options = provisioningOptions({
@@ -426,14 +448,14 @@ test("a pending account with invalid sign-in is created, claimed, persisted, the
   let claimOptions;
   const firebaseClient = {
     async signIn({ email }) {
-      if (email === "everwise001@accounts.everwise.app") {
+      if (email === rows[0].authEmail) {
         order.push("firebase.signIn");
         throw codedError("INVALID_LOGIN_CREDENTIALS");
       }
       return { uid: `uid-${email}`, idToken: `token-${email}` };
     },
     async createAccount({ email, password }) {
-      assert.equal(email, "everwise001@accounts.everwise.app");
+      assert.equal(email, rows[0].authEmail);
       assert.equal(password, rows[0].password);
       order.push("firebase.createAccount");
       return { uid: "uid-1", idToken: "id-token-1" };
@@ -447,6 +469,10 @@ test("a pending account with invalid sign-in is created, claimed, persisted, the
       claimOptions = options;
       order.push("partner.claim");
       return ACTIVE_ACCESS;
+    },
+    async registerProvisionedLogin({ username }) {
+      order.push("partner.register-login");
+      return { ...ACTIVE_ACCESS, username: username.toLowerCase() };
     },
   };
   const progress = [];
@@ -468,13 +494,14 @@ test("a pending account with invalid sign-in is created, claimed, persisted, the
     }),
   );
 
-  assert.deepEqual(order.slice(0, 4), [
+  assert.deepEqual(order.slice(0, 5), [
     "firebase.signIn",
     "firebase.createAccount",
     "partner.claim",
+    "partner.register-login",
     "roster.persist.active",
   ]);
-  assert.equal(order[4], "progress.active");
+  assert.equal(order[5], "progress.active");
   assert.deepEqual(
     {
       idToken: claimOptions.idToken,
@@ -491,8 +518,8 @@ test("a pending account with invalid sign-in is created, claimed, persisted, the
   assert.deepEqual(result, { active: 500, pending: 0, failed: 0 });
 });
 
-test("active roster rows sign in and verify authoritative access without account creation or claims", async () => {
-  const calls = { signIn: 0, access: 0, create: 0, claim: 0, persist: 0 };
+test("active roster rows sign in, verify access, and preserve the privileged login binding", async () => {
+  const calls = { signIn: 0, access: 0, create: 0, claim: 0, register: 0, persist: 0 };
   const rows = makeRoster({ firstStatus: "active", remainingStatus: "active" });
 
   const result = await provisionSponsoredRoster(
@@ -517,6 +544,10 @@ test("active roster rows sign in and verify authoritative access without account
           calls.claim += 1;
           throw new Error("must not claim");
         },
+        async registerProvisionedLogin({ username }) {
+          calls.register += 1;
+          return { ...ACTIVE_ACCESS, username: username.toLowerCase() };
+        },
       },
       async persistRows() {
         calls.persist += 1;
@@ -524,7 +555,53 @@ test("active roster rows sign in and verify authoritative access without account
     }),
   );
 
-  assert.deepEqual(calls, { signIn: 500, access: 500, create: 0, claim: 0, persist: 0 });
+  assert.deepEqual(calls, { signIn: 500, access: 500, create: 0, claim: 0, register: 500, persist: 0 });
+  assert.deepEqual(result, { active: 500, pending: 0, failed: 0 });
+});
+
+test("the real Firebase 429 client error composes with bounded roster retries", async () => {
+  const rows = makeRoster({ firstStatus: "active", remainingStatus: "active" });
+  const firstEmail = rows[0].authEmail;
+  const attempts = new Map();
+  const firebaseClient = createFirebaseIdentityClient({
+    apiKey: API_KEY,
+    fetchImpl: async (url, options) => {
+      assert.match(url, /accounts:signInWithPassword/);
+      const { email } = JSON.parse(options.body);
+      const attempt = (attempts.get(email) ?? 0) + 1;
+      attempts.set(email, attempt);
+      if (email === firstEmail && attempt < 3) {
+        return firebaseResponse(null, { ok: false, status: 429, raw: "not json" });
+      }
+      return firebaseResponse({ localId: `uid-${email}`, idToken: `token-${email}` });
+    },
+  });
+  const backoffAttempts = [];
+
+  const result = await provisionSponsoredRoster(
+    provisioningOptions({
+      rows,
+      firebaseClient,
+      partnerOperations: {
+        async fetchPartnerAccess() {
+          return ACTIVE_ACCESS;
+        },
+        async claimPartnerSeat() {
+          throw new Error("must not claim active accounts");
+        },
+        async registerProvisionedLogin({ username }) {
+          return { ...ACTIVE_ACCESS, username: username.toLowerCase() };
+        },
+      },
+      async backoff(attempt) {
+        backoffAttempts.push(attempt);
+      },
+    }),
+  );
+
+  assert.equal(attempts.get(firstEmail), 3);
+  assert.equal([...attempts.values()].reduce((sum, count) => sum + count, 0), 502);
+  assert.deepEqual(backoffAttempts, [1, 2]);
   assert.deepEqual(result, { active: 500, pending: 0, failed: 0 });
 });
 
@@ -598,7 +675,9 @@ test("definitive claim rejections delete only an account created by this attempt
     assert.equal(scenario.calls.claim, 1, code);
     assert.equal(scenario.calls.access, 2, code);
     assert.equal(scenario.calls.delete, 1, code);
-    assert.equal(scenario.calls.persist, 0, code);
+    assert.equal(scenario.calls.persist, 1, code);
+    assert.equal(scenario.calls.signIn, 1, code);
+    assert.equal(scenario.calls.register, 0, code);
     assert.deepEqual(scenario.calls.progress[0], {
       accountNumber: 1,
       username: "EverWise001",

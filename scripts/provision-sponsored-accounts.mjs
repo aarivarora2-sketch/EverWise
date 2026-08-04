@@ -475,6 +475,7 @@ export async function runSponsoredAccountsCli({
         apiOrigin: options["api-origin"],
         preflight,
         inviteToken,
+        adminToken,
         firebaseClient,
         partnerOperations: resolvedDependencies.partnerOperations,
         persistRows: (nextRows) =>
@@ -491,11 +492,20 @@ export async function runSponsoredAccountsCli({
       }),
     );
 
+    if (summary.active === 500 && summary.pending === 0 && summary.failed === 0) {
+      stdout.write(
+        "Provisioning complete: 500 active, 0 pending, 0 failed.\n",
+      );
+      stdout.write("Private roster saved to the approved output path.\n");
+      return 0;
+    }
     stdout.write(
-      `Provisioning complete: ${summary.active} active, ${summary.pending} pending, ${summary.failed} failed.\n`,
+      `Provisioning incomplete: ${summary.active} active, ${summary.pending} pending, ${summary.failed} failed.\n`,
     );
-    stdout.write("Private roster saved to the approved output path.\n");
-    return 0;
+    stdout.write(
+      "The private roster was preserved. Resume with the same private roster after correcting the reported issue.\n",
+    );
+    return 1;
   } catch (error) {
     writeSafeError(stderr, error);
     return 1;

@@ -1,7 +1,7 @@
 # Pre-provisioned Sponsored Accounts Design
 
 **Date:** 2026-08-03
-**Status:** User-approved design; implementation not started
+**Status:** User-approved design; implemented locally, pending release verification
 **Scope:** Add a secure, resumable way to create exactly 500 unique EverWise learner logins whose accounts are already sponsored, while preserving the normal public signup and paywall behavior.
 
 ## 1. Purpose
@@ -45,7 +45,7 @@ People who create ordinary public accounts are not sponsored. Their existing sub
 
 ## 4. Existing System Constraints
 
-Public EverWise usernames are converted to Firebase-compatible internal email addresses under `accounts.everwise.app`. The login screen already accepts either a username or an email. Sponsored access is authoritative on the EverWise partner API: an authenticated Firebase UID bypasses the paywall only when the partner store reports an active membership.
+Ordinary public EverWise usernames are converted to Firebase-compatible internal email addresses under `accounts.everwise.app`. The fixed `EverWise001` through `EverWise500` range is reserved and rejected by every public account-creation path. Each provisioned row instead receives a cryptographically random, opaque Firebase auth email under that domain. The public fixed username is bound to that opaque address only after the Firebase UID has authoritative sponsored membership, using an authenticated operator-only API call. Sponsored access remains authoritative on the EverWise partner API: an authenticated Firebase UID bypasses the paywall only when the partner store reports an active membership.
 
 The current sponsored invite flow creates an account in the browser and claims a seat through `/api/partner/claim`. The pre-provisioning flow will use the same authenticated claim contract, so it cannot grant access by writing a client-only flag or modifying a Firestore profile.
 
@@ -78,20 +78,21 @@ Before any account mutation, the command creates the private CSV with all 500 ap
 
 CSV columns are:
 
-`account_number,username,password,status`
+`account_number,username,auth_email,password,status`
 
-The initial status is `pending`. The command updates each row to `active` only after both Firebase account creation and sponsored-seat confirmation succeed. It never prints password values.
+`auth_email` is a unique, high-entropy internal identifier matching `ewp-<48 lowercase hex characters>@accounts.everwise.app`; learners continue to use the public fixed username. The initial status is `pending`. The command updates each row to `active` only after Firebase account creation, sponsored-seat confirmation, and privileged username binding all succeed. It never prints password or internal auth-email values.
 
 ### 5.3 Account creation and sponsorship
 
 For each pending row, sequentially:
 
-1. Convert the username to the same internal Firebase auth email used by the web app.
-2. Create the Firebase Authentication user through the official Identity Toolkit REST endpoint.
+1. Read the row's pre-generated opaque internal Firebase auth email; never derive it from the public username.
+2. Create the Firebase Authentication user through the official Identity Toolkit REST endpoint using that opaque address.
 3. Receive the new user's Firebase ID token and UID.
 4. Call the production `/api/partner/claim` endpoint with that ID token, the partner invite token, and `researchConsent: false`.
 5. Confirm the returned access status is `active`.
-6. Mark the CSV row `active` using an atomic file replacement that preserves owner-only permissions.
+6. Call the authenticated `/api/partner/admin/register-login` endpoint with the learner ID token, partner admin token, and fixed username. The server binds the username to the authenticated UID and opaque auth email only when that UID already owns the expected membership.
+7. Mark the CSV row `active` using an atomic file replacement that preserves owner-only permissions.
 
 The command uses bounded sequential requests rather than creating 500 accounts concurrently. This reduces rate-limit pressure and makes failures easy to identify and resume.
 
@@ -99,19 +100,19 @@ The command uses bounded sequential requests rather than creating 500 accounts c
 
 Resume mode reads the existing private CSV and validates all 500 usernames before doing anything. For every row:
 
-- `active`: sign in with the stored credential, call `/api/partner/access`, and leave it active only if the server confirms sponsored access;
+- `active`: sign in with the stored opaque auth email and credential, call `/api/partner/access`, re-register the same idempotent privileged username binding, and leave it active only if the server confirms sponsored access;
 - `pending`: attempt sign-in first, because Firebase account creation may have succeeded immediately before an interruption; create the account only when Firebase confirms that the credential does not already exist; then claim or verify the sponsored seat; and
 - unrecoverable credential conflict: stop and identify only the account number and username, never its password.
 
 All reruns are idempotent from the operator's perspective: they verify existing work and continue the roster rather than creating duplicate usernames or consuming duplicate seats.
 
-If Firebase user creation succeeds but the sponsored claim receives a definitive rejection, the command deletes that newly created Firebase user with its current ID token and leaves the row pending. If the failure is ambiguous, it first queries authoritative access. It never deletes an account that existed before the current attempt.
+If Firebase user creation succeeds but the sponsored claim receives a definitive rejection, the command first reconciles authoritative access, deletes only a Firebase user created by the current attempt when access is confirmed `none`, preserves the pending roster, reports the failed row, and terminates the entire run immediately. It performs no work on later rows. If the failure is ambiguous, it queries authoritative access and preserves the row for resume. It never deletes an account that existed before the current attempt.
 
 ### 5.5 First-login learner flow
 
 Provisioned accounts intentionally begin without a completed Firestore learner profile. On first login:
 
-1. Firebase authenticates the supplied username and password.
+1. EverWise resolves the supplied fixed username through `/api/partner/login`, then Firebase authenticates the returned opaque auth email and supplied password. The lookup exists only after privileged membership binding and uses neutral invalid-credential errors.
 2. EverWise checks authoritative sponsored access by UID.
 3. Because the account has no completed profile, EverWise opens the short personal setup in returning-account mode.
 4. The setup collects personalization answers but does not ask the learner to create another username, password, or sponsored claim.
@@ -129,7 +130,9 @@ The partner API remains the only authority for sponsored access:
 - no sponsored membership: existing public free-lesson and subscription behavior;
 - completed public lessons: retain their existing replay behavior.
 
-No CSV field, username pattern, local-storage value, or Firestore profile field grants sponsorship. A person cannot obtain sponsored access merely by choosing an `EverWise###` username.
+Active access is revalidated when an open app regains focus or visibility and before an incomplete protected lesson, challenge, or exam opens. A failed refresh enters recoverable, fail-closed retry/logout UI. A suspended response revokes cached sponsored access immediately.
+
+No CSV field, username pattern, local-storage value, or Firestore profile field grants sponsorship. Public signup rejects the complete fixed username range, and a person cannot obtain sponsored access merely by choosing or directly creating an `EverWise###`-shaped identity.
 
 ## 6. User Experience
 
@@ -147,6 +150,7 @@ The personal setup retains large touch targets, keyboard access, readable text, 
 - The file is created with owner-only permissions and is never attached to test artifacts.
 - Passwords and invite tokens are redacted from errors and logs.
 - No password is stored in the partner store or Firestore.
+- The partner store retains only the fixed username-to-opaque-auth-email binding beside the already authoritative membership; it never retains the password.
 - Firebase stores password verifiers using its managed authentication service.
 - Research sharing remains off for pre-provisioning. The learner's personal setup is used for their experience and is not added to partner research totals unless a separate, explicit consent flow is introduced later.
 - The operator should transfer the final roster through an approved private channel and keep only the copies required for distribution.
@@ -163,7 +167,7 @@ The command performs a read-only preflight before mutations:
 4. Confirm the Firebase project matches the configured EverWise project.
 5. Display a redacted summary and require an explicit production confirmation flag.
 
-During execution, a bounded retry is allowed only for transient network and server-unavailable responses. Capacity, suspended-partner, invalid-invite, credential-collision, and malformed-response errors stop the run. The final summary reports counts only: active, pending, and failed.
+During execution, a bounded retry is allowed only for transient network, HTTP 429, and server-unavailable responses. Capacity, suspended-partner, invalid-invite, credential-collision, and malformed-response errors stop the run. The final summary reports counts only: active, pending, and failed. The command exits successfully and prints `Provisioning complete` only for exactly `500 active, 0 pending, 0 failed`; every partial result is explicitly incomplete, preserves the roster for resume, and exits non-zero.
 
 The website handles runtime failures separately. An authenticated sponsored learner who cannot load access sees retry and logout controls; the paywall is not used as an error fallback.
 
@@ -175,6 +179,7 @@ Implementation follows test-driven development.
 
 - rejects counts other than exactly 500;
 - generates the exact approved username range;
+- rejects all 500 reserved usernames through public signup and uses only opaque auth emails through authorized provisioning;
 - generates 500 unique strong passwords without printing them;
 - refuses repository, symlink, unsafe, or existing output targets;
 - creates the CSV with `0600` permissions;
@@ -182,6 +187,9 @@ Implementation follows test-driven development.
 - deletes only a newly created Firebase user after definitive claim failure;
 - resolves ambiguous claim results through authoritative access;
 - resumes pending and active rows without duplicate account creation;
+- restores and verifies privileged username bindings during resume;
+- stops before touching any later row after a definitive claim rejection;
+- returns a non-zero process exit status for every non-exact result;
 - redacts credentials and invite tokens from every failure path;
 - stops cleanly when capacity, invitation, Firebase project, or partner status is wrong.
 
@@ -193,6 +201,7 @@ Implementation follows test-driven development.
 - active sponsored access bypasses subscription gating and hides subscription controls;
 - an ordinary newly registered user retains the public paywall rules;
 - an `EverWise###` username without server membership does not bypass the paywall;
+- active membership is revalidated on focus/resume and protected entry, failing closed with retry/logout;
 - suspended and temporarily unavailable authenticated learners can log out;
 - desktop, iPad, mobile, keyboard, and accessible-name coverage remains green.
 
@@ -216,10 +225,11 @@ The source-code push is also separate. Before any GitHub push, the exact changed
 
 The feature is complete when:
 
-1. The private roster contains exactly 500 active, unique username/password pairs.
+1. The private roster contains exactly 500 active, unique username/password pairs and 500 unique opaque auth emails.
 2. Every active roster UID has one authoritative membership in the designated 500-seat partner.
-3. A sampled provisioned account signs in, completes and saves personal setup, reloads successfully, and never sees the paywall while sponsorship is active.
-4. A sampled ordinary public account still follows the public paywall rules.
-5. No plaintext credential or invitation token appears in Git, logs, tests, server storage, or browser assets.
-6. Automated tests, lint, build, and secret scanning pass.
-7. The user receives the private CSV and the redacted provisioning summary.
+3. Every active roster UID has one idempotent privileged fixed-username binding to its opaque auth email.
+4. A sampled provisioned account signs in, completes and saves personal setup, reloads successfully, and never sees the paywall while sponsorship is active.
+5. A sampled ordinary public account still follows the public paywall rules and cannot register any fixed sponsored username.
+6. No plaintext credential or invitation token appears in Git, logs, tests, server storage, or browser assets.
+7. Automated tests, lint, build, and secret scanning pass.
+8. The user receives the private CSV and the redacted provisioning summary.

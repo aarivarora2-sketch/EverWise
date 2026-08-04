@@ -1,5 +1,5 @@
 import { markRosterActive, summarizeRoster } from "./sponsoredRoster.mjs";
-import { usernameToAuthEmail } from "../src/utils/validation.js";
+import { normalizeUsername } from "../src/utils/validation.js";
 
 const EXPECTED_FIREBASE_PROJECT_ID = "games-caf0e";
 const EXPECTED_SEAT_LIMIT = 500;
@@ -149,14 +149,18 @@ function validAccess(access, { allowNone = true } = {}) {
   if (allowNone && hasExactKeys(access, ["status"]) && access.status === "none") {
     return true;
   }
+  const keys = ["branding", "name", "partnerId", "status"];
+  if (Object.hasOwn(access || {}, "username")) keys.push("username");
   return Boolean(
-    hasExactKeys(access, ["branding", "name", "partnerId", "status"]) &&
+    hasExactKeys(access, keys) &&
       (access.status === "active" || access.status === "suspended") &&
       typeof access.partnerId === "string" &&
       /^[a-z0-9-]{3,50}$/.test(access.partnerId) &&
       typeof access.name === "string" &&
       validBranding(access.branding) &&
-      access.name === access.branding.name
+      access.name === access.branding.name &&
+      (!Object.hasOwn(access, "username") ||
+        /^everwise(?:00[1-9]|0[1-9]\d|[1-4]\d{2}|500)$/.test(access.username))
   );
 }
 
@@ -306,7 +310,7 @@ function safeRowError(row, reason) {
 }
 
 function credentialsFor(row) {
-  return { email: usernameToAuthEmail(row.username), password: row.password };
+  return { email: row.authEmail, password: row.password };
 }
 
 function isRetryable(error) {
@@ -391,6 +395,7 @@ export async function provisionSponsoredRoster({
   rows: initialRows,
   apiOrigin,
   inviteToken,
+  adminToken,
   preflight,
   firebaseClient,
   partnerOperations,
@@ -409,10 +414,13 @@ export async function provisionSponsoredRoster({
     !validPreflight(preflight, rosterSummary) ||
     typeof inviteToken !== "string" ||
     inviteToken.length === 0 ||
+    typeof adminToken !== "string" ||
+    adminToken.length === 0 ||
     typeof firebaseClient?.signIn !== "function" ||
     typeof firebaseClient?.createAccount !== "function" ||
     typeof partnerOperations?.fetchPartnerAccess !== "function" ||
     typeof partnerOperations?.claimPartnerSeat !== "function" ||
+    typeof partnerOperations?.registerProvisionedLogin !== "function" ||
     typeof persistRows !== "function" ||
     typeof onProgress !== "function" ||
     typeof backoff !== "function"
@@ -435,6 +443,25 @@ export async function provisionSponsoredRoster({
 
   const fetchAccess = (idToken) =>
     partnerOperations.fetchPartnerAccess({ idToken, apiEndpointImpl });
+
+  const registerLogin = async (row, account) => {
+    const registration = await withBoundedRetries(
+      () => partnerOperations.registerProvisionedLogin({
+        idToken: account.idToken,
+        adminToken,
+        username: row.username,
+        apiEndpointImpl,
+      }),
+      backoff,
+    );
+    if (
+      !registration.ok ||
+      !isExpectedActiveAccess(registration.value, preflight) ||
+      registration.value.username !== normalizeUsername(row.username)
+    ) {
+      throw safeRowError(row, "could not reserve its sponsored login");
+    }
+  };
 
   const activate = async (row) => {
     const nextRows = markRosterActive(rows, row.accountNumber);
@@ -472,6 +499,7 @@ export async function provisionSponsoredRoster({
       if (!isExpectedActiveAccess(access.value, preflight)) {
         throw safeRowError(row, "has conflicting sponsored access");
       }
+      await registerLogin(row, account);
       active += 1;
       await reportProgress(row, "active");
       continue;
@@ -503,6 +531,7 @@ export async function provisionSponsoredRoster({
     }
 
     if (isExpectedActiveAccess(access, preflight)) {
+      await registerLogin(row, authentication);
       await activate(row);
       continue;
     }
@@ -524,6 +553,7 @@ export async function provisionSponsoredRoster({
       if (!isExpectedActiveAccess(claimResult.value, preflight)) {
         throw safeRowError(row, "received conflicting sponsored access");
       }
+      await registerLogin(row, authentication);
       await activate(row);
       continue;
     }
@@ -542,6 +572,7 @@ export async function provisionSponsoredRoster({
         throw safeRowError(row, "could not reconcile sponsored access");
       }
       if (isExpectedActiveAccess(reconciliation.value, preflight)) {
+        await registerLogin(row, authentication);
         await activate(row);
         continue;
       }
@@ -562,6 +593,7 @@ export async function provisionSponsoredRoster({
         cleanupVerified = false;
       }
       if (cleanupVerified && isExpectedActiveAccess(cleanupAccess, preflight)) {
+        await registerLogin(row, authentication);
         await activate(row);
         continue;
       }
@@ -582,8 +614,18 @@ export async function provisionSponsoredRoster({
         }
       }
       failed += 1;
+      try {
+        await persistRows(rows.map((candidate) => ({ ...candidate })));
+      } catch {
+        throw safeRowError(row, "could not persist rejected status");
+      }
       await reportProgress(row, "failed");
-      continue;
+      const roster = summarizeRoster(rows);
+      return {
+        active: roster.active,
+        pending: roster.total - roster.active - failed,
+        failed,
+      };
     }
 
     throw safeRowError(row, "could not claim sponsored access");

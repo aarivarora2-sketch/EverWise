@@ -218,7 +218,11 @@ test("maps HTTP 429 with malformed failure content to a safe rate-limit error", 
     apiKey,
     fetchImpl: async () => ({ ok: false, status: 429, body: streamBody(["not json"]) }),
   });
-  await assert.rejects(client.createAccount({ email, password }), (error) => expectSafeError(error, "RATE_LIMITED", "not json"));
+  await assert.rejects(client.createAccount({ email, password }), (error) => {
+    expectSafeError(error, "RATE_LIMITED", "not json");
+    assert.equal(error.status, 429);
+    return true;
+  });
 });
 
 test("clears the timeout after a normal response", async (t) => {
