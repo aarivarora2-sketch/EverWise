@@ -32,6 +32,7 @@ import {
   lessonsByOrder,
 } from "../src/data/lessons.js";
 import { PartnerAccessError } from "../src/services/partnerAccess.js";
+import { storePartnerClaimRecovery } from "../src/utils/partnerClaimRecovery.js";
 
 const appStyles = readFileSync("src/index.css", "utf8");
 
@@ -87,6 +88,42 @@ function storeByteExactConfirmablePartnerRecovery(
   window.sessionStorage.setItem(PARTNER_RELEASE_RECOVERY_KEY, prepared);
   window.sessionStorage.setItem(PARTNER_RELEASE_CONFIRMABLE_KEY, confirmable);
   return { confirmable, prepared };
+}
+
+function storeMatchingPartnerClaimRecovery(uid) {
+  const stored = storePartnerClaimRecovery({
+    storage: window.sessionStorage,
+    now: Date.now(),
+    uid,
+    inviteToken: TOKEN,
+    partner: { name: "Community Partner" },
+    profileBase: {
+      name: "Jane",
+      email: "jane@example.com",
+      profileInterview: {
+        age: 74,
+        internetUse: "",
+        primaryDevice: "",
+        confidence: "",
+        scamFrequency: "",
+        concerns: [],
+        scamScenario: "",
+        aiExperience: "",
+        accessibilityNeeds: [],
+        trustedContact: "",
+      },
+      onboardingCompleted: true,
+      scamsCaught: 0,
+      badges: [],
+      completedLessons: [],
+      trialStartedAt: null,
+      subscriptionStatus: "expired",
+      plan: null,
+    },
+    research: null,
+  });
+  expect(stored).toBe(true);
+  return window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY);
 }
 
 afterEach(cleanup);
@@ -2444,6 +2481,7 @@ describe("sponsored signup orchestration", () => {
       return { released: true, idempotent: false };
     });
     const { returningUser, user } = await openReturningSponsoredSettings();
+    storeMatchingPartnerClaimRecovery(returningUser.uid);
 
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
 
@@ -2469,6 +2507,7 @@ describe("sponsored signup orchestration", () => {
       idToken: "returning-delete-token",
     });
     expect(window.sessionStorage.getItem("everwise-partner-release-receipt")).toBeNull();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBeNull();
   });
 
   test("does not begin a sponsored release when reauthentication fails", async () => {
@@ -2476,7 +2515,8 @@ describe("sponsored signup orchestration", () => {
       code: "auth/wrong-password",
       message: "Firebase raw wrong-password detail",
     });
-    const { user } = await openReturningSponsoredSettings();
+    const { returningUser, user } = await openReturningSponsoredSettings();
+    const claimRecovery = storeMatchingPartnerClaimRecovery(returningUser.uid);
 
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
 
@@ -2489,6 +2529,9 @@ describe("sponsored signup orchestration", () => {
     expect(mocks.deleteDoc).not.toHaveBeenCalled();
     expect(mocks.deleteUser).not.toHaveBeenCalled();
     expect(mocks.cancelPartnerRelease).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBe(
+      claimRecovery,
+    );
   });
 
   test("cancels and aborts before deletion when receipt recovery cannot be durably verified", async () => {
@@ -2697,7 +2740,8 @@ describe("sponsored signup orchestration", () => {
       code: "auth/network-request-failed",
       message: "account lookup unavailable",
     });
-    const { user } = await openReturningSponsoredSettings();
+    const { returningUser, user } = await openReturningSponsoredSettings();
+    const claimRecovery = storeMatchingPartnerClaimRecovery(returningUser.uid);
 
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
 
@@ -2715,6 +2759,9 @@ describe("sponsored signup orchestration", () => {
       state: "prepared",
       reconciliation: "deletion-status",
     });
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBe(
+      claimRecovery,
+    );
   });
 
   test("shows support reconciliation when a cancelled Firebase failure cannot restore the profile", async () => {

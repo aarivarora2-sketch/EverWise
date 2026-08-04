@@ -10,6 +10,10 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MAX_UID_LENGTH = 128;
 const MAX_NAME_LENGTH = 100;
 const MAX_LOGO_PATH_LENGTH = 256;
+const MAX_SNAPSHOT_DEPTH = 8;
+const MAX_SNAPSHOT_NODES = 256;
+const MAX_SNAPSHOT_KEYS = 64;
+const MAX_SNAPSHOT_ARRAY_LENGTH = 64;
 const TOP_LEVEL_KEYS = [
   "createdAt",
   "expiresAt",
@@ -78,6 +82,80 @@ function validUid(uid) {
     uid.length > 0 &&
     uid.length <= MAX_UID_LENGTH
   );
+}
+
+function snapshotOwnData(value, state = { nodes: 0 }, depth = 0) {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value !== "object" || depth > MAX_SNAPSHOT_DEPTH) {
+    throw new TypeError("Recovery values must be bounded data objects.");
+  }
+  state.nodes += 1;
+  if (state.nodes > MAX_SNAPSHOT_NODES) {
+    throw new TypeError("Recovery data is too large.");
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length > MAX_SNAPSHOT_KEYS ||
+    keys.some((key) => typeof key !== "string")
+  ) {
+    throw new TypeError("Recovery objects contain unsupported keys.");
+  }
+
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype) {
+      throw new TypeError("Recovery arrays must use the standard prototype.");
+    }
+    const lengthDescriptor = Reflect.getOwnPropertyDescriptor(value, "length");
+    const length = lengthDescriptor?.value;
+    if (
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      length > MAX_SNAPSHOT_ARRAY_LENGTH ||
+      keys.length !== length + 1
+    ) {
+      throw new TypeError("Recovery arrays must be bounded and dense.");
+    }
+    const result = new Array(length);
+    for (let index = 0; index < length; index += 1) {
+      const key = String(index);
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      if (
+        !descriptor ||
+        !Object.hasOwn(descriptor, "value") ||
+        descriptor.enumerable !== true
+      ) {
+        throw new TypeError("Recovery arrays cannot contain accessors.");
+      }
+      result[index] = snapshotOwnData(descriptor.value, state, depth + 1);
+    }
+    return result;
+  }
+
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("Recovery objects must use a plain prototype.");
+  }
+  const result = Object.create(null);
+  for (const key of keys) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+    if (
+      !descriptor ||
+      !Object.hasOwn(descriptor, "value") ||
+      descriptor.enumerable !== true
+    ) {
+      throw new TypeError("Recovery objects cannot contain accessors.");
+    }
+    result[key] = snapshotOwnData(descriptor.value, state, depth + 1);
+  }
+  return result;
 }
 
 function normalizePartner(value) {
@@ -199,20 +277,27 @@ function normalizeResearch(value) {
 }
 
 function normalizeRecord(value) {
-  if (!hasExactKeys(value, TOP_LEVEL_KEYS)) return null;
-  const partner = normalizePartner(value.partner);
-  const profileBase = normalizeProfileBase(value.profileBase);
-  const research = normalizeResearch(value.research);
+  let snapshot;
+  try {
+    snapshot = snapshotOwnData(value);
+  } catch {
+    return null;
+  }
+  if (!hasExactKeys(snapshot, TOP_LEVEL_KEYS)) return null;
+  const partner = normalizePartner(snapshot.partner);
+  const profileBase = normalizeProfileBase(snapshot.profileBase);
+  const research = normalizeResearch(snapshot.research);
   if (
-    value.version !== 1 ||
-    !validUid(value.uid) ||
-    !Number.isFinite(value.createdAt) ||
-    !Number.isInteger(value.createdAt) ||
-    !Number.isFinite(value.expiresAt) ||
-    !Number.isInteger(value.expiresAt) ||
-    value.expiresAt - value.createdAt !== PARTNER_CLAIM_RECOVERY_TTL_MS ||
-    typeof value.inviteToken !== "string" ||
-    !TOKEN_PATTERN.test(value.inviteToken) ||
+    snapshot.version !== 1 ||
+    !validUid(snapshot.uid) ||
+    !Number.isFinite(snapshot.createdAt) ||
+    !Number.isInteger(snapshot.createdAt) ||
+    !Number.isFinite(snapshot.expiresAt) ||
+    !Number.isInteger(snapshot.expiresAt) ||
+    snapshot.expiresAt - snapshot.createdAt !==
+      PARTNER_CLAIM_RECOVERY_TTL_MS ||
+    typeof snapshot.inviteToken !== "string" ||
+    !TOKEN_PATTERN.test(snapshot.inviteToken) ||
     !partner ||
     !profileBase ||
     research === undefined
@@ -221,10 +306,10 @@ function normalizeRecord(value) {
   }
   return {
     version: 1,
-    uid: value.uid,
-    createdAt: value.createdAt,
-    expiresAt: value.expiresAt,
-    inviteToken: value.inviteToken,
+    uid: snapshot.uid,
+    createdAt: snapshot.createdAt,
+    expiresAt: snapshot.expiresAt,
+    inviteToken: snapshot.inviteToken,
     partner,
     profileBase,
     research,
@@ -281,17 +366,16 @@ export function readPartnerClaimRecovery({ storage, now, uid } = {}) {
     serialized = storage.getItem(PARTNER_CLAIM_RECOVERY_STORAGE_KEY);
     if (serialized === null) return null;
     const parsed = JSON.parse(serialized);
-    if (validUid(parsed?.uid) && parsed.uid !== uid) return null;
+    if (!validUid(uid) || !validUid(parsed?.uid) || parsed.uid !== uid) {
+      return null;
+    }
     const record = normalizeRecord(parsed);
-    if (!record || !validUid(uid) || record.expiresAt <= now) {
+    if (!record || record.expiresAt <= now) {
       removeIfUnchanged(storage, serialized);
       return null;
     }
     return record.uid === uid ? record : null;
   } catch {
-    if (typeof serialized === "string") {
-      removeIfUnchanged(storage, serialized);
-    }
     return null;
   }
 }
