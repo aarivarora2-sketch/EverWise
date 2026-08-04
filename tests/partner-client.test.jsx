@@ -54,6 +54,7 @@ const BRANDED_PARTNER = {
 };
 const PARTNER_RELEASE_RECOVERY_KEY = "everwise-partner-release-receipt";
 const PARTNER_RELEASE_CONFIRMABLE_KEY = "everwise-partner-release-confirmable";
+const PARTNER_CLAIM_RECOVERY_KEY = "everwise-partner-claim-recovery";
 
 function storeConfirmablePartnerRecovery(
   receipt,
@@ -2059,6 +2060,182 @@ describe("sponsored signup orchestration", () => {
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+  });
+
+  test("preserves an ambiguous claim across logout and rehydrates it only for the same UID", async () => {
+    const firebaseIdToken = "durable-firebase-id-token";
+    const firebaseUser = {
+      uid: "durable-claim-owner",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => firebaseIdToken),
+    };
+    const otherUser = {
+      uid: "different-account",
+      email: "other@example.com",
+      getIdToken: vi.fn(async () => "other-firebase-id-token"),
+    };
+    mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+      await mocks.authCallback(firebaseUser);
+      return { user: firebaseUser };
+    });
+    mocks.claimPartnerSeat
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
+      .mockResolvedValueOnce({
+        status: "active",
+        partnerId: "community-partner",
+        name: "Community Partner",
+        branding: PARTNER,
+      });
+    mocks.fetchPartnerAccess
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
+      .mockResolvedValue({ status: "none" });
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(
+        learnerProfile({ name: "Other learner", email: otherUser.email }),
+      ),
+    );
+    const user = userEvent.setup();
+    const rendered = render(<App />);
+    await screen.findByText("Everwise with Community Partner");
+
+    await completeSponsoredAppInterview(
+      user,
+      "No, use my answers only for my personal plan",
+    );
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+    const serializedRecovery = window.sessionStorage.getItem(
+      PARTNER_CLAIM_RECOVERY_KEY,
+    );
+    expect(serializedRecovery).not.toBeNull();
+    expect(JSON.parse(serializedRecovery)).toMatchObject({
+      version: 1,
+      uid: firebaseUser.uid,
+      inviteToken: TOKEN,
+      partner: { name: "Community Partner" },
+      research: null,
+    });
+    expect(serializedRecovery).not.toContain("secret12");
+    expect(serializedRecovery).not.toContain(firebaseIdToken);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(await screen.findByRole("button", { name: "Get Started" })).toBeVisible();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBe(
+      serializedRecovery,
+    );
+
+    await act(async () => {
+      await mocks.authCallback(otherUser);
+    });
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBe(
+      serializedRecovery,
+    );
+
+    await act(async () => {
+      await mocks.authCallback(firebaseUser);
+    });
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mocks.setDoc).toHaveBeenCalledTimes(1));
+    expect(mocks.claimPartnerSeat).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBeNull();
+
+    const diagnostics = JSON.stringify([
+      ...console.error.mock.calls,
+      ...console.warn.mock.calls,
+    ]);
+    expect(rendered.container.innerHTML).not.toContain("secret12");
+    expect(rendered.container.innerHTML).not.toContain(firebaseIdToken);
+    expect(diagnostics).not.toContain("secret12");
+    expect(diagnostics).not.toContain(firebaseIdToken);
+  });
+
+  test("definitive retry rejection clears durable claim recovery after cleanup", async () => {
+    const firebaseUser = {
+      uid: "durable-definitive-rejection",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "definitive-id-token"),
+    };
+    mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+      await mocks.authCallback(firebaseUser);
+      return { user: firebaseUser };
+    });
+    mocks.claimPartnerSeat
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_FULL", 409));
+    mocks.fetchPartnerAccess
+      .mockRejectedValueOnce(new PartnerAccessError("PARTNER_UNAVAILABLE", 503))
+      .mockResolvedValueOnce({ status: "none" });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Everwise with Community Partner");
+
+    await completeSponsoredAppInterview(
+      user,
+      "No, use my answers only for my personal plan",
+    );
+    await screen.findByRole("button", { name: "Retry" });
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByText(/All sponsored places are currently in use/i),
+    ).toBeVisible();
+    expect(mocks.deleteUser).toHaveBeenCalledWith(firebaseUser);
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBeNull();
+  });
+
+  test("expired durable claim recovery is removed during same-UID bootstrap", async () => {
+    const firebaseUser = {
+      uid: "expired-durable-claim",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "expired-id-token"),
+    };
+    mocks.createUserWithEmailAndPassword.mockImplementation(async () => {
+      await mocks.authCallback(firebaseUser);
+      return { user: firebaseUser };
+    });
+    mocks.claimPartnerSeat.mockRejectedValue(
+      new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
+    );
+    mocks.fetchPartnerAccess.mockRejectedValueOnce(
+      new PartnerAccessError("PARTNER_UNAVAILABLE", 503),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Everwise with Community Partner");
+    await completeSponsoredAppInterview(
+      user,
+      "No, use my answers only for my personal plan",
+    );
+    await screen.findByRole("button", { name: "Retry" });
+    const expired = JSON.parse(
+      window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY),
+    );
+    expired.createdAt = 0;
+    expired.expiresAt = 900_000;
+    window.sessionStorage.setItem(
+      PARTNER_CLAIM_RECOVERY_KEY,
+      JSON.stringify(expired),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    mocks.getDoc.mockResolvedValue(
+      profileSnapshot(learnerProfile({ email: firebaseUser.email })),
+    );
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    await act(async () => {
+      await mocks.authCallback(firebaseUser);
+    });
+
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(PARTNER_CLAIM_RECOVERY_KEY)).toBeNull();
   });
 
   test.each([

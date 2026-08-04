@@ -41,6 +41,11 @@ import {
 } from "./utils/access.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
+  clearPartnerClaimRecovery,
+  readPartnerClaimRecovery,
+  storePartnerClaimRecovery,
+} from "./utils/partnerClaimRecovery.js";
+import {
   beginPartnerRelease,
   cancelPartnerRelease,
   claimPartnerSeat,
@@ -1058,6 +1063,36 @@ function LearnerApp({ initialPartnerFragment }) {
       setSignupRetry(null);
       setProfileCompletion(null);
 
+      const storedClaimRecovery = readPartnerClaimRecovery({
+        storage: window.sessionStorage,
+        now: Date.now(),
+        uid: u.uid,
+      });
+      if (storedClaimRecovery) {
+        if (
+          generation !== authGenerationRef.current ||
+          currentAuthUidRef.current !== u.uid
+        ) {
+          return;
+        }
+        setPartner(storedClaimRecovery.partner);
+        setPartnerStatus("unavailable");
+        updatePartnerRecovery({
+          kind: "claim",
+          user: u,
+          profileBase: storedClaimRecovery.profileBase,
+          partner: storedClaimRecovery.partner,
+          inviteToken: storedClaimRecovery.inviteToken,
+          researchConsent: storedClaimRecovery.research !== null,
+          researchSnapshot: storedClaimRecovery.research,
+          busy: false,
+        });
+        setScreen("partner-error");
+        authSettledRef.current = true;
+        setAuthChecked(true);
+        return;
+      }
+
       try {
         const snap = await getDoc(doc(db, "users", u.uid));
         if (
@@ -1456,6 +1491,20 @@ function LearnerApp({ initialPartnerFragment }) {
           if (!sponsoredEntitlement && !definitiveClaimError) {
             failureHandled = true;
             finishPartnerOperation(operation);
+            storePartnerClaimRecovery({
+              storage: window.sessionStorage,
+              now: Date.now(),
+              uid: cred.user.uid,
+              inviteToken,
+              partner: {
+                name: signupPartner.name,
+                ...(signupPartner.logoPath
+                  ? { logoPath: signupPartner.logoPath }
+                  : {}),
+              },
+              profileBase,
+              research: researchSnapshot,
+            });
             setUser(cred.user);
             setProfile(null);
             setPartner(signupPartner);
@@ -1637,6 +1686,11 @@ function LearnerApp({ initialPartnerFragment }) {
         return;
       }
 
+      clearPartnerClaimRecovery({
+        storage: window.sessionStorage,
+        expectedUid,
+      });
+
       const initial = partnerProfileFromBase(recovery.profileBase, entitlement);
       try {
         await setDoc(doc(db, "users", expectedUid), initial);
@@ -1681,15 +1735,21 @@ function LearnerApp({ initialPartnerFragment }) {
           : "personal-plan",
       );
     } catch (error) {
+      if (!strictPartnerOperationIsCurrent(operation)) {
+        finishPartnerOperation(operation);
+        return;
+      }
       if (!isDefinitivePartnerClaimRejection(error)) {
-        if (strictPartnerOperationIsCurrent(operation)) {
-          updatePartnerRecovery({ ...recovery, busy: false });
-        }
+        updatePartnerRecovery({ ...recovery, busy: false });
         finishPartnerOperation(operation);
         return;
       }
 
       const nextStatus = statusForPartnerError(error);
+      clearPartnerClaimRecovery({
+        storage: window.sessionStorage,
+        expectedUid,
+      });
       updatePartnerRecovery({ kind: "cleanup-pending" });
       const cleanup = await cleanUpFailedSponsoredSignup(recovery.user);
       finishPartnerOperation(operation);
@@ -2225,7 +2285,11 @@ function LearnerApp({ initialPartnerFragment }) {
     await sendPasswordResetEmail(auth, user.email);
   };
 
-  const finishDeletedAccountLocally = () => {
+  const finishDeletedAccountLocally = (deletedUid) => {
+    clearPartnerClaimRecovery({
+      storage: window.sessionStorage,
+      expectedUid: deletedUid,
+    });
     authGenerationRef.current += 1;
     authSettledRef.current = true;
     currentAuthUidRef.current = null;
@@ -2387,7 +2451,7 @@ function LearnerApp({ initialPartnerFragment }) {
       }
       const deletionStillCurrent = accountDeletionOperationIsCurrent(operation);
       finishAccountDeletionOperation(operation);
-      if (deletionStillCurrent) finishDeletedAccountLocally();
+      if (deletionStillCurrent) finishDeletedAccountLocally(expectedUid);
       return;
     }
 
@@ -2548,7 +2612,7 @@ function LearnerApp({ initialPartnerFragment }) {
     // its local UI when that exact auth generation is still current; a newer
     // account must remain untouched while receipt-only safety work continues.
     if (deletionStillCurrent) {
-      finishDeletedAccountLocally();
+      finishDeletedAccountLocally(expectedUid);
     }
     const confirmationOperation = beginSignedOutReleaseConfirmation();
     if (!confirmationReady) {
