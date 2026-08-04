@@ -96,6 +96,107 @@ async function rejection(operation, code = "BILLING_UNAVAILABLE") {
   });
 }
 
+function controlledBody({
+  reads = [],
+  bodyCancelError = null,
+  readerCancelError = null,
+  releaseError = null,
+  readerCancelGetterError = null,
+} = {}) {
+  const counts = {
+    bodyCancelCalls: 0,
+    bodyCancelReads: 0,
+    getReaderCalls: 0,
+    getReaderReads: 0,
+    readCalls: 0,
+    readReads: 0,
+    readerCancelCalls: 0,
+    readerCancelReads: 0,
+    releaseCalls: 0,
+    releaseReads: 0,
+  };
+  let readIndex = 0;
+  const reader = {};
+  Object.defineProperties(reader, {
+    releaseLock: {
+      get() {
+        counts.releaseReads += 1;
+        if (counts.releaseReads > 1) throw new Error("private repeated release getter");
+        return () => {
+          counts.releaseCalls += 1;
+          if (releaseError) throw releaseError;
+        };
+      },
+    },
+    cancel: {
+      get() {
+        counts.readerCancelReads += 1;
+        if (counts.readerCancelReads > 1) {
+          throw new Error("private repeated reader cancel getter");
+        }
+        if (readerCancelGetterError) throw readerCancelGetterError;
+        return async () => {
+          counts.readerCancelCalls += 1;
+          if (readerCancelError) throw readerCancelError;
+        };
+      },
+    },
+    read: {
+      get() {
+        counts.readReads += 1;
+        if (counts.readReads > 1) throw new Error("private repeated read getter");
+        return async () => {
+          counts.readCalls += 1;
+          const next = reads[readIndex];
+          readIndex += 1;
+          if (typeof next === "function") return next();
+          return next;
+        };
+      },
+    },
+  });
+
+  const body = {};
+  Object.defineProperties(body, {
+    cancel: {
+      get() {
+        counts.bodyCancelReads += 1;
+        if (counts.bodyCancelReads > 1) {
+          throw new Error("private repeated body cancel getter");
+        }
+        return async () => {
+          counts.bodyCancelCalls += 1;
+          if (bodyCancelError) throw bodyCancelError;
+        };
+      },
+    },
+    getReader: {
+      get() {
+        counts.getReaderReads += 1;
+        if (counts.getReaderReads > 1) {
+          throw new Error("private repeated getReader getter");
+        }
+        return () => {
+          counts.getReaderCalls += 1;
+          return reader;
+        };
+      },
+    },
+  });
+  return { body, counts };
+}
+
+const controlledResponse = (body, headers = {}) => ({
+  ok: true,
+  status: 200,
+  headers: new Headers({
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    ...headers,
+  }),
+  body,
+});
+
 test("billing methods use exact authenticated POST routes and bodies", async () => {
   const calls = [];
   let tokenCalls = 0;
@@ -602,6 +703,246 @@ test("malformed, unknown, non-JSON, and network errors collapse without disclosu
   assert.deepEqual(logged, []);
 });
 
+test("declared oversize and invalid headers terminate the body without reading it", async () => {
+  const cases = [
+    {
+      name: "declared oversize",
+      headers: { "Content-Length": String(MAX_BILLING_RESPONSE_BYTES + 1) },
+      bodyCancelError: null,
+    },
+    {
+      name: "invalid content type with throwing cancellation",
+      headers: { "Content-Type": "text/plain" },
+      bodyCancelError: new Error("private body cancellation failure"),
+    },
+  ];
+  for (const entry of cases) {
+    const { body, counts } = controlledBody({
+      bodyCancelError: entry.bodyCancelError,
+    });
+    let abortEvents = 0;
+    const cleared = [];
+    await rejection(() =>
+      fetchBillingPlans(
+        user(),
+        clientOptions(
+          async (_url, options) => {
+            options.signal.addEventListener("abort", () => {
+              abortEvents += 1;
+            });
+            return controlledResponse(body, entry.headers);
+          },
+          {
+            setTimeoutImpl: () => 71,
+            clearTimeoutImpl: (timer) => cleared.push(timer),
+          },
+        ),
+      ));
+    assert.equal(counts.bodyCancelReads, 1, entry.name);
+    assert.equal(counts.bodyCancelCalls, 1, entry.name);
+    assert.equal(counts.getReaderReads, 0, entry.name);
+    assert.equal(counts.getReaderCalls, 0, entry.name);
+    assert.equal(abortEvents, 0, entry.name);
+    assert.deepEqual(cleared, [71], entry.name);
+  }
+});
+
+test("every potentially live reader failure cancels once and releases once", async () => {
+  const cases = [
+    {
+      name: "read rejection",
+      reads: [() => Promise.reject(new Error("private read failure"))],
+    },
+    { name: "malformed read result", reads: [null] },
+    { name: "non-byte chunk", reads: [{ done: false, value: "private chunk" }] },
+    {
+      name: "streamed oversize with throwing cleanup",
+      reads: [{
+        done: false,
+        value: new Uint8Array(MAX_BILLING_RESPONSE_BYTES + 1),
+      }],
+      readerCancelError: new Error("private reader cancellation failure"),
+      releaseError: new Error("private release failure"),
+    },
+  ];
+  for (const entry of cases) {
+    const { body, counts } = controlledBody(entry);
+    let abortEvents = 0;
+    const cleared = [];
+    await rejection(() =>
+      fetchBillingPlans(
+        user(),
+        clientOptions(
+          async (_url, options) => {
+            options.signal.addEventListener("abort", () => {
+              abortEvents += 1;
+            });
+            return controlledResponse(body);
+          },
+          {
+            setTimeoutImpl: () => 72,
+            clearTimeoutImpl: (timer) => cleared.push(timer),
+          },
+        ),
+      ));
+    assert.equal(counts.bodyCancelCalls, 0, entry.name);
+    assert.equal(counts.getReaderCalls, 1, entry.name);
+    assert.equal(counts.readReads, 1, entry.name);
+    assert.equal(counts.readerCancelReads, 1, entry.name);
+    assert.equal(counts.readerCancelCalls, 1, entry.name);
+    assert.equal(counts.releaseReads, 1, entry.name);
+    assert.equal(counts.releaseCalls, 1, entry.name);
+    assert.equal(abortEvents, 0, entry.name);
+    assert.deepEqual(cleared, [72], entry.name);
+  }
+});
+
+test("an unsafe reader cancellation getter falls back to one abort and still releases", async () => {
+  const { body, counts } = controlledBody({
+    reads: [{ done: false, value: "private chunk" }],
+    readerCancelGetterError: new Error("private cancel getter failure"),
+  });
+  let abortEvents = 0;
+  const cleared = [];
+  await rejection(() =>
+    fetchBillingPlans(
+      user(),
+      clientOptions(
+        async (_url, options) => {
+          options.signal.addEventListener("abort", () => {
+            abortEvents += 1;
+          });
+          return controlledResponse(body);
+        },
+        {
+          setTimeoutImpl: () => 73,
+          clearTimeoutImpl: (timer) => cleared.push(timer),
+        },
+      ),
+    ));
+  assert.equal(counts.readerCancelReads, 1);
+  assert.equal(counts.readerCancelCalls, 0);
+  assert.equal(counts.releaseReads, 1);
+  assert.equal(counts.releaseCalls, 1);
+  assert.equal(abortEvents, 1);
+  assert.deepEqual(cleared, [73]);
+});
+
+test("a throwing abort fallback preserves the safe error and timer cleanup", async () => {
+  const OriginalAbortController = globalThis.AbortController;
+  let abortCalls = 0;
+  const cleared = [];
+  globalThis.AbortController = class ThrowingAbortController {
+    constructor() {
+      this.signal = {};
+    }
+
+    abort() {
+      abortCalls += 1;
+      throw new Error("private abort failure");
+    }
+  };
+  try {
+    await rejection(() =>
+      fetchBillingPlans(
+        user(),
+        clientOptions(
+          async () => controlledResponse({}),
+          {
+            setTimeoutImpl: () => 74,
+            clearTimeoutImpl: (timer) => cleared.push(timer),
+          },
+        ),
+      ));
+  } finally {
+    globalThis.AbortController = OriginalAbortController;
+  }
+  assert.equal(abortCalls, 1);
+  assert.deepEqual(cleared, [74]);
+});
+
+test("completed invalid bodies release normally without cancellation or abort", async () => {
+  const cases = [
+    {
+      name: "fatal UTF-8",
+      bytes: new Uint8Array([0xff]),
+    },
+    {
+      name: "malformed JSON",
+      bytes: new TextEncoder().encode("not json"),
+    },
+    {
+      name: "invalid response schema",
+      bytes: new TextEncoder().encode('{"plans":[]}'),
+    },
+  ];
+  for (const entry of cases) {
+    const { body, counts } = controlledBody({
+      reads: [
+        { done: false, value: entry.bytes },
+        { done: true, value: undefined },
+      ],
+    });
+    let abortEvents = 0;
+    const cleared = [];
+    await rejection(() =>
+      fetchBillingPlans(
+        user(),
+        clientOptions(
+          async (_url, options) => {
+            options.signal.addEventListener("abort", () => {
+              abortEvents += 1;
+            });
+            return controlledResponse(body);
+          },
+          {
+            setTimeoutImpl: () => 75,
+            clearTimeoutImpl: (timer) => cleared.push(timer),
+          },
+        ),
+      ));
+    assert.equal(counts.readerCancelCalls, 0, entry.name);
+    assert.equal(counts.releaseCalls, 1, entry.name);
+    assert.equal(abortEvents, 0, entry.name);
+    assert.deepEqual(cleared, [75], entry.name);
+  }
+});
+
+test("a successful bounded response releases without cancellation or abort", async () => {
+  const bytes = new TextEncoder().encode(JSON.stringify(PLANS));
+  const { body, counts } = controlledBody({
+    reads: [
+      { done: false, value: bytes },
+      { done: true, value: undefined },
+    ],
+  });
+  let abortEvents = 0;
+  const cleared = [];
+  assert.deepEqual(
+    await fetchBillingPlans(
+      user(),
+      clientOptions(
+        async (_url, options) => {
+          options.signal.addEventListener("abort", () => {
+            abortEvents += 1;
+          });
+          return controlledResponse(body);
+        },
+        {
+          setTimeoutImpl: () => 76,
+          clearTimeoutImpl: (timer) => cleared.push(timer),
+        },
+      ),
+    ),
+    PLANS,
+  );
+  assert.equal(counts.bodyCancelCalls, 0);
+  assert.equal(counts.readerCancelCalls, 0);
+  assert.equal(counts.releaseCalls, 1);
+  assert.equal(abortEvents, 0);
+  assert.deepEqual(cleared, [76]);
+});
+
 test("declared and streamed responses are bounded and oversized streams are canceled", async () => {
   assert.equal(MAX_BILLING_RESPONSE_BYTES, 25_000);
   await rejection(() =>
@@ -639,8 +980,48 @@ test("declared and streamed responses are bounded and oversized streams are canc
   assert.equal(canceled, true);
 });
 
+test("a response returned after timeout is not terminated a second time", async () => {
+  const { body, counts } = controlledBody({
+    reads: [{ done: false, value: "private chunk" }],
+  });
+  let timeoutCallback;
+  let abortEvents = 0;
+  const cleared = [];
+  await rejection(() =>
+    fetchBillingPlans(
+      user(),
+      clientOptions(
+        async (_url, options) => {
+          options.signal.addEventListener("abort", () => {
+            abortEvents += 1;
+          });
+          timeoutCallback();
+          assert.equal(options.signal.aborted, true);
+          return controlledResponse(body);
+        },
+        {
+          setTimeoutImpl: (callback) => {
+            timeoutCallback = callback;
+            return 81;
+          },
+          clearTimeoutImpl: (timer) => cleared.push(timer),
+        },
+      ),
+    ));
+  assert.equal(abortEvents, 1);
+  assert.equal(counts.readerCancelCalls, 0);
+  assert.equal(counts.releaseCalls, 1);
+  assert.deepEqual(cleared, [81]);
+});
+
 test("billing requests abort at the exported timeout and always clear their timer", async () => {
   assert.equal(BILLING_REQUEST_TIMEOUT_MS, 10_000);
+  const originalAbort = AbortController.prototype.abort;
+  let abortCalls = 0;
+  AbortController.prototype.abort = function countedAbort(...arguments_) {
+    abortCalls += 1;
+    return Reflect.apply(originalAbort, this, arguments_);
+  };
   const timers = [];
   const cleared = [];
   const setTimeoutImpl = (callback, milliseconds) => {
@@ -649,19 +1030,24 @@ test("billing requests abort at the exported timeout and always clear their time
     return 41;
   };
   const clearTimeoutImpl = (timer) => cleared.push(timer);
-  await rejection(() =>
-    fetchBillingPlans(
-      user(),
-      clientOptions(
-        async (_url, options) => {
-          assert.equal(options.signal.aborted, true);
-          throw new DOMException("private timeout body", "AbortError");
-        },
-        { setTimeoutImpl, clearTimeoutImpl },
-      ),
-    ));
+  try {
+    await rejection(() =>
+      fetchBillingPlans(
+        user(),
+        clientOptions(
+          async (_url, options) => {
+            assert.equal(options.signal.aborted, true);
+            throw new DOMException("private timeout body", "AbortError");
+          },
+          { setTimeoutImpl, clearTimeoutImpl },
+        ),
+      ));
+  } finally {
+    AbortController.prototype.abort = originalAbort;
+  }
   assert.deepEqual(timers, [BILLING_REQUEST_TIMEOUT_MS]);
   assert.deepEqual(cleared, [41]);
+  assert.equal(abortCalls, 1);
 
   const normalClears = [];
   assert.deepEqual(

@@ -262,31 +262,83 @@ const hasNoStore = (value) =>
     .map((directive) => directive.trim().toLowerCase())
     .includes("no-store");
 
-const snapshotResponse = (response) => {
-  if (response === null || typeof response !== "object") return null;
+const parseResponse = async (response, abortRequest, requestAlreadyTerminated) => {
+  let body;
+  let bodyCancel;
+  let reader;
+  let read;
+  let readerCancel;
+  let releaseLock;
+  let readerAcquired = false;
+  let released = false;
+  let streamComplete = false;
+  let terminationAttempted = false;
+  const chunks = [];
+  let totalBytes = 0;
+
+  const terminate = async () => {
+    if (streamComplete || terminationAttempted || requestAlreadyTerminated()) return;
+    terminationAttempted = true;
+    const cancellation = readerAcquired ? readerCancel : bodyCancel;
+    const owner = readerAcquired ? reader : body;
+    if (typeof cancellation === "function") {
+      try {
+        await Reflect.apply(cancellation, owner, []);
+      } catch {
+        // One failed cancellation remains the sole termination attempt.
+      }
+      return;
+    }
+    try {
+      abortRequest();
+    } catch {
+      // Abort failure cannot replace the safe billing error.
+    }
+  };
+
+  const release = () => {
+    if (!readerAcquired || released) return;
+    released = true;
+    try {
+      if (typeof releaseLock === "function") {
+        Reflect.apply(releaseLock, reader, []);
+      }
+    } catch {
+      // Reader cleanup failure cannot replace the safe billing error.
+    }
+  };
+
   try {
+    if (response === null || typeof response !== "object") throw new Error();
+    body = response.body;
+    if (body === null || typeof body !== "object") throw new Error();
+    bodyCancel = body.cancel;
+    if (bodyCancel !== undefined && typeof bodyCancel !== "function") {
+      bodyCancel = undefined;
+      throw new Error();
+    }
+
     const ok = response.ok;
     const status = response.status;
     const headers = response.headers;
-    const body = response.body;
     if (
       typeof ok !== "boolean" ||
       !Number.isInteger(status) ||
       status < 100 ||
       status > 599 ||
       headers === null ||
-      typeof headers !== "object" ||
-      body === null ||
-      typeof body !== "object"
+      typeof headers !== "object"
     ) {
-      return null;
+      throw new Error();
     }
     const getHeader = headers.get;
-    if (typeof getHeader !== "function") return null;
+    if (typeof getHeader !== "function") throw new Error();
     const contentType = Reflect.apply(getHeader, headers, ["content-type"]);
     const cacheControl = Reflect.apply(getHeader, headers, ["cache-control"]);
     const contentLength = Reflect.apply(getHeader, headers, ["content-length"]);
-    if (!validContentType(contentType) || !hasNoStore(cacheControl)) return null;
+    if (!validContentType(contentType) || !hasNoStore(cacheControl)) {
+      throw new Error();
+    }
     if (
       contentLength !== null &&
       (typeof contentLength !== "string" ||
@@ -294,57 +346,36 @@ const snapshotResponse = (response) => {
         !Number.isSafeInteger(Number(contentLength)) ||
         Number(contentLength) > MAX_BILLING_RESPONSE_BYTES)
     ) {
-      return null;
+      throw new Error();
     }
-    return { ok, status, body };
-  } catch {
-    return null;
-  }
-};
 
-const readBoundedText = async (body) => {
-  let reader;
-  let read;
-  let cancel;
-  let releaseLock;
-  try {
     const getReader = body.getReader;
-    if (typeof getReader !== "function") return null;
+    if (typeof getReader !== "function") throw new Error();
     reader = Reflect.apply(getReader, body, []);
-    if (!reader || typeof reader !== "object") return null;
-    read = reader.read;
-    cancel = reader.cancel;
+    readerAcquired = true;
+    if (!reader || typeof reader !== "object") throw new Error();
     releaseLock = reader.releaseLock;
-    if (
-      typeof read !== "function" ||
-      (cancel !== undefined && typeof cancel !== "function") ||
-      (releaseLock !== undefined && typeof releaseLock !== "function")
-    ) {
-      return null;
+    if (typeof releaseLock !== "function") throw new Error();
+    readerCancel = reader.cancel;
+    if (readerCancel !== undefined && typeof readerCancel !== "function") {
+      readerCancel = undefined;
+      throw new Error();
     }
-  } catch {
-    return null;
-  }
+    read = reader.read;
+    if (typeof read !== "function") throw new Error();
 
-  const chunks = [];
-  let totalBytes = 0;
-  try {
     while (true) {
       const result = await Reflect.apply(read, reader, []);
-      if (!isPlainObject(result)) return null;
+      if (!isPlainObject(result)) throw new Error();
       const done = result.done;
-      const value = result.value;
-      if (done === true) break;
-      if (done !== false || !(value instanceof Uint8Array)) return null;
-      totalBytes += value.byteLength;
-      if (totalBytes > MAX_BILLING_RESPONSE_BYTES) {
-        try {
-          if (cancel) await Reflect.apply(cancel, reader, []);
-        } catch {
-          // A failed cancellation cannot make an oversized response safe.
-        }
-        return null;
+      if (done === true) {
+        streamComplete = true;
+        break;
       }
+      const value = result.value;
+      if (done !== false || !(value instanceof Uint8Array)) throw new Error();
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_BILLING_RESPONSE_BYTES) throw new Error();
       chunks.push(value);
     }
     const bytes = new Uint8Array(totalBytes);
@@ -353,31 +384,16 @@ const readBoundedText = async (body) => {
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const payload = JSON.parse(text);
+    if (!isPlainObject(payload)) return null;
+    return { ok, status, payload };
   } catch {
+    await terminate();
     return null;
   } finally {
-    try {
-      if (releaseLock) Reflect.apply(releaseLock, reader, []);
-    } catch {
-      // Reader cleanup failure does not change the safe rejection result.
-    }
+    release();
   }
-};
-
-const parseResponse = async (response) => {
-  const snapshot = snapshotResponse(response);
-  if (!snapshot) return null;
-  const text = await readBoundedText(snapshot.body);
-  if (typeof text !== "string") return null;
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!isPlainObject(payload)) return null;
-  return { ok: snapshot.ok, status: snapshot.status, payload };
 };
 
 const normalizedApiError = ({ payload, status }) => {
@@ -425,10 +441,20 @@ const billingRequest = async ({
   if (!dependencies) throw unavailable();
   const token = await authenticatedToken(user);
   const controller = new AbortController();
+  let abortAttempted = false;
+  const abortRequest = () => {
+    if (abortAttempted) return;
+    abortAttempted = true;
+    try {
+      controller.abort();
+    } catch {
+      // Abort failure cannot expose provider details or trigger a second attempt.
+    }
+  };
   let timeoutId = null;
   try {
     timeoutId = dependencies.setTimeoutImpl(
-      () => controller.abort(),
+      abortRequest,
       BILLING_REQUEST_TIMEOUT_MS,
     );
     const endpoint = await resolveApiEndpoint(path, dependencies.apiEndpointImpl);
@@ -442,7 +468,11 @@ const billingRequest = async ({
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    const parsed = await parseResponse(response);
+    const parsed = await parseResponse(
+      response,
+      abortRequest,
+      () => abortAttempted,
+    );
     if (!parsed) throw unavailable();
     if (!parsed.ok) throw normalizedApiError(parsed);
     if (parsed.status !== 200) throw unavailable();
