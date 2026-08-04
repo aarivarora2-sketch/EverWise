@@ -424,7 +424,8 @@ function validateRecord(uid, record) {
     typeof record.cancelAtPeriodEnd !== "boolean" ||
     !canonicalIso(record.updatedAt) ||
     (hasPendingTrialCheckout &&
-      !validatePendingTrialCheckout(record.pendingTrialCheckout))
+      (!validatePendingTrialCheckout(record.pendingTrialCheckout) ||
+        record.trialUsedAt !== null))
   ) {
     return false;
   }
@@ -1101,6 +1102,14 @@ export function createBillingStore({
         ? data.learners[normalizedUid]
         : null;
       if (!record) throw invalidInput();
+      if (record.trialUsedAt !== null) {
+        const hadPending = Object.hasOwn(record, "pendingTrialCheckout");
+        if (hadPending) {
+          delete record.pendingTrialCheckout;
+          record.updatedAt = currentDate.toISOString();
+        }
+        return mutation({ reserved: false, reason: "trial-used" }, hadPending);
+      }
       if (record.pendingTrialCheckout) {
         return mutation(clone(record.pendingTrialCheckout), false);
       }
@@ -1244,6 +1253,7 @@ export function createBillingStore({
         lastEventId: eventId,
         updatedAt: timestamp,
       });
+      if (trialUsedAt !== null) delete record.pendingTrialCheckout;
       return mutation({ applied: true, reason: "updated" });
     });
   }

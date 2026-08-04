@@ -195,6 +195,76 @@ test("pending first-trial Checkout reservation is minimal, durable, and first-wr
   ]);
 });
 
+test("authoritative trial use atomically refuses a later first-trial reservation", async (t) => {
+  const { filePath, store } = await setupStore(t);
+
+  for (const [index, status] of ["trialing", "active"].entries()) {
+    const uid = `uid-trial-used-${index}`;
+    const customerId = `cus_trial_used_${index}`;
+    await bind(store, uid, customerId);
+    assert.deepEqual(
+      await store.applySubscriptionSnapshot(subscriptionSnapshot({
+        uid,
+        customerId,
+        subscriptionId: `sub_trial_used_${index}`,
+        status,
+        trialEndsAt: "2026-08-06T12:00:00.000Z",
+        eventId: `evt_trial_used_${index}`,
+        created: index + 1,
+      })),
+      { applied: true, reason: "updated" },
+    );
+
+    assert.deepEqual(
+      await store.reservePendingTrialCheckout({
+        uid,
+        plan: "monthly",
+        attemptId: `attempt_after_trial_${index}`,
+      }),
+      { reserved: false, reason: "trial-used" },
+    );
+    assert.equal(await store.getPendingTrialCheckout(uid), null);
+  }
+
+  const disk = JSON.parse(await readFile(filePath, "utf8"));
+  for (const uid of ["uid-trial-used-0", "uid-trial-used-1"]) {
+    assert.equal(Object.hasOwn(disk.learners[uid], "pendingTrialCheckout"), false);
+    assert.equal(typeof disk.learners[uid].trialUsedAt, "string");
+  }
+});
+
+test("authoritative trial use clears a pending Checkout in the same locked snapshot write", async (t) => {
+  const { filePath, store } = await setupStore(t);
+  await bind(store);
+  await store.reservePendingTrialCheckout({
+    uid: "uid-1",
+    plan: "annual",
+    attemptId: "attempt_before_webhook",
+  });
+
+  assert.deepEqual(
+    await store.applySubscriptionSnapshot(subscriptionSnapshot({
+      status: "trialing",
+      trialEndsAt: "2026-08-10T12:00:00.000Z",
+    })),
+    { applied: true, reason: "updated" },
+  );
+  assert.equal(await store.getPendingTrialCheckout("uid-1"), null);
+  await expectStoreError(
+    () => store.attachPendingTrialCheckout({
+      uid: "uid-1",
+      attemptId: "attempt_before_webhook",
+      sessionId: "cs_created_during_webhook",
+      expiresAt: "2026-08-03T13:00:00.000Z",
+    }),
+    "BILLING_STORE_RESERVATION_CONFLICT",
+  );
+
+  const persisted = JSON.parse(await readFile(filePath, "utf8")).learners["uid-1"];
+  assert.equal(Object.hasOwn(persisted, "pendingTrialCheckout"), false);
+  assert.equal(persisted.trialUsedAt, "2026-08-03T12:00:00.000Z");
+});
+
 test("pending Checkout attach and clear require the owning UID and exact attempt", async (t) => {
   const { store } = await setupStore(t);
   await bind(store);

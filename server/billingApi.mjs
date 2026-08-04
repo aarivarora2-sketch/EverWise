@@ -222,6 +222,13 @@ const checkoutConfirmingError = () =>
     "Your subscription is being confirmed.",
   );
 
+const checkoutEligibilityChangedError = () =>
+  apiError(
+    409,
+    "CHECKOUT_ELIGIBILITY_CHANGED",
+    "Billing eligibility changed. Please try again.",
+  );
+
 const SUBSCRIPTION_STATUSES = new Set([
   "trialing",
   "active",
@@ -540,6 +547,25 @@ export const createBillingApi = ({
         }
         return latestTrialUsed;
       };
+      const reservationRefusedForTrialUse = (value) =>
+        isPlainObject(value) &&
+        Object.keys(value).sort().join(",") === "reason,reserved" &&
+        value.reserved === false &&
+        value.reason === "trial-used";
+      const expireIneligibleTrial = async (session) => {
+        let expired;
+        try {
+          expired = checkoutLifecycle(
+            await gateway.expireCheckoutSession(session.id),
+          );
+        } catch {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        if (!expired || expired.id !== session.id || expired.status !== "expired") {
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
+        throw checkoutEligibilityChangedError();
+      };
 
       const existingPendingValue = await store.getPendingTrialCheckout(uid);
       const existingPending = existingPendingValue === null
@@ -550,12 +576,19 @@ export const createBillingApi = ({
         return createNoTrialCheckout();
       }
 
-      const reserve = async () => requirePending(await store.reservePendingTrialCheckout({
-        uid,
-        plan: planKey,
-        attemptId: randomUUID(),
-      }));
+      const reserve = async () => {
+        const result = await store.reservePendingTrialCheckout({
+          uid,
+          plan: planKey,
+          attemptId: randomUUID(),
+        });
+        return reservationRefusedForTrialUse(result) ? null : requirePending(result);
+      };
       let pending = existingPending || await reserve();
+      if (pending === null) {
+        if (await recheckEligibility()) return createNoTrialCheckout();
+        throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+      }
 
       for (let transition = 0; transition < 4; transition += 1) {
         let session;
@@ -568,16 +601,23 @@ export const createBillingApi = ({
             trialEligible: true,
             operationAttempt: pending.attemptId,
           }));
-          const attached = requirePending(await store.attachPendingTrialCheckout({
-            uid,
-            attemptId: pending.attemptId,
-            sessionId: session.id,
-            expiresAt: session.expiresAt,
-          }));
+          let attached;
+          try {
+            attached = requirePending(await store.attachPendingTrialCheckout({
+              uid,
+              attemptId: pending.attemptId,
+              sessionId: session.id,
+              expiresAt: session.expiresAt,
+            }));
+          } catch {
+            await expireIneligibleTrial(session);
+          }
           if (attached.sessionId !== session.id || attached.expiresAt !== session.expiresAt) {
             throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
           }
           pending = attached;
+          const trialUsedAfterAttach = await store.hasUsedTrial(uid);
+          if (trialUsedAfterAttach !== false) await expireIneligibleTrial(session);
         } else {
           session = checkoutLifecycle(
             await gateway.retrieveCheckoutSession(pending.sessionId),
@@ -609,6 +649,10 @@ export const createBillingApi = ({
         await clearPending(pending);
         if (await recheckEligibility()) return createNoTrialCheckout();
         pending = await reserve();
+        if (pending === null) {
+          if (await recheckEligibility()) return createNoTrialCheckout();
+          throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+        }
       }
       throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
     });

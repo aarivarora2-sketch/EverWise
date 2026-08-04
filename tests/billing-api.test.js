@@ -893,6 +893,151 @@ test("uncertain pending Checkout retrieval preserves its durable reservation", a
   assert.deepEqual(state.pending(), pendingCheckout());
 });
 
+test("trial marked used immediately before reserve creates only a fresh no-trial Checkout", async () => {
+  let trialUsed = false;
+  const createCalls = [];
+  const { api } = createHarness({
+    store: {
+      getByUid: async () => defaultRecord({
+        customerId: "cus_atomic_refusal",
+        trialUsedAt: trialUsed ? "2026-08-03T12:00:00.000Z" : null,
+      }),
+      hasUsedTrial: async () => trialUsed,
+      getPendingTrialCheckout: async () => null,
+      reservePendingTrialCheckout: async () => {
+        trialUsed = true;
+        return { reserved: false, reason: "trial-used" };
+      },
+    },
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_atomic_refusal" }),
+      createCheckoutSession: async (input) => {
+        createCalls.push(input);
+        return {
+          id: "cs_no_trial_after_refusal",
+          url: "https://checkout.stripe.com/c/pay/no-trial-after-refusal",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.response.json(), {
+    url: "https://checkout.stripe.com/c/pay/no-trial-after-refusal",
+  });
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].trialEligible, false);
+  assert.match(createCalls[0].operationAttempt, /^[0-9a-f-]{36}$/u);
+});
+
+test("trial marked used after reserve but before attach expires the new trial and returns no URL", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "everwise-billing-before-attach-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const filePath = path.join(root, "billing.json");
+  const store = createBillingStore({ filePath, now: () => new Date(NOW) });
+  await store.bindCustomer({ uid: UID, customerId: "cus_before_attach" });
+  const expired = [];
+  const { api } = createHarness({
+    store: { ...store },
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_before_attach" }),
+      createCheckoutSession: async () => {
+        await store.applySubscriptionSnapshot({
+          uid: UID,
+          customerId: "cus_before_attach",
+          subscriptionId: "sub_before_attach",
+          plan: "monthly",
+          status: "trialing",
+          trialEndsAt: "2026-08-06T12:00:00.000Z",
+          currentPeriodEndsAt: "2026-09-03T12:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          eventId: "evt_before_attach",
+          created: 1,
+        });
+        return {
+          id: "cs_trial_before_attach",
+          url: "https://checkout.stripe.com/c/pay/must-not-return-before-attach",
+          status: "open",
+          expiresAt: CHECKOUT_EXPIRES_AT,
+        };
+      },
+      expireCheckoutSession: async (sessionId) => {
+        expired.push(sessionId);
+        return { id: sessionId, status: "expired", expiresAt: CHECKOUT_EXPIRES_AT };
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 409);
+  assert.deepEqual(result.response.json(), {
+    error: {
+      code: "CHECKOUT_ELIGIBILITY_CHANGED",
+      message: "Billing eligibility changed. Please try again.",
+    },
+  });
+  assert.deepEqual(expired, ["cs_trial_before_attach"]);
+  assert.equal(JSON.stringify(result.response.json()).includes("must-not-return"), false);
+  assert.equal(await store.getPendingTrialCheckout(UID), null);
+  assert.equal((await store.getByUid(UID)).trialUsedAt, NOW.toISOString());
+  assert.equal((await readFile(filePath, "utf8")).includes("checkout.stripe.com"), false);
+});
+
+test("trial marked used during attach is caught by the final recheck and its URL is withheld", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "everwise-billing-during-attach-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const filePath = path.join(root, "billing.json");
+  const store = createBillingStore({ filePath, now: () => new Date(NOW) });
+  await store.bindCustomer({ uid: UID, customerId: "cus_during_attach" });
+  const expired = [];
+  const wrappedStore = {
+    ...store,
+    attachPendingTrialCheckout: async (input) => {
+      const attached = await store.attachPendingTrialCheckout(input);
+      await store.applySubscriptionSnapshot({
+        uid: UID,
+        customerId: "cus_during_attach",
+        subscriptionId: "sub_during_attach",
+        plan: "monthly",
+        status: "trialing",
+        trialEndsAt: "2026-08-06T12:00:00.000Z",
+        currentPeriodEndsAt: "2026-09-03T12:00:00.000Z",
+        cancelAtPeriodEnd: false,
+        eventId: "evt_during_attach",
+        created: 1,
+      });
+      return attached;
+    },
+  };
+  const { api } = createHarness({
+    store: wrappedStore,
+    gateway: {
+      findOrCreateCustomer: async () => ({ id: "cus_during_attach" }),
+      createCheckoutSession: async () => ({
+        id: "cs_trial_during_attach",
+        url: "https://checkout.stripe.com/c/pay/must-not-return-during-attach",
+        status: "open",
+        expiresAt: CHECKOUT_EXPIRES_AT,
+      }),
+      expireCheckoutSession: async (sessionId) => {
+        expired.push(sessionId);
+        return { id: sessionId, status: "expired", expiresAt: CHECKOUT_EXPIRES_AT };
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/checkout", { body: { plan: "monthly" } });
+  assert.equal(result.response.status, 409);
+  assert.equal(result.response.json().error.code, "CHECKOUT_ELIGIBILITY_CHANGED");
+  assert.deepEqual(expired, ["cs_trial_during_attach"]);
+  assert.equal(JSON.stringify(result.response.json()).includes("must-not-return"), false);
+  assert.equal(await store.getPendingTrialCheckout(UID), null);
+  assert.equal((await readFile(filePath, "utf8")).includes("checkout.stripe.com"), false);
+});
+
 test("trial-used resubscriptions keep fresh no-trial Checkout operations", async () => {
   const attempts = [];
   const state = createPendingStore({
