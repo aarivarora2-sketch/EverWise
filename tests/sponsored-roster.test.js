@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -162,6 +162,40 @@ test("readRosterFile rejects malformed or unsafe roster CSV", async (t) => {
     await assert.rejects(
       readRosterFile({ filePath, repositoryRoot: process.cwd() }),
       /roster|CSV|header|row|invalid/i,
+    );
+  }
+});
+
+test("readRosterFile rejects unsafe permissions for partial and fully active resume rosters", async (t) => {
+  const directory = await temporaryDirectory(t);
+  const cases = [
+    {
+      name: "partial",
+      unsafeMode: 0o644,
+      rows: rosterRows().map((row, index) => ({
+        ...row,
+        status: index < 237 ? "active" : "pending",
+      })),
+    },
+    {
+      name: "fully-active",
+      unsafeMode: 0o660,
+      rows: rosterRows().map((row) => ({ ...row, status: "active" })),
+    },
+  ];
+
+  for (const { name, rows, unsafeMode } of cases) {
+    const filePath = join(directory, `${name}.csv`);
+    await createRosterFile({ filePath, repositoryRoot: process.cwd(), rows });
+    assert.deepEqual(
+      await readRosterFile({ filePath, repositoryRoot: process.cwd() }),
+      rows,
+    );
+    await chmod(filePath, unsafeMode);
+
+    await assert.rejects(
+      readRosterFile({ filePath, repositoryRoot: process.cwd() }),
+      /permissions.*0600/i,
     );
   }
 });

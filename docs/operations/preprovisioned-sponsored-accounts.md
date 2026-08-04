@@ -10,7 +10,7 @@ Never test this procedure with production credentials or a real roster. The brow
 - Keep the roster CSV on approved encrypted local storage, outside every Git checkout and outside Dropbox, iCloud Drive, OneDrive, Google Drive, or any other cloud-synced folder.
 - Never paste credentials into a command, command-line option, shell history, document, issue, commit, build artifact, chat, or ordinary email.
 - Never copy the roster into a repository, temporary build directory, or test-results directory. The CSV contains account credentials.
-- Do not run `create` without a successful preflight, review of its redacted output, and explicit user approval for that exact production run.
+- Do not run a confirmed `create` or `resume` without a successful read-only preflight, review of its redacted output, and explicit user approval for that exact production run.
 - Do not run a second `create` for the same pilot. Never regenerate or replace an existing roster.
 
 ## 1. Prepare the terminal and private output path
@@ -88,9 +88,29 @@ Any other counts mean the run is incomplete. Preserve the same private CSV and f
 
 ## 4. Resume boundary
 
-`resume` is permitted only with the exact existing private CSV from the same run; it must never be pointed at a reconstructed roster or a new file. However, the current CLI applies the empty-pilot check (`0/500/500`) to `resume` as well as `create`. Consequently, after even one membership is active, a fresh preflight rejects the non-empty pilot and the current CLI cannot safely resume an interrupted partial run.
+`resume` is permitted only with the exact existing private CSV from the same run; it must never be pointed at a reconstructed roster or a new file. Keep the file at owner-only `0600` permissions. The command rejects an unsafe file mode before reading credentials.
 
-Do not work around this check, edit the CSV, rerun `create`, release seats, or mutate Firebase to force the counts back to zero. Stop and escalate for a reviewed recovery fix. A confirmed `resume` command may be used only if the same CSV exists, no accounts were activated, and a fresh preflight still reports exactly `0/500/500` after new explicit approval:
+First run `resume` without `--confirm-production`. This is the read-only recovery preflight: it validates the saved 500-row roster, compares its active/pending status summary with the authoritative partner seat report, and does not authenticate, create, claim, delete, or update any account or credential file.
+
+```zsh
+npm run provision:sponsored -- resume \
+  --api-origin https://everwise.dexio-games.com \
+  --count 500 \
+  --prefix EverWise \
+  --start 1 \
+  --end 500 \
+  --output "$ROSTER_PATH"
+```
+
+Review the reported partner, Firebase project, and seat counts against the same private roster:
+
+- For a normal partial resume with `N` active rows and `500 - N` pending rows, the report must show `N claimed, 500 - N available, 500 total`.
+- The command also permits exactly `N + 1` claimed seats when at least one roster row remains pending. This is the supported crash window where the partner claim became authoritative but the next atomic CSV update did not finish. The confirmed resume authenticates the pending row, verifies its existing matching membership, and records it active without claiming a second seat.
+- For a fully active roster, the report must show `500 claimed, 0 available, 500 total`.
+
+The CLI fails closed if the partner identity, Firebase project, seat arithmetic, 500-seat limit, or roster-to-seat relationship differs. Do not edit the CSV, rerun `create`, release seats, delete accounts, or mutate Firebase to force a match. Preserve the CSV and output and escalate the mismatch for an approved reconciliation.
+
+After the read-only resume preflight passes, present only its redacted output and the matching active/pending and claimed/available counts for explicit user approval. Do not include roster rows or credentials. Then rerun the same command with only `--confirm-production` added:
 
 ```zsh
 npm run provision:sponsored -- resume \
@@ -135,7 +155,7 @@ Retain or destroy the approved roster copy only according to the organization’
 
 ### Interrupted run
 
-Preserve the exact CSV and terminal output. Do not run `create` again. If the interruption occurred before any activation and preflight remains exactly `0/500/500`, a same-file `resume` may proceed only after a new approval. If any account became active, stop and escalate because of the current resume boundary above.
+Preserve the exact CSV and terminal output. Do not run `create` again. Use the same-file, unconfirmed `resume` recovery preflight in section 4. If its roster and seat counts match exactly, or differ only by the supported one-seat-ahead crash window, obtain new explicit approval and rerun the same resume command with `--confirm-production`. Any larger, lower, or otherwise inconsistent count is a stop condition requiring approved reconciliation.
 
 ### `EMAIL_EXISTS`
 
@@ -143,7 +163,7 @@ Stop. Do not delete or overwrite the existing Firebase account, do not change th
 
 ### Partner API unavailable
 
-If read-only preflight is unavailable, wait and rerun preflight later; no account or roster has been created. If availability fails during provisioning, preserve the CSV. A row may remain pending after bounded retries, and an ambiguous claim must not trigger deletion. Do not retry the partial run through the current CLI when any seats are active; escalate under the resume boundary.
+If a first-run read-only preflight is unavailable, wait and rerun it later; no account or roster has been created. If availability fails during provisioning, preserve the exact CSV and output. A row may remain pending after bounded retries, and an ambiguous claim must not trigger deletion. When the API is available again, use the unconfirmed same-file `resume` recovery preflight, review its reconciled counts, obtain new explicit approval, and only then run confirmed resume.
 
 ### Suspended partner
 
@@ -151,7 +171,7 @@ Do not create accounts while the partner or invitation is suspended. If suspensi
 
 ### Non-empty partner capacity
 
-Any preflight count other than exactly `0 claimed, 500 available, 500 total` is a stop condition. It may represent prior accounts or a partial run. Do not release memberships, delete accounts, edit the roster, or run `create` to make the state fit. Reconcile the existing membership and roster state through an approved recovery plan.
+For a new `create`, any preflight count other than exactly `0 claimed, 500 available, 500 total` is a stop condition. For `resume`, non-empty capacity is expected only when it matches the exact saved roster or the supported one-seat-ahead crash window described in section 4; a fully active roster must match `500/0/500`. Any other relationship is a stop condition. Do not release memberships, delete accounts, edit the roster, or run `create` to make the state fit. Reconcile the existing membership and roster state through an approved recovery plan.
 
 ### Lost roster
 

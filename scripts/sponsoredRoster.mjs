@@ -326,6 +326,9 @@ export async function readRosterFile({ filePath, repositoryRoot }) {
     repositoryRoot,
     mustExist: true,
   });
+  if (((await lstat(safePath)).mode & 0o777) !== 0o600) {
+    throw new Error("Roster file permissions must be 0600");
+  }
   return parseRoster(await readFile(safePath, "utf8"));
 }
 
