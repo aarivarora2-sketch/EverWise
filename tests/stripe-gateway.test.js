@@ -11,6 +11,7 @@ const CUSTOMER_EMAIL = "private.learner@example.com";
 const APP_ORIGIN = "https://app.everwise.example";
 const CHECKOUT_EXPIRES_AT = "2027-01-15T08:00:00.000Z";
 const CHECKOUT_EXPIRES_AT_SECONDS = 1_800_000_000;
+const SUBSCRIPTION_CREATED_AT_SECONDS = 1_700_000_000;
 
 const PLAN_CONFIG = Object.freeze({
   monthly: Object.freeze({ ...BILLING_PLANS.monthly, priceId: "price_test_monthly" }),
@@ -39,6 +40,7 @@ const subscriptionResponse = (id, status, overrides = {}) => ({
   id,
   object: "subscription",
   customer: "cus_learner",
+  created: SUBSCRIPTION_CREATED_AT_SECONDS,
   status,
   livemode: false,
   cancel_at_period_end: false,
@@ -777,6 +779,7 @@ test("listBlockingSubscriptions follows Stripe pagination and returns later bloc
     {
       id: "sub_page_2",
       customerId: "cus_learner",
+      created: SUBSCRIPTION_CREATED_AT_SECONDS,
       status: "past_due",
       priceId: "price_test_monthly",
       livemode: false,
@@ -839,6 +842,7 @@ test("subscription retrieval and cancellation expose normalized records only", a
   assert.deepEqual(await gateway.retrieveSubscription("sub_retrieve"), {
     id: "sub_retrieve",
     customerId: "cus_learner",
+    created: SUBSCRIPTION_CREATED_AT_SECONDS,
     status: "active",
     priceId: "price_test_monthly",
     livemode: false,
@@ -855,6 +859,7 @@ test("subscription retrieval and cancellation expose normalized records only", a
     {
       id: "sub_cancel",
       customerId: "cus_learner",
+      created: SUBSCRIPTION_CREATED_AT_SECONDS,
       status: "canceled",
       priceId: "price_test_monthly",
       livemode: false,
@@ -867,6 +872,25 @@ test("subscription retrieval and cancellation expose normalized records only", a
   assert.equal(requestParameters(fake.calls[1]).get("prorate"), "false");
   assert.equal(requestParameters(fake.calls[1]).get("invoice_now"), "false");
   assert.equal(requestHeader(fake.calls[1], "idempotency-key"), "cancel:firebase-uid-123:attempt-10");
+});
+
+test("subscription normalization requires an authoritative creation timestamp", async () => {
+  for (const created of [undefined, -1, 1.5]) {
+    const response = subscriptionResponse("sub_invalid_created", "active");
+    if (created === undefined) delete response.created;
+    else response.created = created;
+    const fake = createFakeFetch([{ body: response }]);
+    const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+
+    await assert.rejects(
+      gateway.retrieveSubscription("sub_invalid_created"),
+      (error) => {
+        assert.equal(error.code, "BILLING_PROVIDER_ERROR");
+        assert.match(error.message, /provider request failed/i);
+        return true;
+      },
+    );
+  }
 });
 
 test("webhook construction returns only minimal normalized records for planned event families", () => {
@@ -1019,17 +1043,38 @@ test("webhook construction returns only minimal normalized records for planned e
   }
 });
 
-test("webhook construction rejects unsupported types and malformed lifecycle objects", () => {
+test("webhook construction preserves only the envelope for a verified irrelevant event", () => {
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: async () => {} });
+  const normalized = constructSignedWebhook(gateway, {
+    id: "evt_irrelevant",
+    object: "event",
+    type: "charge.succeeded",
+    created: 1_800_000_000,
+    livemode: false,
+    data: {
+      object: {
+        id: "ch_private",
+        object: "charge",
+        billing_details: { email: CUSTOMER_EMAIL },
+        metadata: { private: WEBHOOK_SECRET },
+      },
+    },
+  });
+
+  assert.deepEqual(normalized, {
+    id: "evt_irrelevant",
+    type: "charge.succeeded",
+    created: 1_800_000_000,
+    livemode: false,
+    object: null,
+  });
+  assert.equal(JSON.stringify(normalized).includes(CUSTOMER_EMAIL), false);
+  assert.equal(JSON.stringify(normalized).includes(WEBHOOK_SECRET), false);
+});
+
+test("webhook construction rejects malformed lifecycle objects", () => {
   const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: async () => {} });
   const malformedEvents = [
-    {
-      id: "evt_unsupported",
-      object: "event",
-      type: "charge.succeeded",
-      created: 1_800_000_000,
-      livemode: false,
-      data: { object: { id: "ch_private", object: "charge" } },
-    },
     {
       id: "not_an_event",
       object: "event",

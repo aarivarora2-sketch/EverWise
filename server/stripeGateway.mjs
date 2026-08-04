@@ -187,13 +187,21 @@ const normalizeSubscription = (subscription) => {
   const priceId =
     typeof firstItem?.price === "string" ? firstItem.price : firstItem?.price?.id;
 
-  if (!subscription.id || !customerId || !subscription.status || !priceId) {
+  if (
+    !subscription.id ||
+    !customerId ||
+    !subscription.status ||
+    !priceId ||
+    !Number.isSafeInteger(subscription.created) ||
+    subscription.created < 0
+  ) {
     throw providerFailure();
   }
 
   return {
     id: subscription.id,
     customerId,
+    created: subscription.created,
     status: subscription.status,
     priceId,
     livemode: subscription.livemode === true,
@@ -306,7 +314,8 @@ const normalizeWebhookEvent = (event) => {
     !event ||
     event.object !== "event" ||
     !webhookId(event.id, "evt_") ||
-    !WEBHOOK_EVENT_TYPES.has(event.type) ||
+    typeof event.type !== "string" ||
+    !/^[a-z0-9_.]{1,128}$/u.test(event.type) ||
     !Number.isSafeInteger(event.created) ||
     event.created < 0 ||
     typeof event.livemode !== "boolean"
@@ -318,7 +327,9 @@ const normalizeWebhookEvent = (event) => {
     type: event.type,
     created: event.created,
     livemode: event.livemode,
-    object: normalizeWebhookObject(event.type, event.data?.object),
+    object: WEBHOOK_EVENT_TYPES.has(event.type)
+      ? normalizeWebhookObject(event.type, event.data?.object)
+      : null,
   };
 };
 
