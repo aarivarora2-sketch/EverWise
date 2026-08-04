@@ -7,32 +7,169 @@ import {
   shouldShowSubscriptionControls,
 } from "../src/utils/access.js";
 
-test("active sponsored users have full access without subscription controls", () => {
-  assert.equal(
-    resolveFullAccess({
-      sponsoredStatus: "active",
-      subscriptionStatus: "expired",
-      developmentBypass: false,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldShowSubscriptionControls({
-      sponsoredStatus: "active",
-    }),
-    false,
-  );
+test("active sponsorship grants full access on every platform and hides controls", () => {
+  for (const platform of ["web", "native", "unknown", null, undefined]) {
+    assert.equal(
+      resolveFullAccess({
+        sponsoredStatus: "active",
+        billingStatus: "unavailable",
+        nativeSubscriptionStatus: "expired",
+        platform,
+        developmentBypass: false,
+      }),
+      true,
+      String(platform),
+    );
+    assert.equal(
+      shouldShowSubscriptionControls({ sponsoredStatus: "active", platform }),
+      false,
+      String(platform),
+    );
+  }
 });
 
-test("public expired users remain gated", () => {
-  assert.equal(
-    resolveFullAccess({
+test("web access grants only webhook-backed Stripe trialing and active statuses", () => {
+  for (const [billingStatus, expected] of [
+    ["trialing", true],
+    ["active", true],
+    ["past_due", false],
+    ["unpaid", false],
+    ["incomplete", false],
+    ["incomplete_expired", false],
+    ["paused", false],
+    ["canceled", false],
+    ["none", false],
+  ]) {
+    assert.equal(
+      resolveFullAccess({
+        sponsoredStatus: "none",
+        billingStatus,
+        nativeSubscriptionStatus: "expired",
+        platform: "web",
+        developmentBypass: false,
+      }),
+      expected,
+      billingStatus,
+    );
+  }
+});
+
+test("web access ignores legacy Firestore and native Apple entitlement statuses", () => {
+  for (const legacyStatus of ["trial", "active"]) {
+    assert.equal(
+      resolveFullAccess({
+        sponsoredStatus: "none",
+        billingStatus: "none",
+        nativeSubscriptionStatus: legacyStatus,
+        subscriptionStatus: legacyStatus,
+        platform: "web",
+        developmentBypass: false,
+      }),
+      false,
+      legacyStatus,
+    );
+  }
+});
+
+test("native access grants only the existing Apple trial and active entitlements", () => {
+  for (const [nativeSubscriptionStatus, expected] of [
+    ["trial", true],
+    ["active", true],
+    ["expired", false],
+    ["none", false],
+  ]) {
+    assert.equal(
+      resolveFullAccess({
+        sponsoredStatus: "none",
+        billingStatus: "none",
+        nativeSubscriptionStatus,
+        platform: "native",
+        developmentBypass: false,
+      }),
+      expected,
+      nativeSubscriptionStatus,
+    );
+  }
+});
+
+test("native access ignores browser billing state", () => {
+  for (const billingStatus of ["trialing", "active"]) {
+    assert.equal(
+      resolveFullAccess({
+        sponsoredStatus: "none",
+        billingStatus,
+        nativeSubscriptionStatus: "expired",
+        platform: "native",
+        developmentBypass: false,
+      }),
+      false,
+      billingStatus,
+    );
+  }
+});
+
+test("unknown providers and unavailable statuses fail closed", () => {
+  for (const input of [
+    {
+      sponsoredStatus: "unavailable",
+      billingStatus: "active",
+      nativeSubscriptionStatus: "active",
+      platform: "unknown",
+    },
+    {
       sponsoredStatus: "none",
-      subscriptionStatus: "expired",
-      developmentBypass: false,
-    }),
-    false,
+      billingStatus: "unavailable",
+      nativeSubscriptionStatus: "active",
+      platform: "web",
+    },
+    {
+      sponsoredStatus: "none",
+      billingStatus: "active",
+      nativeSubscriptionStatus: "unavailable",
+      platform: "native",
+    },
+    {
+      sponsoredStatus: "none",
+      billingStatus: "active",
+      nativeSubscriptionStatus: "active",
+      platform: undefined,
+    },
+  ]) {
+    assert.equal(resolveFullAccess({ ...input, developmentBypass: false }), false);
+  }
+});
+
+test("only the explicit boolean development bypass grants provider-independent access", () => {
+  const base = {
+    sponsoredStatus: "none",
+    billingStatus: "none",
+    nativeSubscriptionStatus: "expired",
+    platform: "unknown",
+  };
+  assert.equal(resolveFullAccess({ ...base, developmentBypass: true }), true);
+  for (const developmentBypass of [false, undefined, null, 1, "true", {}]) {
+    assert.equal(
+      resolveFullAccess({ ...base, developmentBypass }),
+      false,
+      String(developmentBypass),
+    );
+  }
+});
+
+test("Stripe subscription controls appear only for unsponsored web learners", () => {
+  assert.equal(
+    shouldShowSubscriptionControls({ sponsoredStatus: "none", platform: "web" }),
+    true,
   );
+  for (const input of [
+    { sponsoredStatus: "active", platform: "web" },
+    { sponsoredStatus: "active", platform: "native" },
+    { sponsoredStatus: "none", platform: "native" },
+    { sponsoredStatus: "none", platform: "unknown" },
+    { sponsoredStatus: "none", platform: undefined },
+  ]) {
+    assert.equal(shouldShowSubscriptionControls(input), false);
+  }
 });
 
 test("an EverWise roster-style username does not grant access without server sponsorship", () => {
@@ -40,7 +177,9 @@ test("an EverWise roster-style username does not grant access without server spo
     resolveFullAccess({
       username: "EverWise001",
       sponsoredStatus: "none",
-      subscriptionStatus: "expired",
+      billingStatus: "none",
+      nativeSubscriptionStatus: "expired",
+      platform: "web",
       developmentBypass: false,
     }),
     false,

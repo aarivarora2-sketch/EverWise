@@ -4,18 +4,21 @@ const PUBLIC_FREE_LESSON_IDS = new Set(["welcome", "internet"]);
 
 export function resolveFullAccess({
   sponsoredStatus,
-  subscriptionStatus,
+  billingStatus,
+  nativeSubscriptionStatus,
+  platform,
   developmentBypass = false,
 }) {
-  return (
-    sponsoredStatus === "active" ||
-    developmentBypass ||
-    hasFullAccess(subscriptionStatus)
-  );
+  if (sponsoredStatus === "active" || developmentBypass === true) return true;
+  if (platform === "web") {
+    return billingStatus === "trialing" || billingStatus === "active";
+  }
+  if (platform === "native") return hasFullAccess(nativeSubscriptionStatus);
+  return false;
 }
 
-export function shouldShowSubscriptionControls({ sponsoredStatus }) {
-  return sponsoredStatus !== "active";
+export function shouldShowSubscriptionControls({ sponsoredStatus, platform }) {
+  return platform === "web" && sponsoredStatus !== "active";
 }
 
 export function canOpenLesson({ lessonId, completed, fullAccess }) {
