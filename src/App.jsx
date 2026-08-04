@@ -200,8 +200,10 @@ function consumeBillingReturnMarker() {
       globalThis.location.origin,
     );
     const values = currentUrl.searchParams.getAll("billing");
-    if (values.length === 0) return null;
+    const sessionIds = currentUrl.searchParams.getAll("session_id");
+    if (values.length === 0 && sessionIds.length === 0) return null;
     currentUrl.searchParams.delete("billing");
+    currentUrl.searchParams.delete("session_id");
     const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
     globalThis.history.replaceState(globalThis.history.state, "", nextUrl);
     return values.length === 1 && (values[0] === "success" || values[0] === "cancel")
@@ -230,11 +232,10 @@ function createBillingReturnNonce() {
   }
 }
 
-function storeBillingReturnIntent({ uid, screen, itemId }) {
+function storeBillingReturnIntent({ uid, screen, itemId, createdAt = Date.now() }) {
   clearStoredBillingReturnIntent();
   const nonce = createBillingReturnNonce();
   if (!nonce) return false;
-  const createdAt = Date.now();
   const serialized = JSON.stringify({
     version: 1,
     nonce,
@@ -954,9 +955,11 @@ function LearnerApp({ initialPartnerFragment }) {
   const activeReleaseConfirmationRef = useRef(null);
   const partnerFragmentRef = useRef(partnerFragment);
   const partnerRecoveryRef = useRef(null);
-  const partnerAccessRefreshIdRef = useRef(0);
   const refreshAuthoritativePartnerAccessRef = useRef(null);
-  const billingBootstrapIdRef = useRef(0);
+  const authoritativeAccessVersionRef = useRef(0);
+  const authoritativeAccessRefreshInFlightRef = useRef(null);
+  const backgroundAccessRefreshRef = useRef(null);
+  const appMountedRef = useRef(true);
   const billingPollIdRef = useRef(0);
   const billingReturnOwnerUidRef = useRef(null);
   const billingHadFullAccessRef = useRef(false);
@@ -966,6 +969,16 @@ function LearnerApp({ initialPartnerFragment }) {
     itemId: null,
     completedIds: [],
   });
+
+  useEffect(() => {
+    appMountedRef.current = true;
+    return () => {
+      appMountedRef.current = false;
+      authoritativeAccessVersionRef.current += 1;
+      billingPollIdRef.current += 1;
+      backgroundAccessRefreshRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const handleBillingReturn = () => {
@@ -1264,7 +1277,8 @@ function LearnerApp({ initialPartnerFragment }) {
         billingReturnOwnerUidRef.current = null;
         setBillingReturn(null);
       }
-      billingBootstrapIdRef.current += 1;
+      authoritativeAccessVersionRef.current += 1;
+      backgroundAccessRefreshRef.current = null;
       billingPollIdRef.current += 1;
       setUser(u);
       setAuthChecked(false);
@@ -1557,6 +1571,18 @@ function LearnerApp({ initialPartnerFragment }) {
 
   useEffect(() => {
     if (
+      access &&
+      user?.uid &&
+      partnerStatus === "suspended" &&
+      partnerOwnerUid === user.uid &&
+      screen === "partner-error"
+    ) {
+      setScreen("home");
+    }
+  }, [access, partnerOwnerUid, partnerStatus, screen, user?.uid]);
+
+  useEffect(() => {
+    if (
       platform !== "web" ||
       !authChecked ||
       !authSettledRef.current ||
@@ -1565,7 +1591,14 @@ function LearnerApp({ initialPartnerFragment }) {
     ) {
       return undefined;
     }
+    if (
+      authoritativeAccessRefreshInFlightRef.current ===
+      authoritativeAccessVersionRef.current
+    ) {
+      return undefined;
+    }
     if (sponsoredActive) {
+      authoritativeAccessVersionRef.current += 1;
       setBillingOwnerUid(user.uid);
       setBillingStatus("unavailable");
       setBillingAccess(null);
@@ -1576,21 +1609,20 @@ function LearnerApp({ initialPartnerFragment }) {
 
     const uid = user.uid;
     const generation = authGenerationRef.current;
-    const requestId = billingBootstrapIdRef.current + 1;
-    billingBootstrapIdRef.current = requestId;
+    const accessVersion = authoritativeAccessVersionRef.current + 1;
+    authoritativeAccessVersionRef.current = accessVersion;
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled &&
+      appMountedRef.current &&
+      accessVersion === authoritativeAccessVersionRef.current &&
+      generation === authGenerationRef.current &&
+      currentAuthUidRef.current === uid;
     setBillingOwnerUid(uid);
     setBillingBusy(true);
     Promise.all([fetchBillingPlans(user), fetchBillingAccess(user)])
       .then(([plansResult, accessResult]) => {
-        if (
-          cancelled ||
-          requestId !== billingBootstrapIdRef.current ||
-          generation !== authGenerationRef.current ||
-          currentAuthUidRef.current !== uid
-        ) {
-          return;
-        }
+        if (!isCurrent()) return;
         setBillingPlans(plansResult.plans);
         setBillingAccess(accessResult);
         setBillingStatus(accessResult.status);
@@ -1600,28 +1632,14 @@ function LearnerApp({ initialPartnerFragment }) {
         );
       })
       .catch(() => {
-        if (
-          cancelled ||
-          requestId !== billingBootstrapIdRef.current ||
-          generation !== authGenerationRef.current ||
-          currentAuthUidRef.current !== uid
-        ) {
-          return;
-        }
+        if (!isCurrent()) return;
         setBillingPlans([]);
         setBillingAccess(null);
         setBillingStatus("unavailable");
         setBillingRecovery({ kind: "temporary" });
       })
       .finally(() => {
-        if (
-          !cancelled &&
-          requestId === billingBootstrapIdRef.current &&
-          generation === authGenerationRef.current &&
-          currentAuthUidRef.current === uid
-        ) {
-          setBillingBusy(false);
-        }
+        if (isCurrent()) setBillingBusy(false);
       });
 
     return () => {
@@ -2383,7 +2401,8 @@ function LearnerApp({ initialPartnerFragment }) {
     try {
       await signOut(auth);
       authGenerationRef.current += 1;
-      billingBootstrapIdRef.current += 1;
+      authoritativeAccessVersionRef.current += 1;
+      backgroundAccessRefreshRef.current = null;
       billingPollIdRef.current += 1;
       currentAuthUidRef.current = null;
       pendingProtectedNavigationRef.current = null;
@@ -2418,20 +2437,44 @@ function LearnerApp({ initialPartnerFragment }) {
   const refreshAuthoritativePartnerAccess = async ({
     routeCurrent = true,
     acceptResult = null,
+    coalesceBackground = false,
   } = {}) => {
     const refreshUser = user;
     if (!refreshUser?.uid) return null;
     const generation = authGenerationRef.current;
-    const refreshId = partnerAccessRefreshIdRef.current + 1;
-    partnerAccessRefreshIdRef.current = refreshId;
-    const isCurrent = () => {
+    if (coalesceBackground) {
+      const key = `${generation}:${refreshUser.uid}`;
+      const existing = backgroundAccessRefreshRef.current;
+      if (existing?.key === key) return existing.promise;
+      const promise = refreshAuthoritativePartnerAccess({
+        routeCurrent,
+        acceptResult,
+      });
+      const accessVersion = authoritativeAccessVersionRef.current;
+      backgroundAccessRefreshRef.current = { key, promise, accessVersion };
+      void promise.finally(() => {
+        if (backgroundAccessRefreshRef.current?.promise === promise) {
+          backgroundAccessRefreshRef.current = null;
+        }
+      });
+      return promise;
+    }
+    const accessVersion = authoritativeAccessVersionRef.current + 1;
+    authoritativeAccessVersionRef.current = accessVersion;
+    authoritativeAccessRefreshInFlightRef.current = accessVersion;
+    const isIdentityCurrent = () => {
       if (
-        refreshId !== partnerAccessRefreshIdRef.current ||
+        !appMountedRef.current ||
+        accessVersion !== authoritativeAccessVersionRef.current ||
         generation !== authGenerationRef.current ||
         currentAuthUidRef.current !== refreshUser.uid
       ) {
         return false;
       }
+      return true;
+    };
+    const isCurrent = () => {
+      if (!isIdentityCurrent()) return false;
       if (acceptResult === null) return true;
       try {
         return acceptResult() === true;
@@ -2439,6 +2482,7 @@ function LearnerApp({ initialPartnerFragment }) {
         return false;
       }
     };
+    try {
     let authoritativeAccess;
     try {
       authoritativeAccess = await fetchAuthoritativePartnerAccess(refreshUser);
@@ -2480,25 +2524,33 @@ function LearnerApp({ initialPartnerFragment }) {
       );
       setPartnerStatus("active");
       updatePartnerRecovery(null);
-    } else if (authoritativeAccess.status === "suspended") {
-      if (!isCurrent()) return null;
-      setPartnerOwnerUid(refreshUser.uid);
-      setPartner(
-        authoritativeAccess.branding || { name: authoritativeAccess.name },
-      );
-      setPartnerStatus("suspended");
-      updatePartnerRecovery(null);
     } else {
       if (!isCurrent()) return null;
-      clearAuthoritativePartner();
+      if (authoritativeAccess.status === "suspended") {
+        setPartnerOwnerUid(refreshUser.uid);
+        setPartner(
+          authoritativeAccess.branding || { name: authoritativeAccess.name },
+        );
+        setPartnerStatus("suspended");
+      } else {
+        clearAuthoritativePartner();
+      }
       updatePartnerRecovery(null);
       if (platform === "web") {
         if (!isCurrent()) return null;
         setBillingBusy(true);
         try {
           nextBillingAccess = await fetchBillingAccess(refreshUser);
-          if (!isCurrent()) return null;
           nextBillingStatus = nextBillingAccess.status;
+          if (!isIdentityCurrent()) return null;
+          if (!isCurrent()) {
+            if (nextBillingAccess.access !== "full") {
+              setBillingOwnerUid(refreshUser.uid);
+              setBillingAccess(nextBillingAccess);
+              setBillingStatus(nextBillingStatus);
+            }
+            return null;
+          }
           setBillingOwnerUid(refreshUser.uid);
           setBillingAccess(nextBillingAccess);
           setBillingStatus(nextBillingStatus);
@@ -2538,10 +2590,10 @@ function LearnerApp({ initialPartnerFragment }) {
     });
     if (!isCurrent()) return null;
     if (routeCurrent && exitProtectedContent) {
-      if (authoritativeAccess.status === "suspended") {
-        setScreen("partner-error");
-      } else if (billingUnavailable && billingWasPreviouslyFull) {
+      if (billingUnavailable && billingWasPreviouslyFull) {
         setScreen("billing-error");
+      } else if (authoritativeAccess.status === "suspended") {
+        setScreen("partner-error");
       } else {
         setPaywallVariant("subscribe");
         setScreen("paywall");
@@ -2555,14 +2607,22 @@ function LearnerApp({ initialPartnerFragment }) {
       billingWasPreviouslyFull,
       fullAccess: currentAccess,
     };
+    } finally {
+      if (authoritativeAccessRefreshInFlightRef.current === accessVersion) {
+        authoritativeAccessRefreshInFlightRef.current = null;
+      }
+    }
   };
   refreshAuthoritativePartnerAccessRef.current =
     refreshAuthoritativePartnerAccess;
 
   useEffect(() => {
     if (!authChecked || !user?.uid || !profile) return undefined;
+    const refreshKey = `${authGenerationRef.current}:${user.uid}`;
     const refresh = () => {
-      void refreshAuthoritativePartnerAccessRef.current?.();
+      void refreshAuthoritativePartnerAccessRef.current?.({
+        coalesceBackground: true,
+      });
     };
     const resume = () => {
       if (document.visibilityState === "visible") refresh();
@@ -2577,6 +2637,15 @@ function LearnerApp({ initialPartnerFragment }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", resume);
       window.clearInterval(intervalId);
+      const pendingRefresh = backgroundAccessRefreshRef.current;
+      if (pendingRefresh?.key === refreshKey) {
+        if (
+          pendingRefresh.accessVersion === authoritativeAccessVersionRef.current
+        ) {
+          authoritativeAccessVersionRef.current += 1;
+        }
+        backgroundAccessRefreshRef.current = null;
+      }
     };
   }, [authChecked, platform, profile, sponsoredActive, user?.uid]);
 
@@ -2700,9 +2769,8 @@ function LearnerApp({ initialPartnerFragment }) {
       billingPollIdRef.current += 1;
       timedOut = true;
       clearPollTimers();
-      partnerAccessRefreshIdRef.current += 1;
+      authoritativeAccessVersionRef.current += 1;
       setBillingBusy(false);
-      clearPendingProtectedNavigation();
       setBillingRecovery({
         kind: "confirmation",
         phase: "timeout",
@@ -2715,6 +2783,23 @@ function LearnerApp({ initialPartnerFragment }) {
         return false;
       }
       let pending = pendingProtectedNavigationRef.current;
+      if (pending) {
+        const now = Date.now();
+        const validPendingIntent =
+          pending.uid === uid &&
+          pending.generation === generation &&
+          Number.isSafeInteger(pending.createdAt) &&
+          Number.isSafeInteger(pending.expiresAt) &&
+          pending.expiresAt ===
+            pending.createdAt + BILLING_RETURN_INTENT_TTL_MS &&
+          pending.createdAt <= now &&
+          pending.createdAt >= now - BILLING_RETURN_INTENT_TTL_MS &&
+          pending.expiresAt > now;
+        if (!validPendingIntent) {
+          clearPendingProtectedNavigation();
+          pending = null;
+        }
+      }
       if (!pending) {
         const storedIntent = readBillingReturnIntent(uid);
         pending = resolveBillingReturnDestination(storedIntent);
@@ -2812,15 +2897,19 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const rememberPendingProtectedNavigation = (pending) => {
     if (!user?.uid) return;
+    const createdAt = Date.now();
     storeBillingReturnIntent({
       uid: user.uid,
       screen: pending.screen,
       itemId: pending.itemId,
+      createdAt,
     });
     pendingProtectedNavigationRef.current = {
       ...pending,
       uid: user.uid,
       generation: authGenerationRef.current,
+      createdAt,
+      expiresAt: createdAt + BILLING_RETURN_INTENT_TTL_MS,
     };
   };
 
@@ -2848,20 +2937,6 @@ function LearnerApp({ initialPartnerFragment }) {
       completed: done,
       fullAccess: false,
     });
-    if (
-      requiresFullAccess &&
-      partnerStatus === "suspended" &&
-      user?.uid &&
-      partnerOwnerUid === user.uid
-    ) {
-      rememberPendingProtectedNavigation({
-        screen: "lesson",
-        itemId: lesson?.id,
-        index,
-      });
-      setScreen("partner-error");
-      return;
-    }
     if ((requiresFullAccess || (!done && sponsoredActive)) && user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
@@ -2901,20 +2976,6 @@ function LearnerApp({ initialPartnerFragment }) {
   const startChallenge = async (challenge) => {
     const done = completedLessons.includes(challenge.id);
     let currentAccess = access;
-    if (
-      !done &&
-      partnerStatus === "suspended" &&
-      user?.uid &&
-      partnerOwnerUid === user.uid
-    ) {
-      rememberPendingProtectedNavigation({
-        screen: "challenge",
-        itemId: challenge.id,
-        item: challenge,
-      });
-      setScreen("partner-error");
-      return;
-    }
     if (!done && user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
@@ -2944,20 +3005,6 @@ function LearnerApp({ initialPartnerFragment }) {
   const startExam = async (exam) => {
     const done = completedLessons.includes(exam.id);
     let currentAccess = access;
-    if (
-      !done &&
-      partnerStatus === "suspended" &&
-      user?.uid &&
-      partnerOwnerUid === user.uid
-    ) {
-      rememberPendingProtectedNavigation({
-        screen: "exam",
-        itemId: exam.id,
-        item: exam,
-      });
-      setScreen("partner-error");
-      return;
-    }
     if (!done && user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
@@ -3075,7 +3122,8 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const finishDeletedAccountLocally = () => {
     authGenerationRef.current += 1;
-    billingBootstrapIdRef.current += 1;
+    authoritativeAccessVersionRef.current += 1;
+    backgroundAccessRefreshRef.current = null;
     billingPollIdRef.current += 1;
     authSettledRef.current = true;
     currentAuthUidRef.current = null;
@@ -3716,7 +3764,7 @@ function LearnerApp({ initialPartnerFragment }) {
   if (
     ["invalid", "full", "unavailable"].includes(partnerStatus) ||
     (partnerStatus === "suspended" &&
-      (!authenticatedSuspension || screen === "partner-error"))
+      (!authenticatedSuspension || (screen === "partner-error" && !access)))
   ) {
     return (
       <AppShell

@@ -140,6 +140,10 @@ const mocks = vi.hoisted(() => ({
   credential: vi.fn(),
   deleteDoc: vi.fn(),
   deleteUser: vi.fn(),
+  createBillingCheckout: vi.fn(),
+  createBillingPortal: vi.fn(),
+  fetchBillingAccess: vi.fn(),
+  fetchBillingPlans: vi.fn(),
   fetchPartnerAccess: vi.fn(),
   fetchPartnerReport: vi.fn(),
   getDoc: vi.fn(),
@@ -180,6 +184,12 @@ vi.mock("firebase/firestore", () => ({
 }));
 
 vi.mock("../src/firebase", () => ({ auth: {}, db: {} }));
+vi.mock("../src/services/billingAccess.js", () => ({
+  createBillingCheckout: mocks.createBillingCheckout,
+  createBillingPortal: mocks.createBillingPortal,
+  fetchBillingAccess: mocks.fetchBillingAccess,
+  fetchBillingPlans: mocks.fetchBillingPlans,
+}));
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
     getPlatform: vi.fn(() => "web"),
@@ -1356,6 +1366,10 @@ describe("sponsored signup orchestration", () => {
     mocks.credential.mockReset();
     mocks.deleteDoc.mockReset();
     mocks.deleteUser.mockReset();
+    mocks.createBillingCheckout.mockReset();
+    mocks.createBillingPortal.mockReset();
+    mocks.fetchBillingAccess.mockReset();
+    mocks.fetchBillingPlans.mockReset();
     mocks.fetchPartnerAccess.mockReset();
     mocks.getDoc.mockReset();
     mocks.previewInvite.mockReset();
@@ -1383,6 +1397,15 @@ describe("sponsored signup orchestration", () => {
     mocks.credential.mockImplementation((email, password) => ({ email, password }));
     mocks.deleteDoc.mockResolvedValue(undefined);
     mocks.deleteUser.mockResolvedValue(undefined);
+    mocks.fetchBillingAccess.mockResolvedValue({
+      access: "none",
+      status: "none",
+      plan: null,
+      canManage: false,
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+    });
+    mocks.fetchBillingPlans.mockResolvedValue({ plans: [] });
     mocks.reauthenticateWithCredential.mockResolvedValue(undefined);
     mocks.reload.mockResolvedValue(undefined);
     mocks.resolveProvisionedLogin.mockResolvedValue({
@@ -1785,10 +1808,13 @@ describe("sponsored signup orchestration", () => {
       if (entryRefresh) {
         mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
       }
-      mocks.fetchPartnerAccess.mockResolvedValueOnce({
+      const suspendedAccess = {
         ...ACTIVE_PARTNER_ACCESS,
         status: "suspended",
-      });
+      };
+      mocks.fetchPartnerAccess
+        .mockResolvedValueOnce(suspendedAccess)
+        .mockResolvedValue(suspendedAccess);
       await openReturningSponsoredAppWithFakeTimers({
         uid: `suspended-replay-${entryRefresh ? "free" : "completed"}`,
         completedLessons,
@@ -1872,14 +1898,12 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText(visibleContent)).not.toBeInTheDocument();
   });
 
-  test("an older timer response cannot overwrite a newer focus response", async () => {
+  test("a focus refresh coalesces with an older in-flight timer refresh", async () => {
     installMatchMedia();
     const olderTimerRefresh = deferred();
-    const newerFocusRefresh = deferred();
     mocks.fetchPartnerAccess
       .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
-      .mockImplementationOnce(() => olderTimerRefresh.promise)
-      .mockImplementationOnce(() => newerFocusRefresh.promise);
+      .mockImplementationOnce(() => olderTimerRefresh.promise);
     await openReturningSponsoredAppWithFakeTimers({
       uid: "timer-focus-race-user",
     });
@@ -1889,17 +1913,13 @@ describe("sponsored signup orchestration", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      newerFocusRefresh.resolve({
+      olderTimerRefresh.resolve({
         ...ACTIVE_PARTNER_ACCESS,
         status: "suspended",
       });
-      await newerFocusRefresh.promise;
-    });
-    await act(async () => {
-      olderTimerRefresh.resolve(ACTIVE_PARTNER_ACCESS);
       await olderTimerRefresh.promise;
     });
 
@@ -1953,7 +1973,7 @@ describe("sponsored signup orchestration", () => {
     expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
   });
 
-  test("an older membership refresh cannot overwrite a newer suspension", async () => {
+  test("an older background refresh cannot overwrite a newer entry suspension", async () => {
     installMatchMedia();
     window.history.replaceState(null, "", "/");
     const returningUser = {
@@ -1984,8 +2004,21 @@ describe("sponsored signup orchestration", () => {
     await act(async () => mocks.authCallback(returningUser));
     expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
 
-    window.dispatchEvent(new Event("focus"));
-    window.dispatchEvent(new Event("focus"));
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Open Course" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Start lesson: Welcome to Everwise",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);
     await act(async () => {
       newerRefresh.resolve({
         status: "suspended",
@@ -2005,8 +2038,8 @@ describe("sponsored signup orchestration", () => {
       await olderRefresh.promise;
     });
 
-    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText("Start free trial")).toBeVisible();
     expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
     expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(3);

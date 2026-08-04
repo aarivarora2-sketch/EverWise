@@ -463,9 +463,9 @@ test("Checkout uses only a verified server plan, server URLs, UID metadata, and 
   );
   assert.equal(
     parameters.get("success_url"),
-    `${APP_ORIGIN}/billing/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+    `${APP_ORIGIN}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
   );
-  assert.equal(parameters.get("cancel_url"), `${APP_ORIGIN}/subscribe`);
+  assert.equal(parameters.get("cancel_url"), `${APP_ORIGIN}/?billing=cancel`);
   assert.equal(requestHeader(call, "idempotency-key"), "checkout:firebase-uid-123:attempt-4");
 });
 

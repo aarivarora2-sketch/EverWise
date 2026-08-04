@@ -499,8 +499,8 @@ export const createStripeGateway = ({ secretKey, fetchImpl } = {}) => {
           line_items: [{ price: plan.priceId, quantity: 1 }],
           metadata: { firebase_uid: normalizedUid },
           subscription_data: subscriptionData,
-          success_url: `${origin}/billing/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${origin}/subscribe`,
+          success_url: `${origin}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${origin}/?billing=cancel`,
         },
         { idempotencyKey: `checkout:${normalizedUid}:${attempt}` },
       );

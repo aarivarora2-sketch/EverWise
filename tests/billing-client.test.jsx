@@ -1,11 +1,5 @@
 import React from "react";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 await vi.hoisted(async () => {
@@ -13,13 +7,10 @@ await vi.hoisted(async () => {
 });
 
 import App from "../src/App.jsx";
+import { createStripeGateway } from "../server/stripeGateway.mjs";
 import BillingConfirmation from "../src/screens/BillingConfirmation.jsx";
 import BillingAccessErrorScreen from "../src/screens/BillingAccessError.jsx";
-import {
-  challengesByOrder,
-  examsByOrder,
-  lessonsByOrder,
-} from "../src/data/lessons.js";
+import { challengesByOrder, examsByOrder, lessonsByOrder } from "../src/data/lessons.js";
 
 const mocks = vi.hoisted(() => ({
   authCallback: null,
@@ -78,9 +69,7 @@ vi.mock("../src/services/purchases", () => ({
   getCurrentEntitlement: mocks.getCurrentEntitlement,
   getSubscriptionProducts: mocks.getSubscriptionProducts,
   nativePurchasesAvailable: vi.fn(() => mocks.native),
-  planForProduct: vi.fn((productId) =>
-    productId?.endsWith("monthly") ? "monthly" : "annual",
-  ),
+  planForProduct: vi.fn((productId) => (productId?.endsWith("monthly") ? "monthly" : "annual")),
   purchaseSubscription: mocks.purchaseSubscription,
   restoreSubscriptions: mocks.restoreSubscriptions,
 }));
@@ -104,7 +93,9 @@ vi.mock("../src/screens/Home.jsx", () => ({
   default: ({ onStart }) => (
     <main>
       <h1>Home</h1>
-      <button type="button" onClick={onStart}>Open course</button>
+      <button type="button" onClick={onStart}>
+        Open course
+      </button>
     </main>
   ),
 }));
@@ -113,10 +104,18 @@ vi.mock("../src/screens/LessonPath.jsx", () => ({
     <main>
       <h1>Course path</h1>
       <p>{completedLessons.join(",")}</p>
-      <button type="button" onClick={() => onSelectLesson(1)}>Open free lesson</button>
-      <button type="button" onClick={() => onSelectLesson(2)}>Open protected lesson</button>
-      <button type="button" onClick={() => onSelectChallenge(challengesByOrder[0])}>Open challenge</button>
-      <button type="button" onClick={() => onSelectExam(examsByOrder[0])}>Open exam</button>
+      <button type="button" onClick={() => onSelectLesson(1)}>
+        Open free lesson
+      </button>
+      <button type="button" onClick={() => onSelectLesson(2)}>
+        Open protected lesson
+      </button>
+      <button type="button" onClick={() => onSelectChallenge(challengesByOrder[0])}>
+        Open challenge
+      </button>
+      <button type="button" onClick={() => onSelectExam(examsByOrder[0])}>
+        Open exam
+      </button>
     </main>
   ),
 }));
@@ -130,18 +129,20 @@ vi.mock("../src/screens/ExamPlayer.jsx", () => ({
   default: ({ exam }) => <h1>Exam: {exam.id}</h1>,
 }));
 vi.mock("../src/screens/Paywall.jsx", () => ({
-  default: ({ billingStatus, onMaybeLater, onStartLearning, onStartTrial }) => (
+  default: ({ billingAccess, billingStatus, onMaybeLater, onStartLearning, onStartTrial }) => (
     <main>
       <h1>Subscription options</h1>
       <span data-testid="paywall-billing-status">{billingStatus}</span>
-      <button
-        type="button"
-        onClick={() => void onStartTrial("annual").catch(() => {})}
-      >
+      <span data-testid="paywall-billing-access">{billingAccess?.access || "missing"}</span>
+      <button type="button" onClick={() => void onStartTrial("annual").catch(() => {})}>
         Start annual trial
       </button>
-      <button type="button" onClick={onMaybeLater}>Back free</button>
-      <button type="button" onClick={onStartLearning}>Start learning</button>
+      <button type="button" onClick={onMaybeLater}>
+        Back free
+      </button>
+      <button type="button" onClick={onStartLearning}>
+        Start learning
+      </button>
     </main>
   ),
 }));
@@ -149,7 +150,9 @@ vi.mock("../src/screens/Settings.jsx", () => ({
   default: ({ onOpenPaywall }) => (
     <main>
       <h1>Settings screen</h1>
-      <button type="button" onClick={onOpenPaywall}>View plans</button>
+      <button type="button" onClick={onOpenPaywall}>
+        View plans
+      </button>
     </main>
   ),
   PartnerDeletionReconciliation: () => null,
@@ -158,8 +161,20 @@ vi.mock("../src/screens/Settings.jsx", () => ({
 
 const PLANS = {
   plans: [
-    { key: "annual", currency: "usd", unitAmount: 6000, interval: "year", trialDays: 7 },
-    { key: "monthly", currency: "usd", unitAmount: 799, interval: "month", trialDays: 3 },
+    {
+      key: "annual",
+      currency: "usd",
+      unitAmount: 6000,
+      interval: "year",
+      trialDays: 7,
+    },
+    {
+      key: "monthly",
+      currency: "usd",
+      unitAmount: 799,
+      interval: "month",
+      trialDays: 3,
+    },
   ],
 };
 const NONE = {
@@ -194,8 +209,95 @@ const ACTIVE_SPONSOR = {
   name: "Community Partner",
   branding: { name: "Community Partner", logoPath: null, accent: "#2F6B61" },
 };
+const SUSPENDED_SPONSOR = {
+  ...ACTIVE_SPONSOR,
+  status: "suspended",
+};
 const BILLING_RETURN_INTENT_KEY = "everwise.billing-return-intent.v1";
 const BILLING_RETURN_INTENT_TTL_MS = 10 * 60 * 1000;
+const GATEWAY_APP_ORIGIN = "https://app.everwise.example";
+const GATEWAY_PLANS = {
+  monthly: {
+    key: "monthly",
+    currency: "usd",
+    unitAmount: 799,
+    interval: "month",
+    trialDays: 3,
+    priceId: "price_test_monthly",
+  },
+  annual: {
+    key: "annual",
+    currency: "usd",
+    unitAmount: 6000,
+    interval: "year",
+    trialDays: 7,
+    priceId: "price_test_annual",
+  },
+};
+
+function gatewayPrice(plan) {
+  return {
+    id: plan.priceId,
+    object: "price",
+    active: true,
+    currency: plan.currency,
+    unit_amount: plan.unitAmount,
+    livemode: false,
+    product: "prod_everwise_paid",
+    type: "recurring",
+    recurring: {
+      interval: plan.interval,
+      interval_count: 1,
+      usage_type: "licensed",
+    },
+    metadata: {},
+  };
+}
+
+async function captureGatewayReturnUrls() {
+  const calls = [];
+  const responses = [
+    gatewayPrice(GATEWAY_PLANS.monthly),
+    gatewayPrice(GATEWAY_PLANS.annual),
+    {
+      id: "cs_test_composed",
+      object: "checkout.session",
+      mode: "subscription",
+      livemode: false,
+      status: "open",
+      url: "https://checkout.stripe.com/c/pay/cs_test_composed",
+      expires_at: 1_800_000_000,
+    },
+  ];
+  const fetchImpl = vi.fn(async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify(responses.shift()), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "request-id": "req_composed_return",
+      },
+    });
+  });
+  const gateway = createStripeGateway({
+    secretKey: "sk_test_composed_return_contract",
+    fetchImpl,
+  });
+  await gateway.verifyPlans(GATEWAY_PLANS);
+  await gateway.createCheckoutSession({
+    uid: "composed-return-user",
+    customerId: "cus_composed",
+    planKey: "annual",
+    appOrigin: GATEWAY_APP_ORIGIN,
+    trialEligible: true,
+    operationAttempt: "composed-return-attempt",
+  });
+  const parameters = new URLSearchParams(String(calls[2].init.body));
+  return {
+    cancelUrl: parameters.get("cancel_url"),
+    successUrl: parameters.get("success_url"),
+  };
+}
 
 function serializedBillingIntent({
   uid = "return-user",
@@ -266,10 +368,11 @@ async function openAuthenticatedApp({
   access = ACTIVE,
   completedLessons,
   partner = { status: "none" },
+  profileOverrides = {},
   uid = "billing-user",
 } = {}) {
   const user = firebaseUser(uid);
-  mocks.getDoc.mockResolvedValue(snapshot(profile({ completedLessons })));
+  mocks.getDoc.mockResolvedValue(snapshot(profile({ completedLessons, ...profileOverrides })));
   mocks.fetchPartnerAccess.mockResolvedValue(partner);
   mocks.fetchBillingPlans.mockResolvedValue(PLANS);
   mocks.fetchBillingAccess.mockResolvedValue(access);
@@ -285,13 +388,8 @@ async function openProtected(kind = "lesson") {
   await act(async () => {
     fireEvent.click(
       screen.getByRole("button", {
-        name:
-          kind === "lesson"
-            ? "Open protected lesson"
-            : kind === "challenge"
-              ? "Open challenge"
-              : "Open exam",
-      }),
+        name: kind === "lesson" ? "Open protected lesson" : kind === "challenge" ? "Open challenge" : "Open exam",
+      })
     );
     await Promise.resolve();
     await Promise.resolve();
@@ -313,7 +411,7 @@ describe("browser billing bootstrap and provider selection", () => {
     window.sessionStorage.clear();
     window.history.replaceState(null, "", "/");
     vi.spyOn(window, "setTimeout").mockImplementation((handler, delay, ...args) =>
-      realSetTimeout(handler, delay === 3000 ? 0 : delay, ...args),
+      realSetTimeout(handler, delay === 3000 ? 0 : delay, ...args)
     );
   });
 
@@ -333,7 +431,7 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(1);
     expect(mocks.updateDoc).not.toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ billingStatus: expect.anything() }),
+      expect.objectContaining({ billingStatus: expect.anything() })
     );
   });
 
@@ -349,6 +447,54 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(mocks.fetchBillingAccess).not.toHaveBeenCalled();
     await openProtected("lesson");
     expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+  });
+
+  test.each(["lesson", "challenge", "exam"])(
+    "suspended sponsorship falls through to active web billing for protected %s access",
+    async (kind) => {
+      await openAuthenticatedApp({
+        access: ACTIVE,
+        partner: SUSPENDED_SPONSOR,
+        uid: `suspended-web-${kind}`,
+      });
+      expect(mocks.fetchBillingAccess).toHaveBeenCalled();
+      await openProtected(kind);
+      expect(
+        screen.getByRole("heading", {
+          name: kind === "lesson" ? /^Lesson:/ : kind === "challenge" ? /^Challenge:/ : /^Exam:/,
+        })
+      ).toBeVisible();
+    }
+  );
+
+  test("suspended sponsorship falls through to an active native Apple entitlement", async () => {
+    mocks.native = true;
+    mocks.getCurrentEntitlement.mockResolvedValue({
+      active: true,
+      productId: "com.everwise.app.annual",
+    });
+    await openAuthenticatedApp({
+      access: NONE,
+      partner: SUSPENDED_SPONSOR,
+      profileOverrides: { subscriptionStatus: "active", plan: "annual" },
+      uid: "suspended-native-user",
+    });
+    expect(mocks.fetchBillingAccess).not.toHaveBeenCalled();
+    await openProtected("lesson");
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+  });
+
+  test("suspended sponsorship with no personal provider stays closed and offers logout", async () => {
+    mocks.getDoc.mockResolvedValue(snapshot(profile()));
+    mocks.fetchPartnerAccess.mockResolvedValue(SUSPENDED_SPONSOR);
+    mocks.fetchBillingPlans.mockResolvedValue(PLANS);
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("suspended-no-provider")));
+
+    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
   test("ignores an active billing response belonging to a previous UID", async () => {
@@ -380,6 +526,100 @@ describe("browser billing bootstrap and provider selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "View plans" }));
     expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+  });
+
+  test("a slow bootstrap cannot overwrite a newer authoritative refresh", async () => {
+    const slowBootstrap = deferred();
+    mocks.getDoc.mockResolvedValue(snapshot(profile()));
+    mocks.fetchPartnerAccess.mockResolvedValue({ status: "none" });
+    mocks.fetchBillingPlans.mockResolvedValue(PLANS);
+    mocks.fetchBillingAccess
+      .mockImplementationOnce(() => slowBootstrap.promise)
+      .mockResolvedValueOnce(NONE)
+      .mockResolvedValue(NONE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("bootstrap-refresh-race")));
+    expect(screen.getByRole("heading", { name: "Home" })).toBeVisible();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      slowBootstrap.resolve(ACTIVE);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "View plans" }));
+    expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+    expect(screen.getByTestId("paywall-billing-access")).toHaveTextContent("none");
+  });
+
+  test("unmount during partner refresh prevents any later billing fetch", async () => {
+    const { rendered } = await openAuthenticatedApp({
+      access: NONE,
+      uid: "unmount-partner-refresh",
+    });
+    const delayedPartner = deferred();
+    mocks.fetchPartnerAccess.mockImplementationOnce(() => delayedPartner.promise);
+    const billingCallsBeforeRefresh = mocks.fetchBillingAccess.mock.calls.length;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    rendered.unmount();
+
+    await act(async () => {
+      delayedPartner.resolve({ status: "none" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(billingCallsBeforeRefresh);
+  });
+
+  test("coalesces same-turn focus and visibility refreshes, then allows the next refresh", async () => {
+    await openAuthenticatedApp({
+      access: NONE,
+      uid: "coalesced-background-refresh",
+    });
+    const firstBackground = deferred();
+    mocks.fetchPartnerAccess
+      .mockImplementationOnce(() => firstBackground.promise)
+      .mockResolvedValue({ status: "none" });
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const partnerCallsBeforeRefresh = mocks.fetchPartnerAccess.mock.calls.length;
+    const billingCallsBeforeRefresh = mocks.fetchBillingAccess.mock.calls.length;
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(partnerCallsBeforeRefresh + 1);
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(billingCallsBeforeRefresh);
+
+    await act(async () => {
+      firstBackground.resolve({ status: "none" });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(billingCallsBeforeRefresh + 1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(partnerCallsBeforeRefresh + 2);
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(billingCallsBeforeRefresh + 2);
   });
 
   test("fails paid access closed when verification is unavailable without erasing a sponsor", async () => {
@@ -426,12 +666,10 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(assign).toHaveBeenCalledWith(
-      "https://checkout.stripe.com/c/pay/cs_test_safe",
-    );
+    expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test_safe");
     expect(mocks.createBillingCheckout).toHaveBeenCalledWith(
       expect.objectContaining({ uid: "billing-user" }),
-      "annual",
+      "annual"
     );
 
     cleanup();
@@ -513,7 +751,7 @@ describe("Checkout return confirmation", () => {
   });
 
   test("removes a success marker, grants nothing from the query, and polls on the bounded schedule", async () => {
-    window.history.replaceState({ safe: true }, "", "/?keep=1&billing=success#course");
+    window.history.replaceState({ safe: true }, "", "/?keep=1&billing=success&session_id=cs_test_public#course");
     const replaceState = vi.spyOn(window.history, "replaceState");
     mocks.fetchBillingAccess.mockResolvedValue(NONE);
     const user = firebaseUser("return-user");
@@ -523,15 +761,19 @@ describe("Checkout return confirmation", () => {
 
     expect(screen.getByRole("region", { name: "Subscription confirmation status" })).toBeVisible();
     expect(screen.getByText(/Checking your access/i)).toBeVisible();
-    expect(replaceState).toHaveBeenCalledWith(
-      { safe: true },
-      "",
-      "/?keep=1#course",
-    );
+    expect(replaceState).toHaveBeenCalledWith({ safe: true }, "", "/?keep=1#course");
     expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(2);
 
-    for (const [elapsed, calls] of [[999, 2], [1, 3], [1999, 3], [1, 4], [3000, 5], [5000, 6], [8000, 7]]) {
+    for (const [elapsed, calls] of [
+      [999, 2],
+      [1, 3],
+      [1999, 3],
+      [1, 4],
+      [3000, 5],
+      [5000, 6],
+      [8000, 7],
+    ]) {
       await act(async () => vi.advanceTimersByTimeAsync(elapsed));
       expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(calls);
     }
@@ -541,12 +783,56 @@ describe("Checkout return confirmation", () => {
     expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
   });
 
+  test("composes the gateway success URL with a real unload/remount and scrubs every return marker", async () => {
+    const { successUrl } = await captureGatewayReturnUrls();
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    const first = await openAuthenticatedApp({
+      access: NONE,
+      uid: "composed-return-user",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open course" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open protected lesson" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
+    first.rendered.unmount();
+
+    const returned = new URL(successUrl.replace("{CHECKOUT_SESSION_ID}", "cs_test_actual"));
+    window.history.replaceState({ composed: true }, "", `${returned.pathname}${returned.search}#return`);
+    mocks.fetchBillingAccess.mockReset();
+    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE).mockResolvedValueOnce(ACTIVE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("composed-return-user")));
+
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#return");
+    expect(window.history.state).toEqual({ composed: true });
+    expect(mocks.fetchBillingAccess.mock.calls.every((args) => args.length === 1)).toBe(true);
+  });
+
+  test("composes the gateway cancel URL with the neutral App cancellation path", async () => {
+    const { cancelUrl } = await captureGatewayReturnUrls();
+    const returned = new URL(cancelUrl);
+    window.history.replaceState({ cancel: true }, "", `${returned.pathname}${returned.search}#cancel-return`);
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("composed-cancel-user")));
+
+    expect(screen.getByRole("heading", { name: "Subscription options" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Checkout was canceled. Your access has not changed.");
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#cancel-return");
+    expect(window.history.state).toEqual({ cancel: true });
+  });
+
   test("enforces a hard 20-second confirmation deadline and ignores a late access response", async () => {
     window.history.replaceState(null, "", "/?billing=success");
-    window.sessionStorage.setItem(
-      BILLING_RETURN_INTENT_KEY,
-      serializedBillingIntent({ uid: "slow-return-user" }),
-    );
+    window.sessionStorage.setItem(BILLING_RETURN_INTENT_KEY, serializedBillingIntent({ uid: "slow-return-user" }));
     const slowAccess = deferred();
     mocks.fetchBillingAccess
       .mockResolvedValueOnce(NONE)
@@ -560,7 +846,7 @@ describe("Checkout return confirmation", () => {
     expect(screen.getByText(/Checking your access/i)).toBeVisible();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
-    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
     const callsAtDeadline = mocks.fetchBillingAccess.mock.calls.length;
 
     await act(async () => {
@@ -573,14 +859,71 @@ describe("Checkout return confirmation", () => {
     expect(screen.queryByRole("heading", { name: /^(Lesson|Challenge|Exam):/ })).not.toBeInTheDocument();
   });
 
+  test("timeout Retry preserves the current intent and reopens it after verified access", async () => {
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    await openAuthenticatedApp({ access: NONE, uid: "timeout-retry-user" });
+    fireEvent.click(screen.getByRole("button", { name: "Open course" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open protected lesson" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
+
+    window.history.replaceState(null, "", "/?billing=success");
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(19_000);
+    });
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
+
+    mocks.fetchBillingAccess.mockResolvedValue(ACTIVE);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+  });
+
+  test("Retry clears an intent that expires between confirmation attempts", async () => {
+    const createdAt = Date.now();
+    window.sessionStorage.setItem(
+      BILLING_RETURN_INTENT_KEY,
+      serializedBillingIntent({ uid: "expired-retry-user", createdAt })
+    );
+    window.history.replaceState(null, "", "/?billing=success");
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser("expired-retry-user")));
+    await act(async () => vi.advanceTimersByTimeAsync(19_000));
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
+
+    vi.setSystemTime(createdAt + BILLING_RETURN_INTENT_TTL_MS + 1);
+    mocks.fetchBillingAccess.mockResolvedValue(ACTIVE);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("heading", { name: "Home" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+  });
+
   test("fails closed when an access microtask wins after a stalled event loop has crossed the deadline", async () => {
     let monotonicNow = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
     window.history.replaceState(null, "", "/?billing=success");
-    window.sessionStorage.setItem(
-      BILLING_RETURN_INTENT_KEY,
-      serializedBillingIntent({ uid: "stalled-return-user" }),
-    );
+    window.sessionStorage.setItem(BILLING_RETURN_INTENT_KEY, serializedBillingIntent({ uid: "stalled-return-user" }));
     const stalledAccess = deferred();
     mocks.fetchBillingAccess
       .mockResolvedValueOnce(NONE)
@@ -602,12 +945,13 @@ describe("Checkout return confirmation", () => {
     expect(screen.getByText(/still could not confirm/i)).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
-    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to free lessons" }));
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "View plans" }));
-    expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+    expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("unavailable");
   });
 
   test("accepts authoritative access strictly before the monotonic deadline", async () => {
@@ -615,9 +959,7 @@ describe("Checkout return confirmation", () => {
     vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
     window.history.replaceState(null, "", "/?billing=success");
     const access = deferred();
-    mocks.fetchBillingAccess
-      .mockResolvedValueOnce(NONE)
-      .mockImplementationOnce(() => access.promise);
+    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE).mockImplementationOnce(() => access.promise);
     render(<App />);
     await settleLaunch();
     await act(async () => mocks.authCallback(firebaseUser("before-deadline-user")));
@@ -638,9 +980,7 @@ describe("Checkout return confirmation", () => {
     vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
     window.history.replaceState(null, "", "/?billing=success");
     const access = deferred();
-    mocks.fetchBillingAccess
-      .mockResolvedValueOnce(NONE)
-      .mockImplementationOnce(() => access.promise);
+    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE).mockImplementationOnce(() => access.promise);
     render(<App />);
     await settleLaunch();
     await act(async () => mocks.authCallback(firebaseUser("deadline-boundary-user")));
@@ -659,57 +999,53 @@ describe("Checkout return confirmation", () => {
   test.each([
     ["non-finite", Number.NaN],
     ["regressing", 999],
-  ])(
-    "permanently invalidates the poll after one %s provider-await clock sample",
-    async (_label, invalidSample) => {
-      let phase = "baseline";
-      vi.spyOn(performance, "now").mockImplementation(() => {
-        if (phase === "invalid-next") {
-          phase = "recovered";
-          return invalidSample;
-        }
-        return phase === "recovered" ? 1_001 : 1_000;
-      });
-      window.history.replaceState(null, "", "/?billing=success");
-      window.sessionStorage.setItem(
-        BILLING_RETURN_INTENT_KEY,
-        serializedBillingIntent({ uid: `invalid-clock-${_label}` }),
-      );
-      const access = deferred();
-      mocks.fetchBillingAccess
-        .mockResolvedValueOnce(NONE)
-        .mockImplementationOnce(() => access.promise)
-        .mockResolvedValue(ACTIVE);
-      render(<App />);
-      await settleLaunch();
-      await act(async () =>
-        mocks.authCallback(firebaseUser(`invalid-clock-${_label}`)),
-      );
-      expect(screen.getByText(/Checking your access/i)).toBeVisible();
+  ])("permanently invalidates the poll after one %s provider-await clock sample", async (_label, invalidSample) => {
+    let phase = "baseline";
+    vi.spyOn(performance, "now").mockImplementation(() => {
+      if (phase === "invalid-next") {
+        phase = "recovered";
+        return invalidSample;
+      }
+      return phase === "recovered" ? 1_001 : 1_000;
+    });
+    window.history.replaceState(null, "", "/?billing=success");
+    window.sessionStorage.setItem(
+      BILLING_RETURN_INTENT_KEY,
+      serializedBillingIntent({ uid: `invalid-clock-${_label}` })
+    );
+    const access = deferred();
+    mocks.fetchBillingAccess
+      .mockResolvedValueOnce(NONE)
+      .mockImplementationOnce(() => access.promise)
+      .mockResolvedValue(ACTIVE);
+    render(<App />);
+    await settleLaunch();
+    await act(async () => mocks.authCallback(firebaseUser(`invalid-clock-${_label}`)));
+    expect(screen.getByText(/Checking your access/i)).toBeVisible();
 
-      phase = "invalid-next";
-      await act(async () => {
-        access.resolve(NONE);
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+    phase = "invalid-next";
+    await act(async () => {
+      access.resolve(NONE);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
-      expect(phase).toBe("recovered");
-      expect(screen.getByText(/still could not confirm/i)).toBeVisible();
-      expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
-      const callsAfterInvalidation = mocks.fetchBillingAccess.mock.calls.length;
-      await act(async () => vi.advanceTimersByTimeAsync(19_000));
-      expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(callsAfterInvalidation);
-      expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
+    expect(phase).toBe("recovered");
+    expect(screen.getByText(/still could not confirm/i)).toBeVisible();
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).not.toBeNull();
+    const callsAfterInvalidation = mocks.fetchBillingAccess.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(19_000));
+    expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(callsAfterInvalidation);
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("button", { name: "Back to free lessons" }));
-      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-      fireEvent.click(screen.getByRole("button", { name: "View plans" }));
-      expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
-    },
-  );
+    fireEvent.click(screen.getByRole("button", { name: "Back to free lessons" }));
+    expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "View plans" }));
+    expect(screen.getByTestId("paywall-billing-status")).toHaveTextContent("none");
+  });
 
   test("a cancel marker returns to the paywall with a neutral message", async () => {
     window.history.replaceState(null, "", "/?billing=cancel");
@@ -719,17 +1055,12 @@ describe("Checkout return confirmation", () => {
     await act(async () => mocks.authCallback(firebaseUser("cancel-user")));
 
     expect(screen.getByRole("heading", { name: "Subscription options" })).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Checkout was canceled. Your access has not changed.",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("Checkout was canceled. Your access has not changed.");
     expect(window.location.search).toBe("");
   });
 
   test("verified access resumes only the pending protected item bound to the current account", async () => {
-    mocks.fetchBillingAccess
-      .mockResolvedValueOnce(NONE)
-      .mockResolvedValueOnce(NONE)
-      .mockResolvedValueOnce(ACTIVE);
+    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE).mockResolvedValueOnce(NONE).mockResolvedValueOnce(ACTIVE);
     mocks.createBillingCheckout.mockResolvedValue({
       url: "https://checkout.stripe.com/c/pay/cs_test_safe",
     });
@@ -781,7 +1112,10 @@ describe("Checkout return confirmation", () => {
       url: "https://checkout.stripe.com/c/pay/cs_test_safe",
     });
     mocks.fetchBillingAccess.mockResolvedValue(NONE);
-    const first = await openAuthenticatedApp({ access: NONE, uid: "reload-user" });
+    const first = await openAuthenticatedApp({
+      access: NONE,
+      uid: "reload-user",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Open course" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Open protected lesson" }));
@@ -810,13 +1144,15 @@ describe("Checkout return confirmation", () => {
 
   test.each([
     ["different UID", serializedBillingIntent({ uid: "somebody-else" })],
-    ["expired", serializedBillingIntent({ createdAt: Date.now() - BILLING_RETURN_INTENT_TTL_MS })],
+    [
+      "expired",
+      serializedBillingIntent({
+        createdAt: Date.now() - BILLING_RETURN_INTENT_TTL_MS,
+      }),
+    ],
     ["malformed", "{not-json"],
     ["unsupported destination", serializedBillingIntent({ screen: "settings" })],
-    [
-      "extra prototype key",
-      serializedBillingIntent().replace(/}$/, ',"__proto__":{"polluted":true}}'),
-    ],
+    ["extra prototype key", serializedBillingIntent().replace(/}$/, ',"__proto__":{"polluted":true}}')],
     ["oversized", "x".repeat(2_000)],
   ])("ignores and clears a %s stored return intent", async (_label, storedIntent) => {
     window.sessionStorage.setItem(BILLING_RETURN_INTENT_KEY, storedIntent);
@@ -838,13 +1174,11 @@ describe("Checkout return confirmation", () => {
       await openAuthenticatedApp({ access: NONE, uid: `abandon-${kind}` });
       fireEvent.click(screen.getByRole("button", { name: "Open course" }));
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", {
-          name: kind === "lesson"
-            ? "Open protected lesson"
-            : kind === "challenge"
-              ? "Open challenge"
-              : "Open exam",
-        }));
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: kind === "lesson" ? "Open protected lesson" : kind === "challenge" ? "Open challenge" : "Open exam",
+          })
+        );
         await Promise.resolve();
         await Promise.resolve();
       });
@@ -861,14 +1195,11 @@ describe("Checkout return confirmation", () => {
       });
       expect(screen.getByRole("heading", { name: "Home" })).toBeVisible();
       expect(screen.queryByRole("heading", { name: /^(Lesson|Challenge|Exam):/ })).not.toBeInTheDocument();
-    },
+    }
   );
 
   test("cancel clears a stored lesson intent before any later success", async () => {
-    window.sessionStorage.setItem(
-      BILLING_RETURN_INTENT_KEY,
-      serializedBillingIntent({ uid: "cancel-user" }),
-    );
+    window.sessionStorage.setItem(BILLING_RETURN_INTENT_KEY, serializedBillingIntent({ uid: "cancel-user" }));
     window.history.replaceState(null, "", "/?billing=cancel");
     mocks.fetchBillingAccess.mockResolvedValue(NONE);
     render(<App />);
@@ -921,9 +1252,7 @@ describe("Checkout return confirmation", () => {
   });
 
   test("leaving temporary billing recovery clears its protected intent", async () => {
-    mocks.fetchBillingAccess
-      .mockResolvedValueOnce(ACTIVE)
-      .mockRejectedValueOnce(new Error("temporarily unavailable"));
+    mocks.fetchBillingAccess.mockResolvedValueOnce(ACTIVE).mockRejectedValueOnce(new Error("temporarily unavailable"));
     await openAuthenticatedApp({ access: ACTIVE, uid: "recovery-back-user" });
     fireEvent.click(screen.getByRole("button", { name: "Open course" }));
     await act(async () => {
@@ -955,10 +1284,7 @@ describe("Checkout return confirmation", () => {
     await act(async () => mocks.authCallback(firebaseUser("poll-user")));
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(2);
 
-    window.sessionStorage.setItem(
-      BILLING_RETURN_INTENT_KEY,
-      serializedBillingIntent({ uid: "poll-user" }),
-    );
+    window.sessionStorage.setItem(BILLING_RETURN_INTENT_KEY, serializedBillingIntent({ uid: "poll-user" }));
     await act(async () => mocks.authCallback(null));
     expect(window.sessionStorage.getItem(BILLING_RETURN_INTENT_KEY)).toBeNull();
     await act(async () => vi.advanceTimersByTimeAsync(20_000));
@@ -977,12 +1303,7 @@ describe("Checkout return confirmation", () => {
     const manage = vi.fn();
     const back = vi.fn();
     const { rerender } = render(
-      <BillingConfirmation
-        phase="timeout"
-        onRetry={retry}
-        onManageBilling={manage}
-        onBack={back}
-      />,
+      <BillingConfirmation phase="timeout" onRetry={retry} onManageBilling={manage} onBack={back} />
     );
     expect(screen.getByRole("region", { name: "Subscription confirmation status" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -1025,12 +1346,8 @@ describe("Checkout return confirmation", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(mocks.createBillingPortal).toHaveBeenCalledWith(
-      expect.objectContaining({ uid: "portal-user" }),
-    );
-    expect(assign).toHaveBeenCalledWith(
-      "https://billing.stripe.com/p/session/test_safe",
-    );
+    expect(mocks.createBillingPortal).toHaveBeenCalledWith(expect.objectContaining({ uid: "portal-user" }));
+    expect(assign).toHaveBeenCalledWith("https://billing.stripe.com/p/session/test_safe");
 
     assign.mockClear();
     mocks.createBillingPortal.mockResolvedValue({
@@ -1069,15 +1386,16 @@ describe("authoritative billing revalidation and revocation", () => {
   test.each(["past_due", "canceled", "none", "unavailable"])(
     "ejects an unfinished protected lesson when billing becomes %s",
     async (status) => {
-      const revoked = status === "unavailable" ? new Error("down") : {
-        ...NONE,
-        status,
-        plan: status === "none" ? null : "annual",
-        canManage: status !== "none",
-      };
-      mocks.fetchBillingAccess
-        .mockResolvedValueOnce(ACTIVE)
-        .mockResolvedValueOnce(ACTIVE);
+      const revoked =
+        status === "unavailable"
+          ? new Error("down")
+          : {
+              ...NONE,
+              status,
+              plan: status === "none" ? null : "annual",
+              canManage: status !== "none",
+            };
+      mocks.fetchBillingAccess.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(ACTIVE);
       if (revoked instanceof Error) mocks.fetchBillingAccess.mockRejectedValueOnce(revoked);
       else mocks.fetchBillingAccess.mockResolvedValueOnce(revoked);
       await openAuthenticatedApp({ access: ACTIVE, uid: `revoked-${status}` });
@@ -1091,7 +1409,7 @@ describe("authoritative billing revalidation and revocation", () => {
         expect(screen.getByRole("heading", { name: "Subscription options" })).toBeVisible();
       }
       expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
-    },
+    }
   );
 
   test.each(["lesson", "challenge", "exam"])(
@@ -1100,13 +1418,15 @@ describe("authoritative billing revalidation and revocation", () => {
       mocks.fetchBillingAccess.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(NONE);
       await openAuthenticatedApp({ access: ACTIVE, uid: `entry-${kind}` });
       fireEvent.click(screen.getByRole("button", { name: "Open course" }));
-      fireEvent.click(screen.getByRole("button", {
-        name: kind === "lesson" ? "Open protected lesson" : kind === "challenge" ? "Open challenge" : "Open exam",
-      }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: kind === "lesson" ? "Open protected lesson" : kind === "challenge" ? "Open challenge" : "Open exam",
+        })
+      );
       await act(async () => Promise.resolve());
       expect(screen.getByRole("heading", { name: "Subscription options" })).toBeVisible();
       expect(screen.queryByRole("heading", { name: new RegExp(`^${kind}:`, "i") })).not.toBeInTheDocument();
-    },
+    }
   );
 
   test("refreshes paid access on focus, visible resume, and exactly 60 seconds", async () => {
@@ -1116,7 +1436,10 @@ describe("authoritative billing revalidation and revocation", () => {
 
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(2);
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(3);
     await act(async () => vi.advanceTimersByTimeAsync(59_999));
@@ -1130,7 +1453,11 @@ describe("authoritative billing revalidation and revocation", () => {
     ["free lesson", ["welcome"], "Open free lesson", /^Lesson:/],
   ])("keeps a %s open after paid access ends", async (_name, completedLessons, button, heading) => {
     mocks.fetchBillingAccess.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(NONE);
-    await openAuthenticatedApp({ access: ACTIVE, completedLessons, uid: `safe-${_name}` });
+    await openAuthenticatedApp({
+      access: ACTIVE,
+      completedLessons,
+      uid: `safe-${_name}`,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Open course" }));
     fireEvent.click(screen.getByRole("button", { name: button }));
     expect(screen.getByRole("heading", { name: heading })).toBeVisible();
@@ -1141,7 +1468,11 @@ describe("authoritative billing revalidation and revocation", () => {
   test("keeps unfinished protected content open when active sponsorship overrides expired billing", async () => {
     mocks.fetchPartnerAccess.mockResolvedValue(ACTIVE_SPONSOR);
     mocks.fetchBillingAccess.mockResolvedValue(NONE);
-    await openAuthenticatedApp({ partner: ACTIVE_SPONSOR, access: NONE, uid: "sponsor-wins" });
+    await openAuthenticatedApp({
+      partner: ACTIVE_SPONSOR,
+      access: NONE,
+      uid: "sponsor-wins",
+    });
     await openProtected("lesson");
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
