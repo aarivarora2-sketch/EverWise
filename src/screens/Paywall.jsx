@@ -445,6 +445,17 @@ export default function Paywall({
   }
 
   const offerList = offers ? Object.values(offers) : [];
+  if (!native && offers === null) {
+    return (
+      <Unavailable
+        busy={busy}
+        message="Subscription options are temporarily unavailable."
+        onBack={onMaybeLater}
+        onRetry={onRetry}
+      />
+    );
+  }
+
   const selectedOffer = offers[selectedPlan];
   const hasOnlyDirectOffer = offers.annual && !offers.monthly;
   const ctaLabel = native
