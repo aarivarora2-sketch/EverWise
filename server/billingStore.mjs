@@ -1,14 +1,12 @@
 import { spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
 import * as fsPromises from "node:fs/promises";
-import { dirname, join, parse, resolve, sep } from "node:path";
+import { createInterface } from "node:readline";
+import { basename, dirname, join, parse, resolve, sep } from "node:path";
 
 const SCHEMA_VERSION = 1;
 const MAX_PROCESSED_EVENTS = 2000;
 const DIRECTORY_MODE = 0o750;
 const FILE_MODE = 0o600;
-const NO_FOLLOW = fsConstants.O_NOFOLLOW || 0;
-const DIRECTORY_FLAG = fsConstants.O_DIRECTORY || 0;
 const ROOT_KEYS = ["learners", "processedEvents", "version"];
 const RECORD_KEYS = [
   "cancelAtPeriodEnd",
@@ -43,15 +41,274 @@ const EVENT_ID_PATTERN = /^evt_[A-Za-z0-9_]+$/u;
 
 let temporaryFileCounter = 0;
 
-const LOCK_HELPER_SOURCE = String.raw`
-use strict;
-use warnings;
-use Fcntl qw(:flock);
+const DIRECTORY_ANCHOR_HELPER_SOURCE = String.raw`
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import * as fs from "node:fs/promises";
+import { createInterface } from "node:readline";
 
-flock(STDIN, LOCK_EX)
-  or die "lock acquisition failed\n";
-$| = 1;
-print "LOCKED\n";
+const FILE_MODE = 0o600;
+const NO_FOLLOW = constants.O_NOFOLLOW || 0;
+const DIRECTORY_FLAG = constants.O_DIRECTORY || 0;
+let directoryHandle;
+let lockHandle;
+
+function unsafe() {
+  const error = new Error("unsafe path");
+  error.code = "UNSAFE";
+  return error;
+}
+
+function leafName(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value === "." ||
+    value === ".." ||
+    value.includes("/") ||
+    value.includes("\\\\")
+  ) throw unsafe();
+  return value;
+}
+
+function metadata(details) {
+  return {
+    dev: String(details.dev),
+    ino: String(details.ino),
+    mode: details.mode,
+    file: details.isFile(),
+    directory: details.isDirectory(),
+    symlink: details.isSymbolicLink(),
+  };
+}
+
+async function lstatOrNull(name) {
+  try {
+    return await fs.lstat(leafName(name));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function requireRegular(details) {
+  if (!details || details.isSymbolicLink() || !details.isFile()) throw unsafe();
+}
+
+async function openExisting(name, flags) {
+  const safeName = leafName(name);
+  const before = await lstatOrNull(safeName);
+  requireRegular(before);
+  let handle;
+  try {
+    handle = await fs.open(safeName, flags | NO_FOLLOW);
+    const opened = await handle.stat();
+    const after = await fs.lstat(safeName);
+    requireRegular(after);
+    if (
+      !opened.isFile() ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      after.dev !== before.dev ||
+      after.ino !== before.ino
+    ) throw unsafe();
+    return handle;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function openNew(name) {
+  const safeName = leafName(name);
+  if (await lstatOrNull(safeName)) throw unsafe();
+  let handle;
+  try {
+    handle = await fs.open(
+      safeName,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW,
+      FILE_MODE,
+    );
+    const opened = await handle.stat();
+    const created = await fs.lstat(safeName);
+    requireRegular(created);
+    if (!opened.isFile() || opened.dev !== created.dev || opened.ino !== created.ino) {
+      throw unsafe();
+    }
+    return handle;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    if (error?.code === "EEXIST" || error?.code === "ELOOP") throw unsafe();
+    throw error;
+  }
+}
+
+async function copyRegular(source, destination) {
+  const sourceHandle = await openExisting(source, constants.O_RDONLY);
+  let destinationHandle;
+  try {
+    const contents = await sourceHandle.readFile();
+    destinationHandle = await openNew(destination);
+    await destinationHandle.writeFile(contents);
+    await destinationHandle.sync();
+    await destinationHandle.chmod(FILE_MODE);
+  } finally {
+    await sourceHandle.close().catch(() => {});
+    await destinationHandle?.close().catch(() => {});
+  }
+}
+
+async function acquireLock(name) {
+  if (lockHandle) throw unsafe();
+  const safeName = leafName(name);
+  const before = await lstatOrNull(safeName);
+  if (before) requireRegular(before);
+  let handle;
+  try {
+    handle = await fs.open(
+      safeName,
+      constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | NO_FOLLOW,
+      FILE_MODE,
+    );
+    const opened = await handle.stat();
+    const after = await fs.lstat(safeName);
+    requireRegular(after);
+    if (
+      !opened.isFile() ||
+      (before && (opened.dev !== before.dev || opened.ino !== before.ino)) ||
+      opened.dev !== after.dev ||
+      opened.ino !== after.ino
+    ) throw unsafe();
+    await handle.chmod(FILE_MODE);
+    await new Promise((resolve, reject) => {
+      const perl = spawn("/usr/bin/perl", [
+        "-e",
+        "use strict; use warnings; use Fcntl qw(:flock); flock(STDIN, LOCK_EX) or die qq(lock failed\\n); print qq(LOCKED\\n);",
+      ], { stdio: [handle.fd, "pipe", "pipe"] });
+      let output = "";
+      perl.stdout.setEncoding("utf8");
+      perl.stdout.on("data", (chunk) => { output += chunk; });
+      perl.once("error", reject);
+      perl.once("close", (code, signal) => {
+        if (code === 0 && signal === null && output === "LOCKED\n") resolve();
+        else reject(new Error("lock acquisition failed"));
+      });
+    });
+    lockHandle = handle;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function execute(command) {
+  switch (command.op) {
+    case "metadata": {
+      const details = await lstatOrNull(command.name);
+      return details ? metadata(details) : null;
+    }
+    case "readText": {
+      const handle = await openExisting(command.name, constants.O_RDONLY);
+      try { return await handle.readFile("utf8"); }
+      finally { await handle.close(); }
+    }
+    case "writeNew": {
+      const handle = await openNew(command.name);
+      try {
+        await handle.writeFile(command.contents, "utf8");
+        await handle.sync();
+        await handle.chmod(FILE_MODE);
+      } finally { await handle.close(); }
+      return null;
+    }
+    case "copy":
+      await copyRegular(command.source, command.destination);
+      return null;
+    case "chmodFile": {
+      const handle = await openExisting(command.name, constants.O_RDWR);
+      try { await handle.chmod(FILE_MODE); }
+      finally { await handle.close(); }
+      return null;
+    }
+    case "rename": {
+      const sourceName = leafName(command.source);
+      const destinationName = leafName(command.destination);
+      const source = await lstatOrNull(sourceName);
+      requireRegular(source);
+      const destination = await lstatOrNull(destinationName);
+      if (destination) requireRegular(destination);
+      await fs.rename(sourceName, destinationName);
+      const renamed = await fs.lstat(destinationName);
+      requireRegular(renamed);
+      if (renamed.dev !== source.dev || renamed.ino !== source.ino) throw unsafe();
+      return null;
+    }
+    case "unlink": {
+      try { await fs.unlink(leafName(command.name)); }
+      catch (error) { if (error?.code !== "ENOENT") throw error; }
+      return null;
+    }
+    case "syncDirectory":
+      await directoryHandle.sync();
+      return null;
+    case "chmodDirectory":
+      await directoryHandle.chmod(command.mode);
+      return null;
+    case "acquireLock":
+      await acquireLock(command.name);
+      return null;
+    case "releaseLock":
+      await lockHandle?.close();
+      lockHandle = undefined;
+      return null;
+    default:
+      throw unsafe();
+  }
+}
+
+async function start() {
+  directoryHandle = await fs.open(".", constants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW);
+  const descriptor = await directoryHandle.stat();
+  const pathname = await fs.lstat(".");
+  if (
+    !descriptor.isDirectory() ||
+    !pathname.isDirectory() ||
+    descriptor.dev !== pathname.dev ||
+    descriptor.ino !== pathname.ino
+  ) throw unsafe();
+  process.stdout.write(JSON.stringify({
+    id: 0,
+    ok: true,
+    result: { ...metadata(descriptor), canonical: await fs.realpath(".") },
+  }) + "\n");
+  const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  let chain = Promise.resolve();
+  input.on("line", (line) => {
+    chain = chain.then(async () => {
+      let request;
+      try {
+        request = JSON.parse(line);
+        const result = await execute(request.command);
+        process.stdout.write(JSON.stringify({ id: request.id, ok: true, result }) + "\n");
+      } catch (error) {
+        process.stdout.write(JSON.stringify({
+          id: request?.id ?? -1,
+          ok: false,
+          error: { code: error?.code || "FAILED", message: String(error?.message || error) },
+        }) + "\n");
+      }
+    });
+  });
+  await new Promise((resolve) => input.once("close", resolve));
+  await chain;
+  await lockHandle?.close().catch(() => {});
+  await directoryHandle.close();
+}
+
+start().catch((error) => {
+  process.stderr.write(String(error?.stack || error));
+  process.exitCode = 1;
+});
 `;
 
 export class BillingStoreError extends Error {
@@ -346,275 +603,208 @@ async function assertSafeDirectoryComponents(path, operations) {
   }
 }
 
-async function lstatOrNull(path, operations) {
+function sameIdentity(left, right) {
+  return String(left.dev) === String(right.dev) && String(left.ino) === String(right.ino);
+}
+
+async function inspectParentDirectory(parentPath, operations) {
+  await assertSafeDirectoryComponents(parentPath, operations);
   try {
-    return await operations.lstat(path);
+    const details = await operations.lstat(parentPath);
+    if (!details.isDirectory() || details.isSymbolicLink()) throw unsafePathError();
+    return {
+      dev: String(details.dev),
+      ino: String(details.ino),
+      mode: details.mode,
+      canonical: await operations.realpath(parentPath),
+    };
   } catch (error) {
-    if (error?.code === "ENOENT") return null;
+    if (error instanceof BillingStoreError) throw error;
+    if (error?.code === "ENOENT") {
+      throw storeError(
+        "BILLING_STORE_NOT_CONFIGURED",
+        "The billing store is not configured.",
+      );
+    }
     throw unsafePathError();
+  }
+}
+
+async function openDirectoryAnchor(parentPath, operations) {
+  const expected = await inspectParentDirectory(parentPath, operations);
+  await operations.beforeParentAnchor?.({ parentPath, ...expected });
+  const helper = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", DIRECTORY_ANCHOR_HELPER_SOURCE],
+    { cwd: parentPath, stdio: ["pipe", "pipe", "pipe"] },
+  );
+  helper.stdout.setEncoding("utf8");
+  helper.stderr.setEncoding("utf8");
+  let stderr = "";
+  helper.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-2000); });
+  const output = createInterface({ input: helper.stdout, crlfDelay: Infinity });
+  let nextId = 1;
+  const pending = new Map();
+  let closed = false;
+
+  function rejectPending(error) {
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  }
+
+  helper.once("error", () => rejectPending(unsafePathError()));
+  helper.once("close", () => {
+    closed = true;
+    rejectPending(unsafePathError());
+  });
+
+  const ready = await new Promise((resolveReady, rejectReady) => {
+    const fail = () => rejectReady(unsafePathError());
+    helper.once("error", fail);
+    helper.once("close", fail);
+    output.once("line", (line) => {
+      helper.off("error", fail);
+      helper.off("close", fail);
+      try {
+        const response = JSON.parse(line);
+        if (!response.ok || response.id !== 0) throw new Error("invalid anchor response");
+        resolveReady(response.result);
+      } catch {
+        rejectReady(unsafePathError());
+      }
+    });
+  }).catch(async (error) => {
+    helper.stdin.destroy();
+    helper.kill();
+    await new Promise((resolveClose) => helper.once("close", resolveClose)).catch(() => {});
+    throw error;
+  });
+
+  if (
+    !ready.directory ||
+    !sameIdentity(ready, expected) ||
+    ready.canonical !== expected.canonical
+  ) {
+    helper.stdin.end();
+    throw unsafePathError();
+  }
+
+  output.on("line", (line) => {
+    let response;
+    try { response = JSON.parse(line); }
+    catch { rejectPending(unsafePathError()); return; }
+    const waiter = pending.get(response.id);
+    if (!waiter) return;
+    pending.delete(response.id);
+    if (response.ok) waiter.resolve(response.result);
+    else if (response.error?.code === "UNSAFE" || response.error?.code === "ELOOP") {
+      waiter.reject(unsafePathError());
+    } else {
+      const error = new Error(response.error?.message || "Directory anchor operation failed");
+      error.code = response.error?.code;
+      waiter.reject(error);
+    }
+  });
+
+  async function verifyPathIdentity() {
+    const current = await inspectParentDirectory(parentPath, operations);
+    if (!sameIdentity(current, expected) || current.canonical !== expected.canonical) {
+      throw unsafePathError();
+    }
+  }
+
+  async function requestRaw(command) {
+    if (closed || !helper.stdin.writable) throw unsafePathError();
+    const id = nextId;
+    nextId += 1;
+    return new Promise((resolveRequest, rejectRequest) => {
+      pending.set(id, { resolve: resolveRequest, reject: rejectRequest });
+      helper.stdin.write(`${JSON.stringify({ id, command })}\n`, (error) => {
+        if (!error) return;
+        pending.delete(id);
+        rejectRequest(unsafePathError());
+      });
+    });
+  }
+
+  const anchor = {
+    parent: expected,
+    async run(command) {
+      await verifyPathIdentity();
+      await operations.beforeAnchorCommand?.(command);
+      await verifyPathIdentity();
+      const result = await requestRaw(command);
+      await operations.afterAnchorCommand?.(command);
+      await verifyPathIdentity();
+      return result;
+    },
+    async close() {
+      if (closed) return;
+      helper.stdin.end();
+      await new Promise((resolveClose) => helper.once("close", resolveClose));
+      if (helper.exitCode !== 0 && stderr) throw unsafePathError();
+    },
+  };
+
+  try {
+    await operations.afterParentAnchor?.({ parentPath, ...expected });
+    await verifyPathIdentity();
+    return anchor;
+  } catch (error) {
+    await anchor.close().catch(() => {});
+    throw error;
   }
 }
 
 function requireSafeRegular(details) {
-  if (details?.isSymbolicLink()) throw unsafePathError();
-  if (!details?.isFile()) {
+  if (details?.symlink) throw unsafePathError();
+  if (!details?.file) {
     throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
   }
 }
 
-async function openExistingRegular(path, flags, operations) {
-  const before = await lstatOrNull(path, operations);
-  if (!before) {
-    const error = new Error("File does not exist");
-    error.code = "ENOENT";
-    throw error;
-  }
-  requireSafeRegular(before);
-  let handle;
-  try {
-    handle = await operations.open(path, flags | NO_FOLLOW);
-    const opened = await handle.stat();
-    const after = await operations.lstat(path);
-    requireSafeRegular(after);
-    if (
-      !opened.isFile() ||
-      opened.dev !== before.dev ||
-      opened.ino !== before.ino ||
-      after.dev !== before.dev ||
-      after.ino !== before.ino
-    ) {
-      throw unsafePathError();
-    }
-    return handle;
-  } catch (error) {
-    if (handle) await handle.close().catch(() => {});
-    if (error instanceof BillingStoreError) throw error;
-    throw unsafePathError();
-  }
-}
-
-async function openNewRegular(path, operations) {
-  if (await lstatOrNull(path, operations)) throw unsafePathError();
-  let handle;
-  try {
-    handle = await operations.open(
-      path,
-      fsConstants.O_WRONLY |
-        fsConstants.O_CREAT |
-        fsConstants.O_EXCL |
-        NO_FOLLOW,
-      FILE_MODE,
-    );
-    const opened = await handle.stat();
-    const created = await operations.lstat(path);
-    requireSafeRegular(created);
-    if (!opened.isFile() || opened.dev !== created.dev || opened.ino !== created.ino) {
-      throw unsafePathError();
-    }
-    return handle;
-  } catch (error) {
-    if (handle) await handle.close().catch(() => {});
-    if (error instanceof BillingStoreError) throw error;
-    throw unsafePathError();
-  }
-}
-
-async function readTextSafely(path, operations) {
-  const handle = await openExistingRegular(path, fsConstants.O_RDONLY, operations);
-  try {
-    return await handle.readFile("utf8");
-  } finally {
-    await handle.close();
-  }
-}
-
-async function copyRegularFileSafely(source, destination, operations) {
-  const sourceHandle = await openExistingRegular(source, fsConstants.O_RDONLY, operations);
-  let destinationHandle;
-  try {
-    const contents = await sourceHandle.readFile();
-    destinationHandle = await openNewRegular(destination, operations);
-    await destinationHandle.writeFile(contents);
-    await destinationHandle.sync();
-    await destinationHandle.chmod(FILE_MODE);
-  } finally {
-    await sourceHandle.close().catch(() => {});
-    if (destinationHandle) await destinationHandle.close().catch(() => {});
-  }
-}
-
-async function chmodRegularSafely(path, operations) {
-  const handle = await openExistingRegular(path, fsConstants.O_RDWR, operations);
-  try {
-    await handle.chmod(FILE_MODE);
-  } finally {
-    await handle.close();
-  }
-}
-
-async function chmodDirectorySafely(path, mode, operations) {
-  await assertSafeDirectoryComponents(path, operations);
-  let handle;
-  try {
-    handle = await operations.open(
-      path,
-      fsConstants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW,
-    );
-    const details = await handle.stat();
-    if (!details.isDirectory()) throw unsafePathError();
-    await handle.chmod(mode);
-  } finally {
-    if (handle) await handle.close().catch(() => {});
-  }
-}
-
-async function syncDirectorySafely(path, operations) {
-  await assertSafeDirectoryComponents(path, operations);
-  let handle;
-  try {
-    handle = await operations.open(
-      path,
-      fsConstants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW,
-    );
-    const details = await handle.stat();
-    if (!details.isDirectory()) throw unsafePathError();
-    await handle.sync();
-  } catch (error) {
-    if (error instanceof BillingStoreError) throw error;
-    throw error;
-  } finally {
-    if (handle) await handle.close().catch(() => {});
-  }
-}
-
-async function acquireInterprocessMutationLock(filePath, operations) {
-  const lockPath = `${filePath}.lock`;
-  let lockHandle;
-  try {
-    const before = await lstatOrNull(lockPath, operations);
-    if (before) requireSafeRegular(before);
-    lockHandle = await operations.open(
-      lockPath,
-      fsConstants.O_RDWR |
-        fsConstants.O_APPEND |
-        fsConstants.O_CREAT |
-        NO_FOLLOW,
-      FILE_MODE,
-    );
-    const opened = await lockHandle.stat();
-    const after = await operations.lstat(lockPath);
-    requireSafeRegular(after);
-    if (
-      !opened.isFile() ||
-      (before && (opened.dev !== before.dev || opened.ino !== before.ino)) ||
-      opened.dev !== after.dev ||
-      opened.ino !== after.ino
-    ) {
-      throw unsafePathError();
-    }
-    await lockHandle.chmod(FILE_MODE);
-  } catch (error) {
-    if (lockHandle) await lockHandle.close().catch(() => {});
-    if (error instanceof BillingStoreError) throw error;
-    throw storeError(
-      "BILLING_STORE_LOCK_FAILED",
-      "The billing store lock could not open.",
-    );
-  }
-
-  let lockHandleOpen = true;
-  const closeLockHandle = async () => {
-    if (!lockHandleOpen) return;
-    lockHandleOpen = false;
-    await lockHandle.close();
-  };
-
-  return new Promise((resolve, reject) => {
-    const helper = spawn("/usr/bin/perl", ["-e", LOCK_HELPER_SOURCE], {
-      stdio: [lockHandle.fd, "pipe", "pipe"],
-    });
-    let stdout = "";
-    let settled = false;
-    let stderr = "";
-    helper.stdout.setEncoding("utf8");
-    helper.stderr.setEncoding("utf8");
-    helper.stdout.on("data", (chunk) => { stdout += chunk; });
-    helper.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-1000); });
-    helper.once("error", () => {
-      if (settled) return;
-      settled = true;
-      closeLockHandle().then(
-        () => reject(storeError(
-          "BILLING_STORE_LOCK_FAILED",
-          "The billing store lock could not start.",
-        )),
-        reject,
-      );
-    });
-    helper.once("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      if (code === 0 && signal === null && stdout === "LOCKED\n") {
-        resolve(closeLockHandle);
-        return;
-      }
-      closeLockHandle().then(
-        () => reject(storeError(
-          "BILLING_STORE_LOCK_FAILED",
-          stderr
-            ? "The billing store lock ended unexpectedly."
-            : "The billing store lock failed.",
-        )),
-        reject,
-      );
-    });
-  });
-}
-
-async function persistAtomically(filePath, data, hadPriorFile, operations) {
+async function persistAtomically(fileName, data, hadPriorFile, anchor) {
   temporaryFileCounter += 1;
   const suffix = `${process.pid}-${temporaryFileCounter}`;
-  const temporaryPath = `${filePath}.tmp-${suffix}`;
-  const backupPath = `${filePath}.backup`;
-  const backupTemporaryPath = `${backupPath}.tmp-${suffix}`;
-  const recoveryTemporaryPath = `${filePath}.recovery-${suffix}`;
-  let handle;
+  const temporaryName = `${fileName}.tmp-${suffix}`;
+  const backupName = `${fileName}.backup`;
+  const backupTemporaryName = `${backupName}.tmp-${suffix}`;
+  const recoveryTemporaryName = `${fileName}.recovery-${suffix}`;
   try {
-    handle = await openNewRegular(temporaryPath, operations);
-    await handle.writeFile(`${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await handle.sync();
-    await handle.chmod(FILE_MODE);
-    await handle.close();
-    handle = null;
+    await anchor.run({
+      op: "writeNew",
+      name: temporaryName,
+      contents: `${JSON.stringify(data, null, 2)}\n`,
+    });
 
     if (hadPriorFile) {
-      await copyRegularFileSafely(filePath, backupTemporaryPath, operations);
-      const existingBackup = await lstatOrNull(backupPath, operations);
+      await anchor.run({ op: "copy", source: fileName, destination: backupTemporaryName });
+      const existingBackup = await anchor.run({ op: "metadata", name: backupName });
       if (existingBackup) requireSafeRegular(existingBackup);
-      await operations.rename(backupTemporaryPath, backupPath);
-      await syncDirectorySafely(dirname(filePath), operations);
+      await anchor.run({ op: "rename", source: backupTemporaryName, destination: backupName });
+      await anchor.run({ op: "syncDirectory" });
     }
 
-    const existingPrimary = await lstatOrNull(filePath, operations);
+    const existingPrimary = await anchor.run({ op: "metadata", name: fileName });
     if (existingPrimary) requireSafeRegular(existingPrimary);
-    await operations.rename(temporaryPath, filePath);
+    await anchor.run({ op: "rename", source: temporaryName, destination: fileName });
     try {
-      await chmodRegularSafely(filePath, operations);
-      await syncDirectorySafely(dirname(filePath), operations);
+      await anchor.run({ op: "chmodFile", name: fileName });
+      await anchor.run({ op: "syncDirectory" });
     } catch {
       try {
         if (hadPriorFile) {
-          await copyRegularFileSafely(backupPath, recoveryTemporaryPath, operations);
-          const currentPrimary = await lstatOrNull(filePath, operations);
+          await anchor.run({ op: "copy", source: backupName, destination: recoveryTemporaryName });
+          const currentPrimary = await anchor.run({ op: "metadata", name: fileName });
           if (currentPrimary) requireSafeRegular(currentPrimary);
-          await operations.rename(recoveryTemporaryPath, filePath);
-          await chmodRegularSafely(filePath, operations);
+          await anchor.run({ op: "rename", source: recoveryTemporaryName, destination: fileName });
+          await anchor.run({ op: "chmodFile", name: fileName });
         } else {
-          const currentPrimary = await lstatOrNull(filePath, operations);
+          const currentPrimary = await anchor.run({ op: "metadata", name: fileName });
           requireSafeRegular(currentPrimary);
-          await operations.unlink(filePath);
+          await anchor.run({ op: "unlink", name: fileName });
         }
-        await syncDirectorySafely(dirname(filePath), operations);
+        await anchor.run({ op: "syncDirectory" });
       } catch {
         throw storeError(
           "BILLING_STORE_DURABILITY_FAILED",
@@ -627,10 +817,9 @@ async function persistAtomically(filePath, data, hadPriorFile, operations) {
       );
     }
   } finally {
-    if (handle) await handle.close().catch(() => {});
-    await operations.unlink(temporaryPath).catch(() => {});
-    await operations.unlink(backupTemporaryPath).catch(() => {});
-    await operations.unlink(recoveryTemporaryPath).catch(() => {});
+    await anchor.run({ op: "unlink", name: temporaryName }).catch(() => {});
+    await anchor.run({ op: "unlink", name: backupTemporaryName }).catch(() => {});
+    await anchor.run({ op: "unlink", name: recoveryTemporaryName }).catch(() => {});
   }
 }
 
@@ -659,39 +848,30 @@ export function createBillingStore({
     return (permissions & 0o700) === 0o700 && (permissions & 0o027) === 0;
   }
 
-  async function prepareParentDirectory() {
-    const parentPath = dirname(filePath);
-    await assertSafeDirectoryComponents(parentPath, operations);
-    try {
-      const parent = await operations.lstat(parentPath);
-      if (!parent.isDirectory() || !secureDirectoryMode(parent.mode)) {
-        throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
-      }
-    } catch (error) {
-      if (error instanceof BillingStoreError) throw error;
-      if (error?.code !== "ENOENT") {
-        throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
-      }
-      await operations.mkdir(parentPath, { recursive: true, mode: DIRECTORY_MODE });
-      await assertSafeDirectoryComponents(parentPath, operations);
+  const parentPath = dirname(filePath);
+  const fileName = basename(filePath);
+
+  async function openStoreAnchor({ normalizeMode = false } = {}) {
+    const anchor = await openDirectoryAnchor(parentPath, operations);
+    if (!secureDirectoryMode(anchor.parent.mode)) {
+      await anchor.close().catch(() => {});
+      throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
     }
-    await chmodDirectorySafely(parentPath, DIRECTORY_MODE, operations);
+    if (normalizeMode) await anchor.run({ op: "chmodDirectory", mode: DIRECTORY_MODE });
+    return anchor;
   }
 
-  async function verifyStoredPermissions(primary) {
+  async function verifyStoredPermissions(anchor, primary) {
     try {
-      await assertSafeDirectoryComponents(dirname(filePath), operations);
-      const parent = await operations.lstat(dirname(filePath));
       requireSafeRegular(primary);
       if (
-        !parent.isDirectory() ||
-        !secureDirectoryMode(parent.mode) ||
+        !secureDirectoryMode(anchor.parent.mode) ||
         (primary.mode & 0o777) !== FILE_MODE
       ) {
         throw new Error("unsafe permissions");
       }
-      for (const optionalPath of [`${filePath}.backup`, `${filePath}.lock`]) {
-        const optional = await lstatOrNull(optionalPath, operations);
+      for (const optionalName of [`${fileName}.backup`, `${fileName}.lock`]) {
+        const optional = await anchor.run({ op: "metadata", name: optionalName });
         if (!optional) continue;
         requireSafeRegular(optional);
         if ((optional.mode & 0o777) !== FILE_MODE) {
@@ -704,18 +884,17 @@ export function createBillingStore({
     }
   }
 
-  async function backupExists() {
-    const backup = await lstatOrNull(`${filePath}.backup`, operations);
+  async function backupExists(anchor) {
+    const backup = await anchor.run({ op: "metadata", name: `${fileName}.backup` });
     if (!backup) return false;
     requireSafeRegular(backup);
     return true;
   }
 
-  async function readData({ allowMissing = false } = {}) {
-    await assertSafeDirectoryComponents(dirname(filePath), operations);
-    const primary = await lstatOrNull(filePath, operations);
+  async function readData(anchor, { allowMissing = false } = {}) {
+    const primary = await anchor.run({ op: "metadata", name: fileName });
     if (!primary) {
-      if (await backupExists()) {
+      if (await backupExists(anchor)) {
         throw storeError("BILLING_STORE_CORRUPT", "The billing store is corrupt.");
       }
       if (allowMissing) return null;
@@ -725,10 +904,10 @@ export function createBillingStore({
       );
     }
     requireSafeRegular(primary);
-    await verifyStoredPermissions(primary);
+    await verifyStoredPermissions(anchor, primary);
     let text;
     try {
-      text = await readTextSafely(filePath, operations);
+      text = await anchor.run({ op: "readText", name: fileName });
     } catch (error) {
       if (error instanceof BillingStoreError) throw error;
       throw storeError("BILLING_STORE_CORRUPT", "The billing store could not be read.");
@@ -743,20 +922,33 @@ export function createBillingStore({
 
   function enqueueMutation(mutator, { allowMissing = false } = {}) {
     const run = async () => {
-      await prepareParentDirectory();
-      const releaseLock = await acquireInterprocessMutationLock(filePath, operations);
+      const anchor = await openStoreAnchor({ normalizeMode: true });
+      let lockAcquired = false;
       try {
-        const current = await readData({ allowMissing });
+        try {
+          await anchor.run({ op: "acquireLock", name: `${fileName}.lock` });
+          lockAcquired = true;
+        } catch (error) {
+          if (error instanceof BillingStoreError) throw error;
+          throw storeError(
+            "BILLING_STORE_LOCK_FAILED",
+            "The billing store lock could not open.",
+          );
+        }
+        const current = await readData(anchor, { allowMissing });
         const hadPriorFile = current !== null;
         const working = cloneData(current || emptyData());
         const outcome = await mutator(working, nowDate(now));
         if (outcome.changed) {
           validateData(working);
-          await persistAtomically(filePath, working, hadPriorFile, operations);
+          await persistAtomically(fileName, working, hadPriorFile, anchor);
         }
         return outcome.result;
       } finally {
-        await releaseLock();
+        if (lockAcquired) {
+          await anchor.run({ op: "releaseLock" }).catch(() => {});
+        }
+        await anchor.close().catch(() => {});
       }
     };
     const result = mutationQueue.then(run, run);
@@ -769,21 +961,31 @@ export function createBillingStore({
 
   async function getByUid(uid) {
     const normalizedUid = requireUid(uid);
-    const data = await readData();
-    return viewRecord(
-      Object.hasOwn(data.learners, normalizedUid)
-        ? data.learners[normalizedUid]
-        : null,
-    );
+    const anchor = await openStoreAnchor();
+    try {
+      const data = await readData(anchor);
+      return viewRecord(
+        Object.hasOwn(data.learners, normalizedUid)
+          ? data.learners[normalizedUid]
+          : null,
+      );
+    } finally {
+      await anchor.close().catch(() => {});
+    }
   }
 
   async function getByCustomerId(customerId) {
     const normalizedCustomerId = requireIdentifier(customerId, CUSTOMER_ID_PATTERN);
-    const data = await readData();
-    const record = Object.values(data.learners).find(
-      (candidate) => candidate.customerId === normalizedCustomerId,
-    );
-    return viewRecord(record);
+    const anchor = await openStoreAnchor();
+    try {
+      const data = await readData(anchor);
+      const record = Object.values(data.learners).find(
+        (candidate) => candidate.customerId === normalizedCustomerId,
+      );
+      return viewRecord(record);
+    } finally {
+      await anchor.close().catch(() => {});
+    }
   }
 
   function bindCustomer({ uid, customerId } = {}) {
@@ -901,9 +1103,14 @@ export function createBillingStore({
 
   async function hasUsedTrial(uid) {
     const normalizedUid = requireUid(uid);
-    const data = await readData();
-    if (!Object.hasOwn(data.learners, normalizedUid)) return false;
-    return data.learners[normalizedUid].trialUsedAt !== null;
+    const anchor = await openStoreAnchor();
+    try {
+      const data = await readData(anchor);
+      if (!Object.hasOwn(data.learners, normalizedUid)) return false;
+      return data.learners[normalizedUid].trialUsedAt !== null;
+    } finally {
+      await anchor.close().catch(() => {});
+    }
   }
 
   function recordProcessedEvent({ eventId, created } = {}) {
@@ -919,11 +1126,18 @@ export function createBillingStore({
   }
 
   async function health() {
+    let anchor;
     try {
-      const data = await readData({ allowMissing: true });
+      anchor = await openStoreAnchor();
+      const data = await readData(anchor, { allowMissing: true });
       return { configured: data !== null, healthy: data !== null };
-    } catch {
+    } catch (error) {
+      if (error?.code === "BILLING_STORE_NOT_CONFIGURED") {
+        return { configured: false, healthy: false };
+      }
       return { configured: true, healthy: false };
+    } finally {
+      await anchor?.close().catch(() => {});
     }
   }
 

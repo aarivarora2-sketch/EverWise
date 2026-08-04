@@ -5,9 +5,10 @@ import {
   access,
   chmod,
   mkdtemp,
-  open as fsOpen,
+  mkdir,
   readFile,
-  rename as fsRename,
+  readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -40,6 +41,7 @@ async function setupStore(t, { nested = false, fsImpl } = {}) {
   t.after(() => rm(root, { recursive: true, force: true }));
   let timestamp = START;
   const filePath = nested ? join(root, "private", "billing.json") : join(root, "billing.json");
+  if (nested) await mkdir(dirname(filePath), { mode: 0o750 });
   const store = createBillingStore({
     filePath,
     now: () => new Date(timestamp),
@@ -427,55 +429,33 @@ test("world-accessible file or parent permissions make storage unhealthy and blo
 test("atomic persistence flushes a sibling temporary file before rename and syncs its directory", async (t) => {
   const events = [];
   const fsImpl = {
-    async open(path, flags, mode) {
-      const handle = await fsOpen(path, flags, mode);
-      events.push(["open", path, flags]);
-      return {
-        fd: handle.fd,
-        async writeFile(...args) {
-          events.push(["write", path]);
-          return handle.writeFile(...args);
-        },
-        async readFile(...args) {
-          return handle.readFile(...args);
-        },
-        async stat(...args) {
-          return handle.stat(...args);
-        },
-        async chmod(...args) {
-          return handle.chmod(...args);
-        },
-        async sync() {
-          events.push(["sync", path]);
-          return handle.sync();
-        },
-        async close() {
-          events.push(["close", path]);
-          return handle.close();
-        },
-      };
+    async beforeAnchorCommand(command) {
+      if (command.op === "writeNew") events.push(["write", command.name]);
+      if (command.op === "rename") {
+        events.push(["rename", command.source, command.destination]);
+      }
+      if (command.op === "syncDirectory") events.push(["directory-sync"]);
     },
-    async rename(source, destination) {
-      events.push(["rename", source, destination]);
-      return fsRename(source, destination);
+    async afterAnchorCommand(command) {
+      if (command.op === "writeNew") events.push(["file-sync", command.name]);
     },
   };
-  const { filePath, store } = await setupStore(t, { nested: true, fsImpl });
+  const { store } = await setupStore(t, { nested: true, fsImpl });
 
   await bind(store);
 
   const temporaryWrite = events.findIndex(
-    ([kind, path]) => kind === "write" && path.startsWith(`${filePath}.tmp-`),
+    ([kind, name]) => kind === "write" && name.startsWith("billing.json.tmp-"),
   );
   const temporarySync = events.findIndex(
-    ([kind, path]) => kind === "sync" && path.startsWith(`${filePath}.tmp-`),
+    ([kind, name]) => kind === "file-sync" && name.startsWith("billing.json.tmp-"),
   );
   const primaryRename = events.findIndex(
-    ([kind, source, destination]) =>
-      kind === "rename" && source.startsWith(`${filePath}.tmp-`) && destination === filePath,
+    ([kind, source, destination]) => kind === "rename" &&
+      source.startsWith("billing.json.tmp-") && destination === "billing.json",
   );
   const directorySync = events.findIndex(
-    ([kind, path]) => kind === "sync" && path === dirname(filePath),
+    ([kind]) => kind === "directory-sync",
   );
   assert.ok(temporaryWrite >= 0);
   assert.ok(temporaryWrite < temporarySync);
@@ -487,11 +467,15 @@ test("a failed primary rename preserves the old file and its recoverable backup"
   let filePath;
   let rejectPrimaryRename = false;
   const fsImpl = {
-    async rename(source, destination) {
-      if (rejectPrimaryRename && destination === filePath && source.startsWith(`${filePath}.tmp-`)) {
+    async beforeAnchorCommand(command) {
+      if (
+        rejectPrimaryRename &&
+        command.op === "rename" &&
+        command.destination === "billing.json" &&
+        command.source.startsWith("billing.json.tmp-")
+      ) {
         throw new Error("injected rename failure");
       }
-      return fsRename(source, destination);
     },
   };
   const setup = await setupStore(t, { fsImpl });
@@ -515,25 +499,13 @@ test("a final directory-sync failure rolls back the visible primary and never ac
   let failFinalDirectorySync = false;
   let directorySyncs = 0;
   const fsImpl = {
-    async open(path, flags, mode) {
-      const handle = await fsOpen(path, flags, mode);
-      if (path !== dirname(filePath)) return handle;
-      return new Proxy(handle, {
-        get(target, property) {
-          if (property === "sync") {
-            return async () => {
-              directorySyncs += 1;
-              if (failFinalDirectorySync && directorySyncs === 2) {
-                failFinalDirectorySync = false;
-                throw new Error("injected final directory sync failure");
-              }
-              return target.sync();
-            };
-          }
-          const value = Reflect.get(target, property, target);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
+    async beforeAnchorCommand(command) {
+      if (command.op !== "syncDirectory") return;
+      directorySyncs += 1;
+      if (failFinalDirectorySync && directorySyncs === 2) {
+        failFinalDirectorySync = false;
+        throw new Error("injected final directory sync failure");
+      }
     },
   };
   const setup = await setupStore(t, { fsImpl });
@@ -636,6 +608,92 @@ test("symlinked primary, backup, and lock paths are rejected without touching th
   }
 });
 
+test("a parent swapped before or after descriptor acquisition cannot redirect a leaf mutation", async (t) => {
+  for (const phase of ["before", "after"]) {
+    const root = await mkdtemp(join(tmpdir(), `everwise-billing-parent-race-${phase}-`));
+    const outside = await mkdtemp(join(tmpdir(), `everwise-billing-parent-race-outside-${phase}-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    const parent = join(root, "store");
+    const heldParent = join(root, "store-held");
+    await mkdir(parent, { mode: 0o750 });
+    await chmod(outside, 0o750);
+    const filePath = join(parent, "billing.json");
+    await bind(createBillingStore({ filePath }));
+    const original = await readFile(filePath, "utf8");
+    const externalPrimary = join(outside, "billing.json");
+    await writeFile(externalPrimary, "external-primary", { mode: 0o640 });
+    let swapped = false;
+    const swapParent = async () => {
+      await rename(parent, heldParent);
+      await symlink(outside, parent, "dir");
+      swapped = true;
+    };
+    const store = createBillingStore({
+      filePath,
+      fsImpl: phase === "before"
+        ? { beforeParentAnchor: swapParent }
+        : { afterParentAnchor: swapParent },
+    });
+
+    await expectStoreError(
+      () => bind(store, `uid-race-${phase}`, `cus_race_${phase}`),
+      "BILLING_STORE_UNSAFE_PATH",
+    );
+    assert.equal(swapped, true);
+    assert.equal(await readFile(join(heldParent, "billing.json"), "utf8"), original);
+    assert.equal(await readFile(externalPrimary, "utf8"), "external-primary");
+    assert.equal((await stat(externalPrimary)).mode & 0o777, 0o640);
+    assert.deepEqual((await readdir(outside)).sort(), ["billing.json"]);
+  }
+});
+
+test("temporary and recovery leaf symlink races never mutate their targets", async (t) => {
+  for (const targetKind of ["temporary", "recovery"]) {
+    const setup = await setupStore(t);
+    await bind(setup.store);
+    const externalPath = join(setup.root, `${targetKind}-external.txt`);
+    await writeFile(externalPath, `external-${targetKind}`, { mode: 0o640 });
+    let injected = false;
+    let directorySyncs = 0;
+    const store = createBillingStore({
+      filePath: setup.filePath,
+      now: () => new Date(START),
+      fsImpl: {
+        async beforeAnchorCommand(command) {
+          const racedName = command.op === "copy" ? command.destination : command.name;
+          if (
+            !injected &&
+            ((targetKind === "temporary" &&
+              command.op === "writeNew" &&
+              racedName.includes(".tmp-")) ||
+              (targetKind === "recovery" &&
+                command.op === "copy" &&
+                racedName.includes(".recovery-")))
+          ) {
+            await symlink(externalPath, join(dirname(setup.filePath), racedName), "file");
+            injected = true;
+          }
+          if (targetKind === "recovery" && command.op === "syncDirectory") {
+            directorySyncs += 1;
+            if (directorySyncs === 2) throw new Error("force recovery path");
+          }
+        },
+      },
+    });
+
+    await expectStoreError(
+      () => store.applySubscriptionSnapshot(subscriptionSnapshot()),
+      targetKind === "temporary"
+        ? "BILLING_STORE_UNSAFE_PATH"
+        : "BILLING_STORE_DURABILITY_FAILED",
+    );
+    assert.equal(injected, true);
+    assert.equal(await readFile(externalPath, "utf8"), `external-${targetKind}`);
+    assert.equal((await stat(externalPath)).mode & 0o777, 0o640);
+  }
+});
+
 test("prototype-like valid UIDs round-trip through null-prototype learner maps", async (t) => {
   const { filePath, store } = await setupStore(t);
   await bind(store, "__proto__", "cus_proto");
@@ -666,19 +724,18 @@ test("independent processes serialize read-modify-write mutations without losing
   await bind(store, "uid-seed", "cus_seed");
   const markerPath = join(root, "first-writer.marker");
   const firstSource = `
-    const { rename, writeFile } = await import("node:fs/promises");
+    const { writeFile } = await import("node:fs/promises");
     const { createBillingStore } = await import(${JSON.stringify(billingStoreUrl)});
     let delayed = false;
     const store = createBillingStore({
       filePath: ${JSON.stringify(filePath)},
       fsImpl: {
-        rename: async (source, destination) => {
-          if (!delayed && destination === ${JSON.stringify(filePath)} && source.includes(".tmp-")) {
+        beforeAnchorCommand: async (command) => {
+          if (!delayed && command.op === "rename" && command.destination === "billing.json" && command.source.includes(".tmp-")) {
             delayed = true;
             await writeFile(${JSON.stringify(markerPath)}, "ready");
             await new Promise((resolve) => setTimeout(resolve, 500));
           }
-          return rename(source, destination);
         },
       },
     });
