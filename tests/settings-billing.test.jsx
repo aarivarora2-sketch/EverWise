@@ -102,6 +102,23 @@ describe("provider-aware Settings billing", () => {
     expect(document.body).not.toHaveTextContent("Renews September 3, 2026.");
   });
 
+  test("gives canceled-trial access-through copy precedence over the generic trial end", () => {
+    renderSettings({
+      billing: billing({
+        status: "trialing",
+        plan: "monthly",
+        trialEndsAt: TRIAL_END,
+        currentPeriodEndsAt: PERIOD_END,
+        cancelAtPeriodEnd: true,
+      }),
+    });
+
+    expect(
+      screen.getByText("Canceled — access continues through September 3, 2026."),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent("Trial ends August 11, 2026.");
+  });
+
   test("offers View plans when the learner has no subscription", async () => {
     const user = userEvent.setup();
     const { props } = renderSettings({
@@ -123,6 +140,7 @@ describe("provider-aware Settings billing", () => {
   test.each([
     ["provider outage", billing({ provider: "unavailable", status: "unavailable", plan: null, currentPeriodEndsAt: null, canManage: false, error: "Billing is temporarily unavailable." })],
     ["malformed active date", billing({ currentPeriodEndsAt: "09/03/2026" })],
+    ["canceled trial missing period end", billing({ status: "trialing", trialEndsAt: TRIAL_END, currentPeriodEndsAt: null, cancelAtPeriodEnd: true })],
     ["unknown provider", billing({ provider: "other" })],
   ])("fails closed for %s, announces the error, and retries without claiming active", async (_label, viewModel) => {
     const user = userEvent.setup();

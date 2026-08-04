@@ -163,7 +163,8 @@ function normalizeBillingViewModel(billing, legacy) {
       currentPeriodEndsAt === null) ||
     (billing.provider === "stripe" &&
       billing.status === "trialing" &&
-      trialEndsAt === null)
+      trialEndsAt === null) ||
+    (billing.cancelAtPeriodEnd && currentPeriodEndsAt === null)
   ) {
     return unavailableBilling(billing.busy === true);
   }
@@ -427,13 +428,13 @@ export default function Settings({
               <p className="mt-2 text-lg font-semibold text-ink">
                 {billingView.plan === "monthly" ? "Monthly plan" : "Annual plan"}
               </p>
-              {billingView.status === "trialing" ? (
-                <p className="mt-1 text-lg text-ink-soft">
-                  Trial ends {billingView.trialEndsAt}.
-                </p>
-              ) : billingView.cancelAtPeriodEnd ? (
+              {billingView.cancelAtPeriodEnd ? (
                 <p className="mt-1 text-lg text-ink-soft">
                   Canceled — access continues through {billingView.currentPeriodEndsAt}.
+                </p>
+              ) : billingView.status === "trialing" ? (
+                <p className="mt-1 text-lg text-ink-soft">
+                  Trial ends {billingView.trialEndsAt}.
                 </p>
               ) : billingView.status === "active" && billingView.currentPeriodEndsAt ? (
                 <p className="mt-1 text-lg text-ink-soft">
