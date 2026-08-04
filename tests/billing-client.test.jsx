@@ -605,7 +605,7 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(screen.getByTestId("paywall-billing-access")).toHaveTextContent("none");
   });
 
-  test("invalidates stale plans after refresh failure and restores Checkout only after recovery", async () => {
+  test("keeps direct Checkout available when verified access refresh is unavailable", async () => {
     await openAuthenticatedApp({ access: NONE, uid: "stale-plan-user" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "View plans" }));
@@ -619,21 +619,10 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("false");
-    expect(screen.getByTestId("paywall-plan-count")).toHaveTextContent("0");
-    expect(screen.queryByRole("button", { name: "Start annual trial" })).not.toBeInTheDocument();
-    expect(mocks.createBillingCheckout).not.toHaveBeenCalled();
-
-    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Retry billing" }));
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
     expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
+    expect(screen.getByTestId("paywall-plan-count")).toHaveTextContent("0");
     expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+    expect(mocks.createBillingCheckout).not.toHaveBeenCalled();
   });
 
   test("unmount during partner refresh prevents any later billing fetch", async () => {
