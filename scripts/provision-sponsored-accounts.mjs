@@ -351,15 +351,36 @@ function writeSafeError(stderr, error) {
   }
 }
 
-function validSummary(summary) {
-  return Boolean(
-    summary &&
-      typeof summary === "object" &&
-      [summary.active, summary.pending, summary.failed].every(
-        (count) => Number.isSafeInteger(count) && count >= 0,
-      ) &&
-      summary.active + summary.pending + summary.failed === 500
+function snapshotSummary(value) {
+  let snapshot;
+  let descriptors;
+  try {
+    if (!hasExactKeys(value, ["active", "failed", "pending"])) {
+      fail("INVALID_SUMMARY", "Provisioning returned an invalid count summary.");
+    }
+    snapshot = {
+      active: value.active,
+      pending: value.pending,
+      failed: value.failed,
+    };
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    fail("INVALID_SUMMARY", "Provisioning returned an invalid count summary.");
+  }
+  const fields = ["active", "pending", "failed"];
+  const hasOnlyDataProperties = fields.every(
+    (field) => Object.hasOwn(descriptors[field], "value"),
   );
+  if (
+    !hasOnlyDataProperties ||
+    fields.some(
+      (field) => !Number.isSafeInteger(snapshot[field]) || snapshot[field] < 0,
+    ) ||
+    snapshot.active + snapshot.pending + snapshot.failed !== 500
+  ) {
+    fail("INVALID_SUMMARY", "Provisioning returned an invalid count summary.");
+  }
+  return Object.freeze(snapshot);
 }
 
 export async function runSponsoredAccountsCli({
@@ -409,28 +430,27 @@ export async function runSponsoredAccountsCli({
       });
     }
 
-    const summary = await resolvedDependencies.provisionSponsoredRoster({
-      rows,
-      apiOrigin: options["api-origin"],
-      preflight,
-      inviteToken,
-      firebaseClient,
-      partnerOperations: resolvedDependencies.partnerOperations,
-      persistRows: (nextRows) =>
-        resolvedDependencies.writeRosterFile({
-          filePath: output,
-          repositoryRoot: REPOSITORY_ROOT,
-          rows: nextRows,
-        }),
-      onProgress: (progress) => {
-        const { accountNumber, username, status } = snapshotProgress(progress);
-        return stdout.write(`Account ${accountNumber}/500 ${username}: ${status}\n`);
-      },
-      backoff: resolvedDependencies.backoff,
-    });
-    if (!validSummary(summary)) {
-      fail("INVALID_SUMMARY", "Provisioning returned an invalid count summary.");
-    }
+    const summary = snapshotSummary(
+      await resolvedDependencies.provisionSponsoredRoster({
+        rows,
+        apiOrigin: options["api-origin"],
+        preflight,
+        inviteToken,
+        firebaseClient,
+        partnerOperations: resolvedDependencies.partnerOperations,
+        persistRows: (nextRows) =>
+          resolvedDependencies.writeRosterFile({
+            filePath: output,
+            repositoryRoot: REPOSITORY_ROOT,
+            rows: nextRows,
+          }),
+        onProgress: (progress) => {
+          const { accountNumber, username, status } = snapshotProgress(progress);
+          return stdout.write(`Account ${accountNumber}/500 ${username}: ${status}\n`);
+        },
+        backoff: resolvedDependencies.backoff,
+      }),
+    );
 
     stdout.write(
       `Provisioning complete: ${summary.active} active, ${summary.pending} pending, ${summary.failed} failed.\n`,

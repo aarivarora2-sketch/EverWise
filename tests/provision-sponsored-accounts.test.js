@@ -460,6 +460,93 @@ test("hostile preflight getters fail before any dynamic target output", async ()
   }
 });
 
+test("stateful completion getters are read once and rejected without secret output", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  const reads = { active: 0, pending: 0, failed: 0 };
+  const values = {
+    active: [500, 500, `${ENV.EVERWISE_FIREBASE_WEB_API_KEY} ${password}`],
+    pending: [0, 0, `${ENV.EVERWISE_PARTNER_INVITE_TOKEN} ${idToken}`],
+    failed: [0, 0, ENV.EVERWISE_PARTNER_ADMIN_TOKEN],
+  };
+  const fixture = makeFixture({
+    async provisionSponsoredRoster() {
+      return {
+        get active() {
+          const value = values.active[reads.active] ?? values.active.at(-1);
+          reads.active += 1;
+          return value;
+        },
+        get pending() {
+          const value = values.pending[reads.pending] ?? values.pending.at(-1);
+          reads.pending += 1;
+          return value;
+        },
+        get failed() {
+          const value = values.failed[reads.failed] ?? values.failed.at(-1);
+          reads.failed += 1;
+          return value;
+        },
+      };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.deepEqual(reads, { active: 1, pending: 1, failed: 1 });
+  assert.equal(fixture.stderrText, "Error [INVALID_SUMMARY]: Provisioning returned an invalid count summary.\n");
+  assert.equal(fixture.stdoutText.includes("Private roster saved"), false);
+  for (const secret of [...Object.values(ENV), password, idToken]) {
+    assert.equal(`${fixture.stdoutText}${fixture.stderrText}`.includes(secret), false);
+  }
+});
+
+test("throwing completion getters become a static summary error", async () => {
+  const password = "Password-Like-Detail!A1";
+  const idToken = "firebase-id-token-like-detail";
+  const rawDetail = `${Object.values(ENV).join(" ")} ${password} ${idToken}`;
+  const fixture = makeFixture({
+    async provisionSponsoredRoster() {
+      return {
+        get active() {
+          throw new Error(rawDetail);
+        },
+        pending: 0,
+        failed: 0,
+      };
+    },
+  });
+
+  assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+  assert.equal(fixture.stderrText, "Error [INVALID_SUMMARY]: Provisioning returned an invalid count summary.\n");
+  assert.equal(fixture.stdoutText.includes("Private roster saved"), false);
+  for (const secret of [...Object.values(ENV), password, idToken]) {
+    assert.equal(`${fixture.stdoutText}${fixture.stderrText}`.includes(secret), false);
+  }
+});
+
+test("completion summary requires exact nonnegative integer counts totaling 500", async () => {
+  const invalidSummaries = [
+    { active: 500, pending: 0, failed: 0, extra: 0 },
+    { active: 500, pending: 0 },
+    { active: 499.5, pending: 0.5, failed: 0 },
+    { active: 501, pending: -1, failed: 0 },
+    { active: 499, pending: 0, failed: 0 },
+  ];
+
+  for (const summary of invalidSummaries) {
+    const fixture = makeFixture({
+      async provisionSponsoredRoster() {
+        return summary;
+      },
+    });
+
+    assert.equal(await run(fixture, validArgs("resume", { confirmed: true })), 1);
+    assert.equal(fixture.stderrText, "Error [INVALID_SUMMARY]: Provisioning returned an invalid count summary.\n");
+    assert.equal(fixture.stdoutText.includes("Provisioning complete"), false);
+    assert.equal(fixture.stdoutText.includes("Private roster saved"), false);
+  }
+});
+
 test("process import is inert and invalid direct execution exits safely without network", () => {
   const imported = spawnSync(
     process.execPath,
