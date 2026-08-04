@@ -104,6 +104,7 @@ import BillingConfirmation from "./screens/BillingConfirmation.jsx";
 import BillingAccessError from "./screens/BillingAccessError.jsx";
 
 const TEXT_SIZE_STORAGE_KEY = "everwise-text-size";
+const WEB_ONE_TIME_CHECKOUT_URL = "https://buy.stripe.com/fZu5kE7BJfR63DI3kacfK02";
 const PARTNER_RELEASE_RECEIPT_STORAGE_KEY =
   "everwise-partner-release-receipt";
 const PARTNER_RELEASE_CONFIRMABLE_STORAGE_KEY =
@@ -4115,17 +4116,19 @@ function LearnerApp({ initialPartnerFragment }) {
             sponsored={sponsoredActive}
             billingAvailable={
               platform === "web" &&
-              ownedBillingStatus !== "unavailable" &&
-              Boolean(ownedBillingAccess) &&
-              !billingBusy &&
-              billingPlans.length > 0 &&
-              billingRecovery?.kind !== "temporary"
+              (Boolean(WEB_ONE_TIME_CHECKOUT_URL) ||
+                (ownedBillingStatus !== "unavailable" &&
+                  Boolean(ownedBillingAccess) &&
+                  !billingBusy &&
+                  billingPlans.length > 0 &&
+                  billingRecovery?.kind !== "temporary"))
             }
             billingPlans={billingPlans}
             billingStatus={ownedBillingStatus}
             billingAccess={billingAccess}
             billingBusy={billingBusy}
             billingMessage={billingRecovery?.message || ""}
+            checkoutUrl={WEB_ONE_TIME_CHECKOUT_URL}
             onRetry={() => {
               setBillingRecovery(null);
               setBillingRefreshAttempt((attempt) => attempt + 1);
