@@ -30,6 +30,8 @@ function billing(overrides = {}) {
 function renderSettings(overrides = {}) {
   const props = {
     billing: billing(),
+    billingLocale: "en-US",
+    billingTimeZone: "UTC",
     onBack: vi.fn(),
     onLogOut: vi.fn(),
     onOpenPaywall: vi.fn(),
@@ -93,13 +95,18 @@ describe("provider-aware Settings billing", () => {
     expect(screen.getByRole("button", { name: "Manage subscription" })).toBeVisible();
   });
 
-  test("states that cancel-at-period-end access continues through the exact period end", () => {
-    renderSettings({ billing: billing({ cancelAtPeriodEnd: true }) });
+  test("states the exact learner-local cancellation instant instead of a UTC calendar day", () => {
+    renderSettings({
+      billing: billing({ cancelAtPeriodEnd: true }),
+      billingTimeZone: "America/Los_Angeles",
+    });
 
     expect(
-      screen.getByText("Canceled — access continues through September 3, 2026."),
+      screen.getByText(
+        "Cancellation scheduled — access continues until September 2, 2026 at 5:00 PM PDT.",
+      ),
     ).toBeVisible();
-    expect(document.body).not.toHaveTextContent("Renews September 3, 2026.");
+    expect(document.body).not.toHaveTextContent(/through September 3|Renews September 3/);
   });
 
   test("gives canceled-trial access-through copy precedence over the generic trial end", () => {
@@ -114,7 +121,9 @@ describe("provider-aware Settings billing", () => {
     });
 
     expect(
-      screen.getByText("Canceled — access continues through September 3, 2026."),
+      screen.getByText(
+        "Cancellation scheduled — access continues until September 3, 2026 at 12:00 AM UTC.",
+      ),
     ).toBeVisible();
     expect(document.body).not.toHaveTextContent("Trial ends August 11, 2026.");
   });
@@ -151,6 +160,42 @@ describe("provider-aware Settings billing", () => {
     expect(screen.queryByRole("button", { name: "Manage subscription" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(props.onRetryBilling).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects stateful billing getters instead of validating one state and rendering another", () => {
+    let reads = 0;
+    const viewModel = billing();
+    Object.defineProperty(viewModel, "cancelAtPeriodEnd", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads > 1;
+      },
+    });
+
+    renderSettings({ billing: viewModel });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Billing is temporarily unavailable.");
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage subscription" })).not.toBeInTheDocument();
+  });
+
+  test.each([
+    ["throwing property", () => Object.defineProperty(billing(), "provider", { enumerable: true, get() { throw new Error("private getter detail"); } })],
+    ["throwing Proxy", () => new Proxy(billing(), { ownKeys() { throw new Error("private proxy detail"); } })],
+    ["custom prototype", () => Object.assign(Object.create({ unsafe: true }), billing())],
+    ["extra property", () => ({ ...billing(), customerId: "private" })],
+    ["missing property", () => {
+      const value = billing();
+      delete value.error;
+      return value;
+    }],
+  ])("fails closed without throwing for a %s billing view model", (_label, makeViewModel) => {
+    expect(() => renderSettings({ billing: makeViewModel() })).not.toThrow();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Billing is temporarily unavailable.");
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage subscription" })).not.toBeInTheDocument();
   });
 
   test("preserves Apple management only for an explicit native provider", () => {

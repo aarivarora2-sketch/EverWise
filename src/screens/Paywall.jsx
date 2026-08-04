@@ -59,28 +59,94 @@ const fixedText = {
   footer: { fontSize: "var(--paywall-footer, 17px)", lineHeight: 1 },
 };
 
-const exactKeys = (value, expected) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const keys = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  return keys.length === wanted.length && keys.every((key, index) => key === wanted[index]);
-};
+const WEB_OFFER_KEYS = ["currency", "interval", "key", "trialDays", "unitAmount"];
 
-function verifiedWebPlans(plans) {
-  if (!Array.isArray(plans) || plans.length !== 2) return null;
-  const normalized = {};
-  for (const plan of plans) {
-    const expected = VERIFIED_WEB_OFFERS[plan?.key];
-    const keys = ["currency", "interval", "key", "trialDays", "unitAmount"];
+function snapshotPlainRecord(value, expectedKeys) {
+  try {
     if (
-      !expected ||
-      !exactKeys(plan, keys) ||
-      !keys.every((key) => plan[key] === expected[key]) ||
-      normalized[plan.key]
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype
     ) {
       return null;
     }
-    normalized[plan.key] = { ...plan };
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.length !== expectedKeys.length ||
+      !expectedKeys.every((key) => keys.includes(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null);
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor)) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotPlanList(plans) {
+  try {
+    if (!Array.isArray(plans) || Object.getPrototypeOf(plans) !== Array.prototype) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(plans);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.length !== 3 ||
+      !keys.includes("0") ||
+      !keys.includes("1") ||
+      !keys.includes("length") ||
+      descriptors.length?.value !== 2 ||
+      !("value" in descriptors[0]) ||
+      !("value" in descriptors[1])
+    ) {
+      return null;
+    }
+    return [descriptors[0].value, descriptors[1].value];
+  } catch {
+    return null;
+  }
+}
+
+function trustedOffer(key) {
+  if (key === "annual") return VERIFIED_WEB_OFFERS.annual;
+  if (key === "monthly") return VERIFIED_WEB_OFFERS.monthly;
+  return null;
+}
+
+function freshOffer(expected) {
+  return {
+    key: expected.key,
+    currency: expected.currency,
+    unitAmount: expected.unitAmount,
+    interval: expected.interval,
+    trialDays: expected.trialDays,
+  };
+}
+
+function verifiedWebPlans(plans) {
+  const planInputs = snapshotPlanList(plans);
+  if (!planInputs) return null;
+  const normalized = Object.create(null);
+  for (const planInput of planInputs) {
+    const plan = snapshotPlainRecord(planInput, WEB_OFFER_KEYS);
+    if (!plan) return null;
+    const expected = trustedOffer(plan.key);
+    if (
+      !expected ||
+      !WEB_OFFER_KEYS.every((key) => plan[key] === expected[key]) ||
+      Object.hasOwn(normalized, plan.key)
+    ) {
+      return null;
+    }
+    normalized[plan.key] = freshOffer(expected);
   }
   return normalized.annual && normalized.monthly ? normalized : null;
 }

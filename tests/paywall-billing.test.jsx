@@ -130,6 +130,51 @@ describe("browser Stripe paywall", () => {
     expect(props.onRetry).toHaveBeenCalledTimes(1);
   });
 
+  test("rejects a stateful offer getter instead of validating one price and rendering another", () => {
+    let reads = 0;
+    const annual = { ...VERIFIED_PLANS[0] };
+    Object.defineProperty(annual, "unitAmount", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? 6000 : 1;
+      },
+    });
+
+    renderWebPaywall({ billingPlans: [annual, VERIFIED_PLANS[1]] });
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("$0.01/year");
+  });
+
+  test.each([
+    ["throwing property", () => Object.defineProperty({}, "key", { enumerable: true, get() { throw new Error("private getter detail"); } })],
+    ["throwing Proxy", () => new Proxy({}, { ownKeys() { throw new Error("private proxy detail"); } })],
+    ["custom prototype", () => Object.assign(Object.create({ unsafe: true }), VERIFIED_PLANS[0])],
+  ])("fails closed without throwing for a %s offer", (_label, makeAnnual) => {
+    expect(() => {
+      renderWebPaywall({ billingPlans: [makeAnnual(), VERIFIED_PLANS[1]] });
+    }).not.toThrow();
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
+  });
+
+  test("revalidates a caller-owned offer after post-validation mutation", async () => {
+    const user = userEvent.setup();
+    const plans = VERIFIED_PLANS.map((plan) => ({ ...plan }));
+    renderWebPaywall({ billingPlans: plans });
+    expect(screen.getByRole("button", { name: "Start 7-day free trial" })).toBeVisible();
+
+    plans[0].unitAmount = 1;
+    await user.click(screen.getByRole("radio", { name: /Monthly/i }));
+
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("$0.01/year");
+  });
+
   test("shows Retry when browser billing is unavailable and never exposes Apple Restore", () => {
     renderWebPaywall({ billingAvailable: false, billingPlans: [] });
 

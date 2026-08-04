@@ -129,14 +129,20 @@ vi.mock("../src/screens/ExamPlayer.jsx", () => ({
   default: ({ exam }) => <h1>Exam: {exam.id}</h1>,
 }));
 vi.mock("../src/screens/Paywall.jsx", () => ({
-  default: ({ billingAccess, billingStatus, onMaybeLater, onStartLearning, onStartTrial }) => (
+  default: ({ billingAccess, billingAvailable, billingPlans, billingStatus, onMaybeLater, onRetry, onStartLearning, onStartTrial, platform }) => (
     <main>
       <h1>Subscription options</h1>
       <span data-testid="paywall-billing-status">{billingStatus}</span>
       <span data-testid="paywall-billing-access">{billingAccess?.access || "missing"}</span>
-      <button type="button" onClick={() => void onStartTrial("annual").catch(() => {})}>
-        Start annual trial
-      </button>
+      <span data-testid="paywall-billing-available">{String(billingAvailable)}</span>
+      <span data-testid="paywall-plan-count">{billingPlans.length}</span>
+      {platform === "native" || billingAvailable ? (
+        <button type="button" onClick={() => void onStartTrial("annual").catch(() => {})}>
+          Start annual trial
+        </button>
+      ) : (
+        <button type="button" onClick={onRetry}>Retry billing</button>
+      )}
       <button type="button" onClick={onMaybeLater}>
         Back free
       </button>
@@ -599,6 +605,37 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(screen.getByTestId("paywall-billing-access")).toHaveTextContent("none");
   });
 
+  test("invalidates stale plans after refresh failure and restores Checkout only after recovery", async () => {
+    await openAuthenticatedApp({ access: NONE, uid: "stale-plan-user" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "View plans" }));
+    expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+
+    mocks.fetchBillingAccess.mockRejectedValueOnce(new Error("verification unavailable"));
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("false");
+    expect(screen.getByTestId("paywall-plan-count")).toHaveTextContent("0");
+    expect(screen.queryByRole("button", { name: "Start annual trial" })).not.toBeInTheDocument();
+    expect(mocks.createBillingCheckout).not.toHaveBeenCalled();
+
+    mocks.fetchBillingAccess.mockResolvedValueOnce(NONE);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry billing" }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
+    expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+  });
+
   test("unmount during partner refresh prevents any later billing fetch", async () => {
     const { rendered } = await openAuthenticatedApp({
       access: NONE,
@@ -700,7 +737,7 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Start annual trial" }));
       await Promise.resolve();
       await Promise.resolve();
     });

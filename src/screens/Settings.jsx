@@ -49,6 +49,18 @@ const WEB_STATUSES = new Set([
   "trialing",
   "unpaid",
 ]);
+const BILLING_KEYS = [
+  "provider",
+  "status",
+  "plan",
+  "trialEndsAt",
+  "currentPeriodEndsAt",
+  "cancelAtPeriodEnd",
+  "canManage",
+  "busy",
+  "error",
+];
+const SPONSOR_BILLING_KEYS = [...BILLING_KEYS, "partnerName"];
 
 const unavailableBilling = (busy = false) => ({
   provider: "unavailable",
@@ -61,19 +73,68 @@ const unavailableBilling = (busy = false) => ({
   busy,
 });
 
-function canonicalDate(value) {
+function snapshotBillingRecord(value) {
+  try {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype
+    ) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    const expectedKeys = keys.includes("partnerName")
+      ? SPONSOR_BILLING_KEYS
+      : BILLING_KEYS;
+    if (
+      keys.length !== expectedKeys.length ||
+      !expectedKeys.every((key) => keys.includes(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null);
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor)) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function canonicalTimestamp(value) {
   if (value === null) return null;
   if (typeof value !== "string") return undefined;
   const milliseconds = Date.parse(value);
   if (!Number.isFinite(milliseconds)) return undefined;
   const date = new Date(milliseconds);
   if (date.toISOString() !== value) return undefined;
-  return new Intl.DateTimeFormat("en-US", {
+  return value;
+}
+
+function formatBillingDate(value, locale, timeZone) {
+  return new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "long",
-    timeZone: "UTC",
+    ...(timeZone ? { timeZone } : {}),
     year: "numeric",
-  }).format(date);
+  }).format(new Date(value));
+}
+
+function formatCancellationInstant(value, locale, timeZone) {
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "long",
+    ...(timeZone ? { timeZone } : {}),
+    timeZoneName: "short",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 function normalizeBillingViewModel(billing, legacy) {
@@ -110,24 +171,58 @@ function normalizeBillingViewModel(billing, legacy) {
     };
   }
 
-  if (!billing || typeof billing !== "object" || Array.isArray(billing)) {
+  const snapshot = snapshotBillingRecord(billing);
+  if (!snapshot || typeof snapshot.busy !== "boolean") {
     return unavailableBilling();
   }
-  if (billing.provider === "unavailable" && billing.status === "unavailable") {
-    return unavailableBilling(billing.busy === true);
+  const busy = snapshot.busy;
+  if (snapshot.provider === "unavailable" && snapshot.status === "unavailable") {
+    if (
+      snapshot.plan !== null ||
+      snapshot.trialEndsAt !== null ||
+      snapshot.currentPeriodEndsAt !== null ||
+      snapshot.cancelAtPeriodEnd !== false ||
+      snapshot.canManage !== false ||
+      typeof snapshot.error !== "string"
+    ) {
+      return unavailableBilling(busy);
+    }
+    return unavailableBilling(busy);
   }
-  if (billing.provider === "sponsor" && billing.status === "active") {
+  if (snapshot.provider === "sponsor" && snapshot.status === "active") {
+    if (
+      !Object.hasOwn(snapshot, "partnerName") ||
+      snapshot.plan !== null ||
+      snapshot.trialEndsAt !== null ||
+      snapshot.currentPeriodEndsAt !== null ||
+      snapshot.cancelAtPeriodEnd !== false ||
+      snapshot.canManage !== false ||
+      snapshot.error !== null
+    ) {
+      return unavailableBilling(busy);
+    }
     return {
       provider: "sponsor",
       status: "active",
       partnerName:
-        typeof billing.partnerName === "string" && billing.partnerName.trim()
-          ? billing.partnerName.trim()
+        typeof snapshot.partnerName === "string" && snapshot.partnerName.trim()
+          ? snapshot.partnerName.trim()
           : "your community partner",
-      busy: billing.busy === true,
+      busy,
     };
   }
-  if (billing.provider === "none" && billing.status === "none") {
+  if (snapshot.provider === "none" && snapshot.status === "none") {
+    if (
+      Object.hasOwn(snapshot, "partnerName") ||
+      snapshot.plan !== null ||
+      snapshot.trialEndsAt !== null ||
+      snapshot.currentPeriodEndsAt !== null ||
+      snapshot.cancelAtPeriodEnd !== false ||
+      snapshot.canManage !== false ||
+      snapshot.error !== null
+    ) {
+      return unavailableBilling(busy);
+    }
     return {
       provider: "none",
       status: "none",
@@ -136,47 +231,48 @@ function normalizeBillingViewModel(billing, legacy) {
       currentPeriodEndsAt: null,
       cancelAtPeriodEnd: false,
       canManage: false,
-      busy: billing.busy === true,
+      busy,
     };
   }
   if (
-    billing.provider !== "stripe" &&
-    billing.provider !== "apple"
+    Object.hasOwn(snapshot, "partnerName") ||
+    (snapshot.provider !== "stripe" && snapshot.provider !== "apple")
   ) {
-    return unavailableBilling(billing.busy === true);
+    return unavailableBilling(busy);
   }
   if (
-    !WEB_STATUSES.has(billing.status) ||
-    (billing.plan !== "monthly" && billing.plan !== "annual") ||
-    typeof billing.cancelAtPeriodEnd !== "boolean" ||
-    typeof billing.canManage !== "boolean"
+    !WEB_STATUSES.has(snapshot.status) ||
+    (snapshot.plan !== "monthly" && snapshot.plan !== "annual") ||
+    typeof snapshot.cancelAtPeriodEnd !== "boolean" ||
+    typeof snapshot.canManage !== "boolean" ||
+    snapshot.error !== null
   ) {
-    return unavailableBilling(billing.busy === true);
+    return unavailableBilling(busy);
   }
-  const trialEndsAt = canonicalDate(billing.trialEndsAt);
-  const currentPeriodEndsAt = canonicalDate(billing.currentPeriodEndsAt);
+  const trialEndsAt = canonicalTimestamp(snapshot.trialEndsAt);
+  const currentPeriodEndsAt = canonicalTimestamp(snapshot.currentPeriodEndsAt);
   if (
     trialEndsAt === undefined ||
     currentPeriodEndsAt === undefined ||
-    (billing.provider === "stripe" &&
-      billing.status === "active" &&
+    (snapshot.provider === "stripe" &&
+      snapshot.status === "active" &&
       currentPeriodEndsAt === null) ||
-    (billing.provider === "stripe" &&
-      billing.status === "trialing" &&
+    (snapshot.provider === "stripe" &&
+      snapshot.status === "trialing" &&
       trialEndsAt === null) ||
-    (billing.cancelAtPeriodEnd && currentPeriodEndsAt === null)
+    (snapshot.cancelAtPeriodEnd && currentPeriodEndsAt === null)
   ) {
-    return unavailableBilling(billing.busy === true);
+    return unavailableBilling(busy);
   }
   return {
-    provider: billing.provider,
-    status: billing.status,
-    plan: billing.plan,
+    provider: snapshot.provider,
+    status: snapshot.status,
+    plan: snapshot.plan,
     trialEndsAt,
     currentPeriodEndsAt,
-    cancelAtPeriodEnd: billing.cancelAtPeriodEnd,
-    canManage: billing.canManage,
-    busy: billing.busy === true,
+    cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+    canManage: snapshot.canManage,
+    busy,
   };
 }
 
@@ -257,6 +353,8 @@ export function PartnerDeletionReconciliation({ reconciliation = "compensation" 
 
 export default function Settings({
   billing,
+  billingLocale,
+  billingTimeZone,
   sponsored = false,
   partner = null,
   subscriptionStatus,
@@ -430,15 +528,27 @@ export default function Settings({
               </p>
               {billingView.cancelAtPeriodEnd ? (
                 <p className="mt-1 text-lg text-ink-soft">
-                  Canceled — access continues through {billingView.currentPeriodEndsAt}.
+                  Cancellation scheduled — access continues until {formatCancellationInstant(
+                    billingView.currentPeriodEndsAt,
+                    billingLocale,
+                    billingTimeZone,
+                  )}.
                 </p>
               ) : billingView.status === "trialing" ? (
                 <p className="mt-1 text-lg text-ink-soft">
-                  Trial ends {billingView.trialEndsAt}.
+                  Trial ends {formatBillingDate(
+                    billingView.trialEndsAt,
+                    billingLocale,
+                    billingTimeZone,
+                  )}.
                 </p>
               ) : billingView.status === "active" && billingView.currentPeriodEndsAt ? (
                 <p className="mt-1 text-lg text-ink-soft">
-                  Renews {billingView.currentPeriodEndsAt}.
+                  Renews {formatBillingDate(
+                    billingView.currentPeriodEndsAt,
+                    billingLocale,
+                    billingTimeZone,
+                  )}.
                 </p>
               ) : null}
             </div>

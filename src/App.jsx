@@ -2641,24 +2641,38 @@ function LearnerApp({ initialPartnerFragment }) {
         if (!isCurrent()) return null;
         setBillingBusy(true);
         try {
-          nextBillingAccess = await fetchBillingAccess(refreshUser);
+          const [plansResult, accessResult] = await Promise.all([
+            fetchBillingPlans(refreshUser),
+            fetchBillingAccess(refreshUser),
+          ]);
+          nextBillingAccess = accessResult;
           nextBillingStatus = nextBillingAccess.status;
+          const currentPlans = nextBillingStatus === "unavailable"
+            ? []
+            : plansResult.plans;
           if (!isIdentityCurrent()) return null;
           if (!isCurrent()) {
             if (nextBillingAccess.access !== "full") {
               setBillingOwnerUid(refreshUser.uid);
               setBillingAccess(nextBillingAccess);
               setBillingStatus(nextBillingStatus);
+              setBillingPlans(currentPlans);
             }
             return null;
           }
           setBillingOwnerUid(refreshUser.uid);
           setBillingAccess(nextBillingAccess);
           setBillingStatus(nextBillingStatus);
+          setBillingPlans(currentPlans);
           if (nextBillingAccess.access === "full") {
             billingHadFullAccessRef.current = true;
           }
-          setBillingRecovery(null);
+          if (nextBillingStatus === "unavailable") {
+            billingUnavailable = true;
+            setBillingRecovery({ kind: "temporary" });
+          } else {
+            setBillingRecovery(null);
+          }
         } catch {
           if (!isCurrent()) return null;
           billingUnavailable = true;
@@ -2666,6 +2680,7 @@ function LearnerApp({ initialPartnerFragment }) {
           setBillingOwnerUid(refreshUser.uid);
           setBillingAccess(null);
           setBillingStatus("unavailable");
+          setBillingPlans([]);
           setBillingRecovery({ kind: "temporary" });
         } finally {
           if (isCurrent()) setBillingBusy(false);
@@ -3193,6 +3208,16 @@ function LearnerApp({ initialPartnerFragment }) {
     if (platform === "web") {
       if (!user?.uid || currentAuthUidRef.current !== user.uid) {
         throw new Error("Please sign in again to continue.");
+      }
+      if (
+        billingOwnerUid !== user.uid ||
+        ownedBillingStatus === "unavailable" ||
+        !ownedBillingAccess ||
+        billingBusy ||
+        billingPlans.length === 0 ||
+        billingRecovery?.kind === "temporary"
+      ) {
+        throw new Error("Checkout is not available right now.");
       }
       const uid = user.uid;
       const generation = authGenerationRef.current;
@@ -4088,7 +4113,14 @@ function LearnerApp({ initialPartnerFragment }) {
             purchasesAvailable={platform === "native"}
             platform={platform}
             sponsored={sponsoredActive}
-            billingAvailable={platform === "web" && billingPlans.length > 0}
+            billingAvailable={
+              platform === "web" &&
+              ownedBillingStatus !== "unavailable" &&
+              Boolean(ownedBillingAccess) &&
+              !billingBusy &&
+              billingPlans.length > 0 &&
+              billingRecovery?.kind !== "temporary"
+            }
             billingPlans={billingPlans}
             billingStatus={ownedBillingStatus}
             billingAccess={billingAccess}
