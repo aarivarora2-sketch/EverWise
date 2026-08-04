@@ -71,6 +71,7 @@ import {
 } from "./utils/authErrors.js";
 import { warnIfNativeApiIsMissing } from "./utils/apiEndpoint";
 import {
+  authEmailToUsername,
   loginIdentifierToAuthEmail,
   normalizeUsername,
   usernameToAuthEmail,
@@ -1072,12 +1073,12 @@ function LearnerApp({ initialPartnerFragment }) {
                 },
               );
               setPartnerStatus("active");
-              updatePartnerRecovery({
-                kind: "missing-profile",
+              setProfileCompletion({
                 user: u,
                 entitlement: authoritativeAccess,
               });
-              setScreen("partner-error");
+              updatePartnerRecovery(null);
+              setScreen("interview");
             } else if (authoritativeAccess.status === "suspended") {
               setPartnerOwnerUid(u.uid);
               setPartner(
@@ -1809,9 +1810,14 @@ function LearnerApp({ initialPartnerFragment }) {
       researchSnapshot: _researchSnapshot,
       ...profileInterview
     } = interview;
+    const authEmail = completion.user.email || "";
+    const username = authEmailToUsername(authEmail);
+    const usesUsername = username !== authEmail;
     const initial = {
       name,
-      email: completion.user.email || interview.email || "",
+      ...(usesUsername
+        ? { username }
+        : { email: authEmail || interview.email || "" }),
       profileInterview,
       onboardingCompleted: true,
       scamsCaught: 0,
@@ -2654,7 +2660,7 @@ function LearnerApp({ initialPartnerFragment }) {
               : null
           }
           initialInterview={signupRetry?.interview || null}
-          existingAccountEmail={profileCompletion?.user.email || ""}
+          existingAccount={Boolean(profileCompletion)}
           externalBusy={partnerStatus === "claiming"}
           externalError={signupRetry?.error || ""}
           onComplete={

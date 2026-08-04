@@ -3113,7 +3113,7 @@ describe("sponsored signup orchestration", () => {
     window.history.replaceState(null, "", "/");
     const returningUser = {
       uid: "missing-profile-user",
-      email: "jane@example.com",
+      email: "everwise001@accounts.everwise.app",
       getIdToken: vi.fn(async () => "returning-id-token"),
     };
     mocks.getDoc.mockResolvedValue({ exists: () => false });
@@ -3131,28 +3131,283 @@ describe("sponsored signup orchestration", () => {
       await mocks.authCallback(returningUser);
     });
 
-    expect(
-      screen.getByText(/sponsored access is active, but your personal profile still needs to be completed/i),
-    ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Complete my profile" })).toBeVisible();
+    expect(screen.getByRole("heading", {
+      name: "Let’s personalize your EverWise lessons",
+    })).toBeVisible();
+    expect(screen.getByText(
+      "Your answers and lesson progress will be saved to this account.",
+    )).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Complete my profile" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Choose a password")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(returningUser.email);
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Complete my profile" }));
     await reachConsent(user);
     expect(screen.getByText("8 of 8")).toBeVisible();
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Choose a password")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Finish my profile" }));
 
     expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
     expect(mocks.createUserWithEmailAndPassword).not.toHaveBeenCalled();
     expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
     expect(mocks.setDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.setDoc.mock.calls[0][0]).toEqual({
+      collection: "users",
+      uid: "missing-profile-user",
+    });
     expect(mocks.setDoc.mock.calls[0][1]).toMatchObject({
-      email: "jane@example.com",
+      username: "everwise001",
       accessSource: "partner",
       partnerId: "community-partner",
     });
+    expect(mocks.setDoc.mock.calls[0][1]).not.toHaveProperty("email");
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
+  });
+
+  test("pre-provisioned real-email accounts retain email identity without creating or claiming an account", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "real-email-profile-user",
+      email: "jane@example.com",
+      getIdToken: vi.fn(async () => "real-email-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "authoritative-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await reachConsent(user);
+    await user.click(screen.getByRole("button", { name: "Finish my profile" }));
+
+    expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
+    expect(mocks.setDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.setDoc.mock.calls[0][0]).toEqual({
+      collection: "users",
+      uid: "real-email-profile-user",
+    });
+    expect(mocks.setDoc.mock.calls[0][1]).toMatchObject({
+      email: "jane@example.com",
+      accessSource: "partner",
+      partnerId: "authoritative-partner",
+    });
+    expect(mocks.setDoc.mock.calls[0][1]).not.toHaveProperty("username");
+    expect(mocks.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("profile write retry preserves the pre-provisioned UID and profile without another claim", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "retry-pre-provisioned-profile",
+      email: "everwise002@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "retry-profile-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    mocks.setDoc
+      .mockRejectedValueOnce(new Error("Firestore unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await reachConsent(user);
+    await user.click(screen.getByRole("button", { name: "Finish my profile" }));
+
+    const retry = await screen.findByRole("button", {
+      name: "Retry saving profile",
+    });
+    const [firstTarget, firstProfile] = mocks.setDoc.mock.calls[0];
+    expect(firstTarget).toEqual({
+      collection: "users",
+      uid: "retry-pre-provisioned-profile",
+    });
+    expect(firstProfile).toMatchObject({
+      username: "everwise002",
+      accessSource: "partner",
+      partnerId: "community-partner",
+    });
+    expect(firstProfile).not.toHaveProperty("email");
+
+    await user.click(retry);
+
+    expect(await screen.findByRole("button", { name: "Start learning" })).toBeVisible();
+    expect(mocks.setDoc).toHaveBeenCalledTimes(2);
+    expect(mocks.setDoc.mock.calls[1][0]).toEqual(firstTarget);
+    expect(mocks.setDoc.mock.calls[1][1]).toEqual(firstProfile);
+    expect(mocks.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("reload loads a saved pre-provisioned profile and routes the sponsored learner home", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "reload-pre-provisioned-profile",
+      email: "everwise003@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "reload-profile-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    const firstRender = render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await reachConsent(user);
+    await user.click(screen.getByRole("button", { name: "Finish my profile" }));
+    await screen.findByRole("button", { name: "Start learning" });
+    const savedProfile = mocks.setDoc.mock.calls[0][1];
+
+    firstRender.unmount();
+    mocks.getDoc.mockResolvedValue(profileSnapshot(savedProfile));
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    expect(mocks.setDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("Back from pre-provisioned setup returns to recoverable profile completion", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "back-from-pre-provisioned-profile",
+      email: "everwise004@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "back-profile-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Back to welcome" }));
+
+    expect(
+      screen.getByText(/sponsored access is active, but your personal profile still needs to be completed/i),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Complete my profile" })).toBeVisible();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("auth timing: logout during pre-provisioned setup clears the pending profile", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "logout-during-pre-provisioned-setup",
+      email: "everwise005@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "logout-setup-id-token"),
+    };
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    mocks.fetchPartnerAccess.mockResolvedValue({
+      status: "active",
+      partnerId: "community-partner",
+      name: "Community Partner",
+      branding: PARTNER,
+    });
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    expect(screen.getByRole("heading", {
+      name: "Let’s personalize your EverWise lessons",
+    })).toBeVisible();
+
+    await act(async () => {
+      await mocks.authCallback(null);
+    });
+
+    expect(await screen.findByRole("button", { name: "Get Started" })).toBeVisible();
+    expect(screen.queryByRole("heading", {
+      name: "Let’s personalize your EverWise lessons",
+    })).not.toBeInTheDocument();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
+  });
+
+  test("auth timing: account switch during pre-provisioned setup keeps the newer public account", async () => {
+    window.history.replaceState(null, "", "/");
+    const returningUser = {
+      uid: "old-pre-provisioned-profile",
+      email: "everwise006@accounts.everwise.app",
+      getIdToken: vi.fn(async () => "old-setup-id-token"),
+    };
+    const publicUser = {
+      uid: "new-public-setup-user",
+      email: "public@example.com",
+      getIdToken: vi.fn(async () => "public-setup-id-token"),
+    };
+    mocks.getDoc
+      .mockResolvedValueOnce({ exists: () => false })
+      .mockResolvedValueOnce(
+        profileSnapshot(learnerProfile({ name: "Public learner", email: "public@example.com" })),
+      );
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce({
+        status: "active",
+        partnerId: "community-partner",
+        name: "Community Partner",
+        branding: PARTNER,
+      })
+      .mockResolvedValueOnce({ status: "none" });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("button", { name: "Get Started" });
+    await act(async () => {
+      await mocks.authCallback(returningUser);
+    });
+    await user.type(screen.getByLabelText("What should we call you?"), "Jane");
+
+    await act(async () => {
+      await mocks.authCallback(publicUser);
+    });
+
+    expect(screen.getByRole("heading", { name: "Home screen" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(screen.getByText("Start free trial")).toBeVisible();
+    expect(screen.queryByText(/Full access provided by/i)).not.toBeInTheDocument();
+    expect(mocks.setDoc).not.toHaveBeenCalled();
+    expect(mocks.claimPartnerSeat).not.toHaveBeenCalled();
   });
 
   test("reports incomplete cleanup honestly and never offers account recreation", async () => {
@@ -3332,7 +3587,6 @@ describe("sponsored signup orchestration", () => {
     await act(async () => {
       await mocks.authCallback(returningUser);
     });
-    await user.click(screen.getByRole("button", { name: "Complete my profile" }));
     await reachConsent(user);
     await user.click(screen.getByRole("button", { name: "Finish my profile" }));
     await waitFor(() => expect(mocks.setDoc).toHaveBeenCalledTimes(1));
@@ -3384,7 +3638,6 @@ describe("sponsored signup orchestration", () => {
     await act(async () => {
       await mocks.authCallback(returningUser);
     });
-    await user.click(screen.getByRole("button", { name: "Complete my profile" }));
     await reachConsent(user);
     await user.click(screen.getByRole("button", { name: "Finish my profile" }));
     await waitFor(() => expect(mocks.setDoc).toHaveBeenCalledTimes(1));

@@ -205,7 +205,7 @@ function HelpfulNote({ children }) {
 export default function ProfileInterview({
   partner = null,
   initialInterview = null,
-  existingAccountEmail = "",
+  existingAccount = false,
   externalBusy = false,
   externalError = "",
   onComplete,
@@ -213,9 +213,9 @@ export default function ProfileInterview({
   onLogIn,
 }) {
   const contentRef = useRef(null);
-  const stepIds =
-    partner && !existingAccountEmail ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
-  const totalSteps = stepIds.length;
+  const activeStepIds =
+    partner && !existingAccount ? SPONSORED_STEP_IDS : PUBLIC_STEP_IDS;
+  const totalSteps = activeStepIds.length;
   const initial = initialInterview || {};
   const [stepIndex, setStepIndex] = useState(
     initialInterview ? totalSteps - 1 : 0,
@@ -238,9 +238,7 @@ export default function ProfileInterview({
   const [researchConsent, setResearchConsent] = useState(
     initial.researchConsent ?? null,
   );
-  const [email, setEmail] = useState(
-    existingAccountEmail || initial.email || "",
-  );
+  const [email, setEmail] = useState(initial.email || "");
   const [emailTouched, setEmailTouched] = useState(false);
   const [username, setUsername] = useState(initial.username || "");
   const [usernameTouched, setUsernameTouched] = useState(false);
@@ -250,7 +248,7 @@ export default function ProfileInterview({
   const [showHelp, setShowHelp] = useState(false);
   const isBusy = busy || externalBusy;
 
-  const step = stepIds[stepIndex];
+  const step = activeStepIds[stepIndex];
   const progress = useMemo(
     () => ((stepIndex + 1) / totalSteps) * 100,
     [stepIndex, totalSteps],
@@ -301,7 +299,7 @@ export default function ProfileInterview({
       return "Please choose Yes or No before continuing.";
     }
     if (step === 12) {
-      if (existingAccountEmail) return "";
+      if (existingAccount) return "";
       if (partner) {
         setEmailTouched(true);
         if (!email.trim()) return "Please enter your email.";
@@ -353,9 +351,9 @@ export default function ProfileInterview({
         accessibilityNeeds,
         trustedContact,
       };
-      if (partner) interview.email = normalizeEmail(email);
-      else interview.username = normalizeUsername(username);
-      if (partner && !existingAccountEmail) {
+      if (!existingAccount && partner) interview.email = normalizeEmail(email);
+      else if (!existingAccount) interview.username = normalizeUsername(username);
+      if (partner && !existingAccount) {
         interview.researchConsent = researchConsent;
         interview.researchSnapshot = buildResearchSnapshot(interview, {
           consent: researchConsent,
@@ -445,25 +443,28 @@ export default function ProfileInterview({
         <div className="flex items-start justify-between gap-3 pt-2">
           <div>
             <h1 className="page-title">
-              {step === 1
-                ? "Let’s make Everwise fit you"
+              {existingAccount && step === 1
+                ? "Let’s personalize your EverWise lessons"
+                : step === 1
+                  ? "Let’s make Everwise fit you"
                 : step === "consent"
                   ? "Your choice about research"
                 : step === 12
-                  ? existingAccountEmail
+                  ? existingAccount
                     ? "Finish your personal profile"
                     : "Save your personal plan"
                   : question.split("?")[0] + (question.includes("?") ? "?" : "")}
             </h1>
             {step === 1 ? (
               <p className="mt-3 text-lg leading-relaxed text-ink-soft">
-                A few simple questions will help us prepare your starting plan.
-                This takes about two minutes.
+                {existingAccount
+                  ? "Your answers and lesson progress will be saved to this account."
+                  : "A few simple questions will help us prepare your starting plan. This takes about two minutes."}
               </p>
             ) : null}
             {step === 12 ? (
               <p className="mt-3 text-lg leading-relaxed text-ink-soft">
-                {existingAccountEmail
+                {existingAccount
                   ? "Your secure account and sponsored access are already active. Finish these answers to rebuild your personal plan."
                   : "Create a secure account so your answers and lesson progress stay available."}
               </p>
@@ -672,7 +673,7 @@ export default function ProfileInterview({
 
         {step === 12 ? (
           <div className="mt-7 space-y-6 animate-fade-up">
-            {existingAccountEmail ? (
+            {existingAccount ? (
               <div className="rounded-2xl bg-cream-card px-5 py-5 text-lg leading-relaxed text-ink shadow-card">
                 <p className="font-bold">Account ready</p>
                 <p className="mt-1">
@@ -812,13 +813,13 @@ export default function ProfileInterview({
           disabled={isBusy}
         >
           {isBusy
-            ? existingAccountEmail
+            ? existingAccount
               ? "Saving your profile…"
               : partner
                 ? "Claiming your free access…"
               : "Saving your answers…"
             : stepIndex === totalSteps - 1
-              ? existingAccountEmail
+              ? existingAccount
                 ? "Finish my profile"
                 : "Build my plan"
               : stepIndex === 0
