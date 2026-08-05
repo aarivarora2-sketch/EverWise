@@ -55,3 +55,50 @@ test("every larger text step produces non-decreasing path geometry", () => {
     previous = current;
   }
 });
+
+// Placement mirrors LessonPath: the trail is centred between the two node
+// CIRCLES, clamped so a dot never lands on the label above it.
+const NODE_CIRCLE = 112;
+const DOT_LABEL_CLEARANCE = 12;
+
+function trailDots(textSize) {
+  const { nodeBoxHeight, nodeSlot } = getPathLayoutMetrics(textSize);
+  const labelBottom = nodeBoxHeight;
+  const circleBottom = NODE_CIRCLE;
+  const midpoint = (circleBottom + nodeSlot) / 2;
+  const half = Math.max(
+    0,
+    Math.min(
+      ((nodeSlot - circleBottom) * 0.33) / 2,
+      midpoint - (labelBottom + DOT_LABEL_CLEARANCE),
+    ),
+  );
+  return {
+    labelBottom,
+    circleBottom,
+    nextCircleTop: nodeSlot,
+    first: midpoint - half,
+    second: midpoint + half,
+  };
+}
+
+test("the trail sits evenly between the two node circles at every text size", () => {
+  for (let size = 1; size <= 10; size += 1) {
+    const d = trailDots(`size-${size}`);
+    const above = d.first - d.circleBottom;
+    const below = d.nextCircleTop - d.second;
+
+    // The whole complaint was that the dots hugged the lower node: 111px of
+    // space above them against 41px below.
+    assert.equal(
+      Math.round(above),
+      Math.round(below),
+      `size-${size}: trail is off-centre (${above} above, ${below} below)`,
+    );
+    // And they must still clear the label they sit under.
+    assert.ok(
+      d.first >= d.labelBottom,
+      `size-${size}: first dot overlaps the label`,
+    );
+  }
+});

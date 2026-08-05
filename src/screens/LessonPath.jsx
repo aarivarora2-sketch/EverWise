@@ -27,6 +27,12 @@ const PHASE_TOP_FIRST = 8; // no dead space above Phase 1
 const CLAY = "#B5502E";
 const CREAM = "#EFE9DC";
 const DOT_LOCKED = "rgba(34, 32, 28, 0.13)";
+// Diameter of a node's circle (h-28). nodeBoxHeight also covers the label
+// underneath it, which is why the two are not interchangeable when placing the
+// trail: the trail should read as running between the circles a learner taps.
+const NODE_CIRCLE = 112;
+// Keeps a dot from crowding the label above it.
+const DOT_LABEL_CLEARANCE = 12;
 
 // Continuous wave rather than a fixed repeating cycle, so the path never
 // lands on exactly the same bend twice. The first lesson of each phase stays
@@ -211,15 +217,29 @@ export default function LessonPath({
 
     const ax = a.offsetX ?? 0;
     const bx = b.offsetX ?? 0;
-    const ay = a.top + nodeBoxHeight;
+    const labelBottom = a.top + nodeBoxHeight;
     const by = b.top;
-    if (by <= ay) continue;
+    if (by <= labelBottom) continue;
+
+    // Centre the pair on the midpoint between the two CIRCLES, not on the gap
+    // below A's label. Measuring from the label made the trail sit far from the
+    // node above and almost touch the one below (111px against 41px at the
+    // default text size), so it read as belonging to the next lesson rather
+    // than joining the two.
+    const circleBottom = a.top + Math.round(NODE_CIRCLE * scale);
+    const midpoint = (circleBottom + by) / 2;
+    const desiredHalf = ((by - circleBottom) * 0.33) / 2;
+    // ...but never so high that a dot lands on the label above it.
+    const clearanceHalf = midpoint - (labelBottom + DOT_LABEL_CLEARANCE);
+    const half = Math.max(0, Math.min(desiredHalf, clearanceHalf));
 
     // Lights up once the lesson BEFORE the dots is complete.
     const color = doneSet.has(a.id) ? getPhase(a.phase).color : DOT_LOCKED;
 
-    [0.26, 0.74].forEach((t, k) => {
-      const dotY = ay + (by - ay) * t;
+    [midpoint - half, midpoint + half].forEach((dotY, k) => {
+      // Keep the horizontal drift matched to the vertical position so the
+      // trail still curves with the snake.
+      const t = (dotY - a.top) / (by - a.top);
       dots.push({
         key: `${a.id}-${b.id}-${k}`,
         x: ax + (bx - ax) * t,
