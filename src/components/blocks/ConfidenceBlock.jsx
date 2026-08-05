@@ -12,6 +12,7 @@ export default function ConfidenceBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const [mode, setMode] = useState("ask"); // ask | practice
   const [round, setRound] = useState(0);
@@ -57,6 +58,7 @@ export default function ConfidenceBlock({
         progress={progress}
         progressTotal={progressTotal}
         onBack={onBack}
+      onExit={onExit}
         footer={
           selected != null ? (
             <button className="btn-primary" onClick={nextQuestion}>

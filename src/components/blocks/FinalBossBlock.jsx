@@ -12,6 +12,7 @@ export default function FinalBossBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const [selected, setSelected] = useState(null);
   const answered = selected != null;
@@ -32,6 +33,7 @@ export default function FinalBossBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       footer={
         answered ? (
           <button className="btn-primary" onClick={onContinue}>

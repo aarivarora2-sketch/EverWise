@@ -8,6 +8,7 @@ export default function VideoBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const hasVideo = Boolean(block.videoId);
 
@@ -17,6 +18,7 @@ export default function VideoBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       footer={
         <button className="btn-primary" onClick={onContinue}>

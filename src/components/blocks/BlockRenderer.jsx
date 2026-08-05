@@ -38,6 +38,7 @@ export default function BlockRenderer({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const Component = BLOCKS[block.type];
   if (!Component) {
@@ -59,6 +60,7 @@ export default function BlockRenderer({
       progressTotal={progressTotal}
       onContinue={onContinue}
       onBack={onBack}
+      onExit={onExit}
     />
   );
 }

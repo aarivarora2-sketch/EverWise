@@ -1,7 +1,7 @@
 import ReadAloud from "../ReadAloud";
 import BlockShell from "./BlockShell";
 
-export default function LearnBlock({ block, progress, progressTotal, onContinue, onBack }) {
+export default function LearnBlock({ block, progress, progressTotal, onContinue, onBack, onExit }) {
   const speakParts = [
     block.heading,
     block.text,
@@ -15,6 +15,7 @@ export default function LearnBlock({ block, progress, progressTotal, onContinue,
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       footer={
         <button className="btn-primary" onClick={onContinue}>

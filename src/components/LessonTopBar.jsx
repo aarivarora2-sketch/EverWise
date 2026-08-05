@@ -8,6 +8,7 @@ export default function LessonTopBar({
   progressTotal = 1,
   onBack,
   onSkip,
+  onExit,
 }) {
   const fraction =
     progressTotal > 0 ? Math.min(1, Math.max(0, progress / progressTotal)) : 0;
@@ -31,18 +32,31 @@ export default function LessonTopBar({
           </span>
         </span>
 
-        {onSkip ? (
-          <button
-            type="button"
-            onClick={onSkip}
-            aria-label="Skip this step"
-            className="lesson-skip min-h-11 max-w-full justify-self-end rounded-xl px-3 py-2 text-center text-base font-bold leading-tight text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
-          >
-            Skip
-          </button>
-        ) : (
-          <span className="lesson-skip-spacer" aria-hidden="true" />
-        )}
+        <span className="lesson-top-actions flex min-w-0 items-center justify-end gap-1 justify-self-end">
+          {onSkip ? (
+            <button
+              type="button"
+              onClick={onSkip}
+              aria-label="Skip this step"
+              className="lesson-skip min-h-11 rounded-xl px-3 py-2 text-center text-base font-bold leading-tight text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+            >
+              Skip
+            </button>
+          ) : null}
+          {onExit ? (
+            <button
+              type="button"
+              onClick={onExit}
+              aria-label="Save and exit this lesson"
+              className="lesson-exit min-h-11 rounded-xl px-3 py-2 text-center text-base font-bold leading-tight text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
+            >
+              Exit
+            </button>
+          ) : null}
+          {!onSkip && !onExit ? (
+            <span className="lesson-skip-spacer" aria-hidden="true" />
+          ) : null}
+        </span>
       </div>
 
       <div
