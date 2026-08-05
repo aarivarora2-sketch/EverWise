@@ -704,10 +704,7 @@ test("malformed, unknown, non-JSON, and network errors collapse without disclosu
   } finally {
     Object.assign(console, originalConsole);
   }
-  // TEMP DIAGNOSTIC ROUND: billingRequest has temporary console.log calls
-  // for production debugging; this assertion is restored when those are
-  // removed.
-  void logged;
+  assert.deepEqual(logged, []);
 });
 
 test("declared oversize and invalid headers terminate the body without reading it", async () => {
