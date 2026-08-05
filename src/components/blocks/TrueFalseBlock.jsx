@@ -111,7 +111,7 @@ export default function TrueFalseBlock({
                 isCorrect ? "text-sage-dark" : "text-alert"
               }`}
             >
-              {isCorrect ? "That's right" : "Good to know"}
+              {isCorrect ? "That's right" : "Not quite"}
             </p>
           </div>
           {q.explanation && (

@@ -1263,12 +1263,13 @@ describe("custom radio accessibility", () => {
     expect(monthly).toHaveFocus();
     expect(monthly).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("button", { name: "Continue with monthly" })).toBeVisible();
+    // Monthly is presented first, so Home lands on it and End on Annual.
     await user.keyboard("{Home}");
-    expect(annual).toHaveFocus();
-    expect(annual).toHaveAttribute("aria-checked", "true");
-    await user.keyboard("{End}");
     expect(monthly).toHaveFocus();
     expect(monthly).toHaveAttribute("aria-checked", "true");
+    await user.keyboard("{End}");
+    expect(annual).toHaveFocus();
+    expect(annual).toHaveAttribute("aria-checked", "true");
   });
 
   test("browser paywall does not promise or restore an unavailable App Store purchase", async () => {

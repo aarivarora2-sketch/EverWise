@@ -422,7 +422,11 @@ export default function Paywall({
     );
   }
 
-  const offerList = offers ? Object.values(offers) : [];
+  // Monthly first: the lower commitment is the easier first step for someone
+  // still deciding, so it should be the option they read first.
+  const offerList = offers
+    ? ["monthly", "annual"].map((key) => offers[key]).filter(Boolean)
+    : [];
   if (!native && offers === null) {
     return (
       <Unavailable

@@ -224,6 +224,8 @@ describe("browser Stripe paywall", () => {
     const annual = within(group).getByRole("radio", { name: /Annual/i });
     const monthly = within(group).getByRole("radio", { name: /Monthly/i });
 
+    // Monthly is presented first; Annual stays the selected default, so it
+    // keeps the single tab stop.
     expect(annual).toHaveAttribute("tabindex", "0");
     expect(monthly).toHaveAttribute("tabindex", "-1");
     annual.focus();
@@ -234,13 +236,13 @@ describe("browser Stripe paywall", () => {
     await user.keyboard("{ArrowDown}");
     expect(annual).toHaveFocus();
     await user.keyboard("{End}");
-    expect(monthly).toHaveFocus();
+    expect(annual).toHaveFocus();
     await user.keyboard("{Home}");
-    expect(annual).toHaveFocus();
-    await user.keyboard("{ArrowUp}");
     expect(monthly).toHaveFocus();
-    await user.keyboard("{ArrowRight}");
+    await user.keyboard("{ArrowUp}");
     expect(annual).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(monthly).toHaveFocus();
   });
 
   test("keeps the selected trial label while external or local Checkout work disables controls", async () => {
