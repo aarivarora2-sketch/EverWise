@@ -1683,32 +1683,6 @@ function LearnerApp({ initialPartnerFragment }) {
   }, [access, partnerOwnerUid, partnerStatus, screen, user?.uid]);
 
   useEffect(() => {
-    if (!authChecked || !authSettledRef.current || !user?.uid || !profile) return;
-    if (sponsoredActive || partnerStatus === "suspended") return;
-    if (
-      platform === "web" &&
-      billingBusy &&
-      ownedBillingStatus === "unavailable"
-    ) {
-      return;
-    }
-    if (access || screen !== "home") return;
-    setPaywallVariant("subscribe");
-    setScreen("paywall");
-  }, [
-    access,
-    authChecked,
-    billingBusy,
-    ownedBillingStatus,
-    platform,
-    profile,
-    partnerStatus,
-    screen,
-    sponsoredActive,
-    user?.uid,
-  ]);
-
-  useEffect(() => {
     if (
       platform !== "web" ||
       !authChecked ||
@@ -4156,8 +4130,16 @@ function LearnerApp({ initialPartnerFragment }) {
               setBillingRecovery(null);
               setBillingRefreshAttempt((attempt) => attempt + 1);
             }}
-            onLogOut={logOut}
-            onContinue={goHome}
+            onStartLearning={() => {
+              clearPendingProtectedNavigation();
+              setBillingRecovery(null);
+              goHome();
+            }}
+            onMaybeLater={() => {
+              clearPendingProtectedNavigation();
+              setBillingRecovery(null);
+              goHome();
+            }}
           />
         </>
       );
