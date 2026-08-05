@@ -314,11 +314,16 @@ const phase1Lessons = [
         explanation:
           "A phone, password and charger help you get online. A website is one of the places you arrive at once you are."
       },
-      { question: "What app helps you visit websites?", options: ["Calculator", "Camera", "Browser", "Flashlight"], correctIndex: 2 },
-      { question: "True or False: The internet only works on computers.", options: ["True", "False"], correctIndex: 1 },
-      { question: "The ______ connects millions of devices.", options: ["Internet", "Book", "Phone"], correctIndex: 0 },
-      { question: "Linda wants to send an email. What does she need?", options: ["A flashlight", "A television", "An internet connection", "A calculator"], correctIndex: 2 },
-      { question: "Which of these is NOT using the internet?", options: ["Looking up directions", "Watching Netflix", "Sending an email", "Reading a paper book"], correctIndex: 3 }
+      { question: "What app helps you visit websites?", options: ["Calculator", "Camera", "Browser", "Flashlight"], correctIndex: 2,
+        explanation: "A browser is the app that opens websites — Chrome, Safari or Edge. The calculator, camera and flashlight all work with no internet at all." },
+      { question: "True or False: The internet only works on computers.", options: ["True", "False"], correctIndex: 1,
+        explanation: "Phones, tablets, smart TVs and speakers use the internet too. A computer is just one way in." },
+      { question: "The ______ connects millions of devices.", options: ["Internet", "Book", "Phone"], correctIndex: 0,
+        explanation: "A book and a phone are each one thing. The internet is the network that links them all together." },
+      { question: "Linda wants to send an email. What does she need?", options: ["A flashlight", "A television", "An internet connection", "A calculator"], correctIndex: 2,
+        explanation: "Email travels over the internet, so without a connection there is nothing to carry it — however good the device is." },
+      { question: "Which of these is NOT using the internet?", options: ["Looking up directions", "Watching Netflix", "Sending an email", "Reading a paper book"], correctIndex: 3,
+        explanation: "Directions, Netflix and email all fetch something from elsewhere. A paper book already has everything on its pages." }
     ],
     complete: {
       title: "Great Job!",
@@ -528,14 +533,22 @@ const phase1Lessons = [
       }
     ],
     quiz: [
-      { question: "What does AI stand for?", options: ["Automatic Internet", "Artificial Internet", "Artificial Intelligence", "Advanced Information"], correctIndex: 2 },
-      { question: "Which of these uses AI?", options: ["Printed newspaper", "Flashlight", "Siri", "Pencil"], correctIndex: 2 },
-      { question: "True or False: AI is always correct.", options: ["True", "False"], correctIndex: 1 },
-      { question: "AI stands for ______ Intelligence.", options: ["Artificial", "Computer", "Internet"], correctIndex: 0 },
-      { question: "Which is a good use of AI?", options: ["Sharing your banking password", "Letting AI make every medical decision", "Asking AI to help write an email", "Giving AI your Social Security number"], correctIndex: 2 },
-      { question: "Which of these can AI NOT help with?", options: ["Writing letters", "Answering questions", "Translating languages", "Fixing a broken television"], correctIndex: 3 },
-      { question: "Mary asks AI to explain what Wi-Fi is. Is this a good use of AI?", options: ["No", "Yes"], correctIndex: 1 },
-      { question: "When should you double-check AI's answer?", options: ["Never", "Only if it's funny", "When the information is important, especially for health, money, or legal matters", "Only on weekends"], correctIndex: 2 }
+      { question: "What does AI stand for?", options: ["Automatic Internet", "Artificial Internet", "Artificial Intelligence", "Advanced Information"], correctIndex: 2,
+        explanation: "Artificial Intelligence. “Artificial” because people built it, “intelligence” because it can work things out. It is not a kind of internet." },
+      { question: "Which of these uses AI?", options: ["Printed newspaper", "Flashlight", "Siri", "Pencil"], correctIndex: 2,
+        explanation: "Siri listens, works out what you meant, and replies. A newspaper, flashlight and pencil do the same thing every time, with no thinking involved." },
+      { question: "True or False: AI is always correct.", options: ["True", "False"], correctIndex: 1,
+        explanation: "AI can sound completely confident and still be wrong. Treat it like a knowledgeable stranger: helpful, but worth checking." },
+      { question: "AI stands for ______ Intelligence.", options: ["Artificial", "Computer", "Internet"], correctIndex: 0,
+        explanation: "Artificial means made by people. The word describes who built it, not what it runs on." },
+      { question: "Which is a good use of AI?", options: ["Sharing your banking password", "Letting AI make every medical decision", "Asking AI to help write an email", "Giving AI your Social Security number"], correctIndex: 2,
+        explanation: "Helping you word something is safe. Never hand over passwords or a Social Security number, and never let AI make a medical decision for you." },
+      { question: "Which of these can AI NOT help with?", options: ["Writing letters", "Answering questions", "Translating languages", "Fixing a broken television"], correctIndex: 3,
+        explanation: "AI works with words and information. It cannot pick up a screwdriver — a physical repair needs a person." },
+      { question: "Mary asks AI to explain what Wi-Fi is. Is this a good use of AI?", options: ["No", "Yes"], correctIndex: 1,
+        explanation: "Explaining something in plain language is exactly what AI is good at, and nothing private is being shared." },
+      { question: "When should you double-check AI's answer?", options: ["Never", "Only if it's funny", "When the information is important, especially for health, money, or legal matters", "Only on weekends"], correctIndex: 2,
+        explanation: "AI is often right, but not always. The more the answer matters — health, money, legal — the more it is worth confirming with a doctor, your bank, or an official website." }
     ],
     complete: {
       title: "Great Job!",
@@ -735,14 +748,22 @@ const phase1Lessons = [
       }
     ],
     quiz: [
-      { question: "What is ChatGPT?", options: ["A search engine", "A phone app store", "An AI assistant that answers questions", "A Wi-Fi network"], correctIndex: 2 },
-      { question: "What is a prompt?", options: ["A password", "A website", "The question or instruction you type into ChatGPT", "A picture"], correctIndex: 2 },
-      { question: "True or False: ChatGPT always gives perfect answers.", options: ["True", "False"], correctIndex: 1 },
-      { question: "The message you type into ChatGPT is called a ______.", options: ["Prompt", "Internet", "Phone"], correctIndex: 0 },
-      { question: "Which is a good use of ChatGPT?", options: ["Recovering your bank password", "Diagnosing a medical emergency", "Helping write a thank-you letter", "Accessing your email account"], correctIndex: 2 },
-      { question: "Which information should you NOT share with ChatGPT?", options: ["Your favorite recipe", "Passwords, Social Security numbers, and bank information", "A question about the weather"], correctIndex: 1 },
-      { question: "Susan asks ChatGPT to explain what cybersecurity means. Is this a good use of ChatGPT?", options: ["No", "Yes"], correctIndex: 1 },
-      { question: "You need help writing an email to your insurance company. What should you do?", options: ["Avoid ChatGPT completely.", "Give ChatGPT your password.", "Ask ChatGPT to help draft the email, then review it before sending.", "Ask ChatGPT to log in to your account for you."], correctIndex: 2 }
+      { question: "What is ChatGPT?", options: ["A search engine", "A phone app store", "An AI assistant that answers questions", "A Wi-Fi network"], correctIndex: 2,
+        explanation: "You type a question and it writes an answer back. A search engine hands you a list of links instead; ChatGPT replies in its own words." },
+      { question: "What is a prompt?", options: ["A password", "A website", "The question or instruction you type into ChatGPT", "A picture"], correctIndex: 2,
+        explanation: "A prompt is simply what you ask it. The clearer your prompt, the more useful the answer." },
+      { question: "True or False: ChatGPT always gives perfect answers.", options: ["True", "False"], correctIndex: 1,
+        explanation: "It can be confidently wrong, and it can invent details that sound right. Check anything that matters." },
+      { question: "The message you type into ChatGPT is called a ______.", options: ["Prompt", "Internet", "Phone"], correctIndex: 0,
+        explanation: "Prompt is just the name for the question or instruction you type." },
+      { question: "Which is a good use of ChatGPT?", options: ["Recovering your bank password", "Diagnosing a medical emergency", "Helping write a thank-you letter", "Accessing your email account"], correctIndex: 2,
+        explanation: "Wording a letter is safe. It cannot recover passwords or reach your email, and a medical emergency needs a real doctor or 911." },
+      { question: "Which information should you NOT share with ChatGPT?", options: ["Your favorite recipe", "Passwords, Social Security numbers, and bank information", "A question about the weather"], correctIndex: 1,
+        explanation: "A recipe or a weather question gives nothing away. Passwords, Social Security numbers and bank details should never be typed into any chat." },
+      { question: "Susan asks ChatGPT to explain what cybersecurity means. Is this a good use of ChatGPT?", options: ["No", "Yes"], correctIndex: 1,
+        explanation: "Asking for a plain-language explanation is a good use, and she is not sharing anything private." },
+      { question: "You need help writing an email to your insurance company. What should you do?", options: ["Avoid ChatGPT completely.", "Give ChatGPT your password.", "Ask ChatGPT to help draft the email, then review it before sending.", "Ask ChatGPT to log in to your account for you."], correctIndex: 2,
+        explanation: "Drafting is a genuine help, and reading it over before sending keeps you in control. It cannot log in to your account, and it never needs your password." }
     ],
     complete: {
       title: "Great Job!",
@@ -930,14 +951,22 @@ const phase1Lessons = [
       }
     ],
     quiz: [
-      { question: "What does a search engine do?", options: ["Connects your Wi-Fi", "Sends text messages", "Helps you find information on the internet", "Stores your passwords"], correctIndex: 2 },
-      { question: "Which of these is a search engine?", options: ["Amazon", "Netflix", "Google", "YouTube"], correctIndex: 2 },
-      { question: "True or False: Google is the internet.", options: ["True", "False"], correctIndex: 1 },
-      { question: "The words you type into a search engine are called ______.", options: ["Keywords", "Password", "Photo"], correctIndex: 0 },
-      { question: "You want to find a nearby pizza restaurant. What should you search?", options: ["Pizza", "Restaurant", "Pizza near me", "Dinner"], correctIndex: 2 },
-      { question: "Which website would you be more likely to trust for weather information?", options: ["A website with many pop-up ads and no organization name", "A well-known weather website or your local weather service"], correctIndex: 1 },
-      { question: "Mary wants to learn how to knit. What should she use?", options: ["Flashlight", "Calculator", "Search engine", "Camera"], correctIndex: 2 },
-      { question: "When using a search engine, what should you do before clicking a result?", options: ["Click the first result without looking", "Click every result", "Read the title and make sure the website looks trustworthy", "Ignore the website address"], correctIndex: 2 }
+      { question: "What does a search engine do?", options: ["Connects your Wi-Fi", "Sends text messages", "Helps you find information on the internet", "Stores your passwords"], correctIndex: 2,
+        explanation: "It looks across the internet and shows you where an answer might be. It does not set up your Wi-Fi or keep your passwords." },
+      { question: "Which of these is a search engine?", options: ["Amazon", "Netflix", "Google", "YouTube"], correctIndex: 2,
+        explanation: "Google searches the whole web. Amazon, Netflix and YouTube only search inside their own shop or library." },
+      { question: "True or False: Google is the internet.", options: ["True", "False"], correctIndex: 1,
+        explanation: "Google is one way to find things on the internet, like the index in a library. The library is far bigger than its index." },
+      { question: "The words you type into a search engine are called ______.", options: ["Keywords", "Password", "Photo"], correctIndex: 0,
+        explanation: "Keywords are the few important words that describe what you are looking for." },
+      { question: "You want to find a nearby pizza restaurant. What should you search?", options: ["Pizza", "Restaurant", "Pizza near me", "Dinner"], correctIndex: 2,
+        explanation: "Adding “near me” tells the search engine where you are. “Pizza” or “dinner” on their own could return anything, anywhere." },
+      { question: "Which website would you be more likely to trust for weather information?", options: ["A website with many pop-up ads and no organization name", "A well-known weather website or your local weather service"], correctIndex: 1,
+        explanation: "A recognisable name is accountable for being right. Heavy pop-ups and no company name are signs a site exists to make money, not to inform." },
+      { question: "Mary wants to learn how to knit. What should she use?", options: ["Flashlight", "Calculator", "Search engine", "Camera"], correctIndex: 2,
+        explanation: "A search engine will find guides and videos. A flashlight, calculator or camera cannot look anything up." },
+      { question: "When using a search engine, what should you do before clicking a result?", options: ["Click the first result without looking", "Click every result", "Read the title and make sure the website looks trustworthy", "Ignore the website address"], correctIndex: 2,
+        explanation: "The first result is not always the best, or the safest. A quick look at the name and web address avoids most bad sites." }
     ],
     complete: {
       title: "Great Job!",
