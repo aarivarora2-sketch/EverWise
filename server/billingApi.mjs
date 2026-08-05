@@ -50,6 +50,8 @@ const errorResponse = (response, error) => {
     });
     return;
   }
+  // TEMP DIAGNOSTIC - remove before merging a real fix.
+  console.error("[DIAG billingApi] unhandled error: " + (error?.stack || error));
   jsonResponse(response, 503, {
     error: {
       code: "BILLING_UNAVAILABLE",
