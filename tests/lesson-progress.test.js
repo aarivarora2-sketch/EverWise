@@ -22,6 +22,8 @@ function memoryStorage(initial = {}) {
 }
 
 const POSITION = { phase: "quiz", blockIndex: 3, quizIndex: 2, score: 1 };
+// Reading back always yields a normalised queue, empty when none was saved.
+const STORED = { ...POSITION, reviewQueue: [] };
 
 test("a saved place is returned to the same learner and lesson only", () => {
   const storage = memoryStorage();
@@ -32,7 +34,7 @@ test("a saved place is returned to the same learner and lesson only", () => {
 
   assert.deepEqual(
     readLessonPosition({ uid: "u1", lessonId: "internet", storage }),
-    POSITION,
+    STORED,
   );
   // A different lesson, or a different learner on the same device, must not
   // inherit someone else's place.
@@ -47,7 +49,7 @@ test("finishing or leaving clears only the place it should", () => {
 
   clearLessonPosition({ uid: "u1", lessonId: "internet", storage });
   assert.equal(readLessonPosition({ uid: "u1", lessonId: "internet", storage }), null);
-  assert.deepEqual(readLessonPosition({ uid: "u1", lessonId: "ai", storage }), POSITION);
+  assert.deepEqual(readLessonPosition({ uid: "u1", lessonId: "ai", storage }), STORED);
 
   // Signing out wipes every place, so a shared device never shows the next
   // person where the previous learner had reached.
@@ -113,4 +115,39 @@ test("an invalid position is never written", () => {
     );
   }
   assert.equal(readLessonPosition({ uid: "u1", lessonId: "internet", storage }), null);
+});
+
+test("a review place keeps the questions still owed a correct answer", () => {
+  const storage = memoryStorage();
+  const reviewing = {
+    phase: "review",
+    blockIndex: 4,
+    quizIndex: 0,
+    score: 2,
+    reviewQueue: [1, 3],
+  };
+  assert.equal(
+    saveLessonPosition({ uid: "u1", lessonId: "internet", position: reviewing, storage }),
+    true,
+  );
+  assert.deepEqual(
+    readLessonPosition({ uid: "u1", lessonId: "internet", storage }),
+    reviewing,
+  );
+});
+
+test("a corrupt review queue is rejected rather than half-trusted", () => {
+  for (const reviewQueue of [[-1], [2.5], ["1"], [10_000], "nope", {}]) {
+    const storage = memoryStorage();
+    assert.equal(
+      saveLessonPosition({
+        uid: "u1",
+        lessonId: "internet",
+        position: { phase: "review", blockIndex: 0, quizIndex: 0, score: 0, reviewQueue },
+        storage,
+      }),
+      false,
+      `accepted bad queue: ${JSON.stringify(reviewQueue)}`,
+    );
+  }
 });
