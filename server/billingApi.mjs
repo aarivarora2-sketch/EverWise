@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto";
 import { FIREBASE_CERTIFICATES_UNAVAILABLE_CODE } from "./firebaseTokenVerifier.mjs";
 
 const MAXIMUM_BODY_BYTES = 256 * 1024;
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["canceled", "incomplete_expired"]);
 const BILLING_PATHS = new Map([
   ["/api/billing/plans", "plans"],
   ["/api/billing/access", "access"],
   ["/api/billing/checkout", "checkout"],
   ["/api/billing/portal", "portal"],
+  ["/api/billing/cancel", "cancel"],
 ]);
 
 class BillingApiError extends Error {
@@ -718,6 +720,41 @@ export const createBillingApi = ({
     return { url: hostedUrl(session.url, "billing.stripe.com") };
   };
 
+  // Cancels the caller's own subscription so deleting an account cannot leave
+  // a live Stripe subscription billing a card that its owner can no longer
+  // reach. The uid comes from the verified Firebase token and the subscription
+  // id is read from this server's own store keyed by that uid, so a caller can
+  // never name someone else's subscription.
+  const cancelOwnSubscription = async (uid) => {
+    await requireHealthyBilling();
+    const record = await store.getByUid(uid);
+    if (record !== null && !isPlainObject(record)) {
+      throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+    }
+    const subscriptionId = record?.subscriptionId ?? null;
+    if (subscriptionId === null) {
+      // No live subscription: deleting the account is already safe.
+      return { canceled: false };
+    }
+    if (typeof subscriptionId !== "string" || !subscriptionId) {
+      throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+    }
+    const canceled = await gateway.cancelSubscription({
+      uid,
+      subscriptionId,
+      operationAttempt: operationAttempt("cancel"),
+    });
+    // Only report success once Stripe confirms a terminal state, so the client
+    // never deletes the account believing billing has stopped when it has not.
+    if (
+      !isPlainObject(canceled) ||
+      !TERMINAL_SUBSCRIPTION_STATUSES.has(canceled.status)
+    ) {
+      throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
+    }
+    return { canceled: true };
+  };
+
   const respondForRoute = async ({ route, learner, request, response, body, bodyByteLength }) => {
     const parsedBody = await resolveBody(request, body, bodyByteLength);
     if (route === "plans") {
@@ -742,6 +779,11 @@ export const createBillingApi = ({
     if (route === "portal") {
       requireExactKeys(parsedBody, []);
       jsonResponse(response, 200, await createPortal(learner.uid));
+      return;
+    }
+    if (route === "cancel") {
+      requireExactKeys(parsedBody, []);
+      jsonResponse(response, 200, await cancelOwnSubscription(learner.uid));
       return;
     }
     throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");

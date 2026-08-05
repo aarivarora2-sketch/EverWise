@@ -140,6 +140,7 @@ const mocks = vi.hoisted(() => ({
   credential: vi.fn(),
   deleteDoc: vi.fn(),
   deleteUser: vi.fn(),
+  cancelBillingSubscription: vi.fn(async () => ({ canceled: false })),
   createBillingCheckout: vi.fn(),
   createBillingPortal: vi.fn(),
   fetchBillingAccess: vi.fn(),
@@ -185,6 +186,7 @@ vi.mock("firebase/firestore", () => ({
 
 vi.mock("../src/firebase", () => ({ auth: {}, db: {} }));
 vi.mock("../src/services/billingAccess.js", () => ({
+  cancelBillingSubscription: mocks.cancelBillingSubscription,
   createBillingCheckout: mocks.createBillingCheckout,
   createBillingPortal: mocks.createBillingPortal,
   fetchBillingAccess: mocks.fetchBillingAccess,
@@ -2584,6 +2586,48 @@ describe("sponsored signup orchestration", () => {
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "We could not delete your account right now. Your saved profile was restored.",
+    );
+  });
+
+  test("cancels the subscription before destroying anything on deletion", async () => {
+    const { returningUser, user } = await openReturningPublicSettings();
+    const order = [];
+    mocks.cancelBillingSubscription.mockImplementation(async () => {
+      order.push("cancel");
+      return { canceled: true };
+    });
+    mocks.deleteDoc.mockImplementation(async () => {
+      order.push("deleteDoc");
+    });
+    mocks.deleteUser.mockImplementation(async () => {
+      order.push("deleteUser");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+
+    await waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledWith(returningUser));
+    expect(mocks.cancelBillingSubscription).toHaveBeenCalledWith(returningUser);
+    // Billing must stop first: deleting the Firebase user first would leave a
+    // live subscription charging a card its owner can no longer reach.
+    expect(order).toEqual(["cancel", "deleteDoc", "deleteUser"]);
+  });
+
+  test("aborts deletion and keeps the account when the subscription cannot be cancelled", async () => {
+    const { user } = await openReturningPublicSettings();
+    mocks.cancelBillingSubscription.mockRejectedValue(
+      new Error("billing unavailable"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+
+    await waitFor(() =>
+      expect(mocks.cancelBillingSubscription).toHaveBeenCalledTimes(1),
+    );
+    // Nothing may be destroyed while the subscription is still live.
+    expect(mocks.deleteDoc).not.toHaveBeenCalled();
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /could not cancel your subscription/i,
     );
   });
 

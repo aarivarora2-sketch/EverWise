@@ -643,7 +643,8 @@ export default function Settings({
             <p className="text-xl font-bold text-ink">Delete your account?</p>
             <p className="mt-2 text-lg leading-snug text-ink-soft">
               This permanently deletes your account, progress, and badges.
-              This cannot be undone.
+              Any active subscription is cancelled first, so you will not be
+              billed again. This cannot be undone.
             </p>
             <div className="mt-4">
               <label

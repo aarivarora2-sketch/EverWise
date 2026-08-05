@@ -547,6 +547,25 @@ export function createBillingCheckout(user, plan, options) {
   });
 }
 
+const normalizeCancellation = (payload) => {
+  if (!hasExactKeys(payload, ["canceled"])) return null;
+  if (typeof payload.canceled !== "boolean") return null;
+  return { canceled: payload.canceled };
+};
+
+// Cancels the signed-in learner's own subscription. Used before account
+// deletion so a deleted account cannot leave a live subscription billing a
+// card its owner can no longer reach.
+export function cancelBillingSubscription(user, options) {
+  return billingRequest({
+    user,
+    path: "/api/billing/cancel",
+    body: {},
+    normalize: normalizeCancellation,
+    options,
+  });
+}
+
 export function createBillingPortal(user, options) {
   return billingRequest({
     user,
