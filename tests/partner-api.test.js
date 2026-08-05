@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -322,6 +322,40 @@ async function startPartnerServer(t, { localQaOrigin } = {}) {
   await waitForServer(child, `${baseUrl}/healthz`, () => stderrText);
   return { baseUrl, created };
 }
+
+test("server starts when executed through the deployed release symlink", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "everwise-server-symlink-"));
+  const linkedRoot = join(directory, "everwise-current");
+  await symlink(join(import.meta.dirname, ".."), linkedRoot, "dir");
+  const port = await reservePort();
+  let stderrText = "";
+  const child = spawn(process.execPath, [join(linkedRoot, "server.mjs")], {
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      EVERWISE_PARTNER_STORE_PATH: join(directory, "partners.json"),
+      OPENAI_API_KEY: "",
+      ELEVENLABS_API_KEY: "",
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderrText += chunk;
+  });
+  t.after(async () => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const health = await waitForServer(
+    child,
+    `http://127.0.0.1:${port}/healthz`,
+    () => stderrText,
+  );
+  assert.equal(health.status, 200);
+});
 
 function deferred() {
   let resolve;

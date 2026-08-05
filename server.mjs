@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -610,7 +611,11 @@ export async function createEverWiseApplication({
 
 function isDirectExecution() {
   if (!process.argv[1]) return false;
-  return pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+  try {
+    return pathToFileURL(realpathSync(resolve(process.argv[1]))).href === import.meta.url;
+  } catch {
+    return false;
+  }
 }
 
 if (isDirectExecution()) {
