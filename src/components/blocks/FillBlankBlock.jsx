@@ -17,7 +17,13 @@ export default function FillBlankBlock({
 
   const q = questions[qIndex];
   const isCorrect = selected === q.answer;
-  const display = q.text.replace("______", selected ? selected : "______");
+  // Before answering, keep the blank. After answering, the sentence always
+  // settles on the CORRECT word: filling it with the learner's wrong choice
+  // left a false sentence on screen as though it were the lesson ("The Book
+  // connects millions of devices around the world."), which is the opposite
+  // of what the blank is meant to teach.
+  const filledWord = revealed ? q.answer : null;
+  const [beforeBlank, afterBlank] = q.text.split("______");
 
   const pick = (word) => {
     if (revealed) return;
@@ -55,7 +61,17 @@ export default function FillBlankBlock({
         Question {qIndex + 1} of {questions.length}
       </p>
       <h1 className="page-title mt-3">
-        {display}
+        {beforeBlank}
+        {filledWord === null ? (
+          "______"
+        ) : (
+          // Underlined so the answer is obvious in the sentence itself, which
+          // is what makes the correction land for someone who chose wrongly.
+          <span className="underline decoration-2 underline-offset-4">
+            {filledWord}
+          </span>
+        )}
+        {afterBlank}
       </h1>
       <div className="mt-5">
         <ReadAloud text={q.text.replace("______", "blank")} />
@@ -102,9 +118,21 @@ export default function FillBlankBlock({
               <span className="font-sans text-2xl font-bold">!</span>
             )}
           </div>
-          <p className="text-xl font-semibold text-ink">
-            {isCorrect ? "That's right." : `The answer is “${q.answer}”.`}
-          </p>
+          <div>
+            <p className="text-xl font-semibold text-ink">
+              {isCorrect
+                ? "That's right."
+                : `Not quite — the answer is “${q.answer}”.`}
+            </p>
+            {/* An explanation of WHY, when the question provides one. Naming
+                the learner's own choice is what turns a correction into a
+                lesson; without it they only ever see the right answer. */}
+            {!isCorrect && (q.why || q.wrong?.[selected]) ? (
+              <p className="mt-1 text-lg leading-snug text-ink">
+                {q.wrong?.[selected] || q.why}
+              </p>
+            ) : null}
+          </div>
         </div>
       )}
     </BlockShell>

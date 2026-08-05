@@ -159,9 +159,33 @@ const phase1Lessons = [
         title: "Fill in the Blank",
         wordBank: ["Internet", "Website", "Phone", "Book"],
         questions: [
-          { text: "The ______ connects millions of devices around the world.", answer: "Internet" },
-          { text: "Google.com is a ______.", answer: "Website" },
-          { text: "You can use your ______ to access the internet.", answer: "Phone" }
+          {
+            text: "The ______ connects millions of devices around the world.",
+            answer: "Internet",
+            wrong: {
+              Website: "A website is one place you visit, like a single shop. The internet is the whole network that lets you reach it.",
+              Phone: "A phone is one device that connects. The internet is what it connects to.",
+              Book: "A book holds information on its own pages — nothing about it links devices together."
+            }
+          },
+          {
+            text: "Google.com is a ______.",
+            answer: "Website",
+            wrong: {
+              Internet: "The internet is the whole network. Google.com is one address on it.",
+              Phone: "A phone is a device you hold. Google.com is a place you visit on it.",
+              Book: "A book is printed and fixed. A website lives online and can change."
+            }
+          },
+          {
+            text: "You can use your ______ to access the internet.",
+            answer: "Phone",
+            wrong: {
+              Internet: "The internet is what you reach, not the thing you reach it with.",
+              Website: "A website is somewhere you arrive once you're already online.",
+              Book: "A book has no connection to the internet."
+            }
+          }
         ]
       },
       {

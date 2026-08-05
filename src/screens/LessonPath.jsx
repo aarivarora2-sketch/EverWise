@@ -87,6 +87,9 @@ export default function LessonPath({
   const pathBottomClearance = Math.round(
     rawMetrics.pathBottomClearance * scale,
   );
+  // The trail dots grow with the text too, so the path stays legible as a
+  // single run instead of thinning into specks beside much larger nodes.
+  const dotSize = Math.round((isDesktop ? 28 : 20) * rawMetrics.textScale);
 
   // Lessons + challenges + exams in curriculum order for progress / path nodes.
   const playables = [
@@ -383,8 +386,13 @@ export default function LessonPath({
               <span
                 key={d.key}
                 aria-hidden="true"
-                className="absolute block h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full lg:h-7 lg:w-7"
-                style={{ left: `calc(50% + ${d.x}px)`, top: d.y }}
+                className="absolute block -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{
+                  left: `calc(50% + ${d.x}px)`,
+                  top: d.y,
+                  height: dotSize,
+                  width: dotSize,
+                }}
               >
                 <span
                   className="block h-full w-full rounded-full"
