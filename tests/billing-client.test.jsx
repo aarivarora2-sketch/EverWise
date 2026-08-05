@@ -104,7 +104,9 @@ vi.mock("../src/screens/LessonPath.jsx", () => ({
     <main>
       <h1>Course path</h1>
       <p>{completedLessons.join(",")}</p>
-      <button type="button" onClick={() => onSelectLesson(1)}>
+      {/* Lesson 0 ("welcome") is the only lesson that is free without a
+          subscription; every later lesson is paid. */}
+      <button type="button" onClick={() => onSelectLesson(0)}>
         Open free lesson
       </button>
       <button type="button" onClick={() => onSelectLesson(2)}>
@@ -1581,21 +1583,39 @@ describe("authoritative billing revalidation and revocation", () => {
     expect(mocks.fetchBillingAccess).toHaveBeenCalledTimes(4);
   });
 
-  test.each([
-    ["completed protected lesson", ["welcome", "internet", lessonsByOrder[2].id], "Open protected lesson", /^Lesson:/],
-    ["free lesson", ["welcome"], "Open free lesson", /^Lesson:/],
-  ])("keeps a %s open after paid access ends", async (_name, completedLessons, button, heading) => {
+  test("keeps the free lesson open after paid access ends", async () => {
     mocks.fetchBillingAccess.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(NONE);
     await openAuthenticatedApp({
       access: ACTIVE,
-      completedLessons,
-      uid: `safe-${_name}`,
+      completedLessons: ["welcome"],
+      uid: "safe-free-lesson",
     });
     fireEvent.click(screen.getByRole("button", { name: "Open course" }));
-    fireEvent.click(screen.getByRole("button", { name: button }));
-    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open free lesson" }));
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
-    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+  });
+
+  // Completion is stored in the learner's own Firestore document, which the
+  // security rules let them write, so it must not stand in for entitlement.
+  // Once paid access ends, previously completed paid lessons close again.
+  test("closes a completed paid lesson after paid access ends", async () => {
+    mocks.fetchBillingAccess.mockResolvedValue(ACTIVE);
+    await openAuthenticatedApp({
+      access: ACTIVE,
+      completedLessons: ["welcome", "internet", lessonsByOrder[2].id],
+      uid: "safe-completed-paid-lesson",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open course" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open protected lesson" }));
+    await act(async () => Promise.resolve());
+    expect(screen.getByRole("heading", { name: /^Lesson:/ })).toBeVisible();
+
+    mocks.fetchBillingAccess.mockResolvedValue(NONE);
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(screen.queryByRole("heading", { name: /^Lesson:/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Subscription options" })).toBeVisible();
   });
 
   test("keeps unfinished protected content open when active sponsorship overrides expired billing", async () => {
