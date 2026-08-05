@@ -1744,3 +1744,186 @@ test("Cancel reports failure when Stripe does not confirm a terminal state", asy
   assert.equal(result.response.status, 503);
   assert.equal(result.response.json().error.code, "BILLING_UNAVAILABLE");
 });
+
+// A record only webhooks ever update can drift: if a webhook is lost for longer
+// than the provider's retry window, a lapsed learner keeps access forever and
+// nothing corrects it. Access re-reads the provider when a record still claims
+// access past its own end date.
+const LAPSED_TRIAL_RECORD = Object.freeze({
+  customerId: "cus_stale_owner",
+  subscriptionId: "sub_stale_owner",
+  plan: "monthly",
+  status: "trialing",
+  trialUsedAt: "2026-07-20T12:00:00.000Z",
+  // Trial ended two weeks before NOW.
+  trialEndsAt: "2026-07-20T12:00:00.000Z",
+});
+
+test("a record still claiming access past its end date is re-read and revoked", async () => {
+  const calls = { retrieve: [], refresh: [] };
+  let record = defaultRecord(LAPSED_TRIAL_RECORD);
+  const { api } = createHarness({
+    store: {
+      getByUid: async () => record,
+      refreshSubscriptionSnapshot: async (input) => {
+        calls.refresh.push(input);
+        // The provider says the trial lapsed without payment.
+        record = defaultRecord({
+          ...LAPSED_TRIAL_RECORD,
+          status: "past_due",
+        });
+        return { applied: true, reason: "refreshed" };
+      },
+    },
+    gateway: {
+      retrieveSubscription: async (id) => {
+        calls.retrieve.push(id);
+        return {
+          id: "sub_stale_owner",
+          customerId: "cus_stale_owner",
+          status: "past_due",
+          priceId: CONFIG.plans.monthly.priceId,
+          cancelAtPeriodEnd: false,
+          trialEnd: null,
+          currentPeriodEnd: null,
+        };
+      },
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/access");
+  assert.equal(result.response.status, 200);
+  assert.equal(result.response.json().access, "none");
+  assert.equal(result.response.json().status, "past_due");
+  assert.deepEqual(calls.retrieve, ["sub_stale_owner"]);
+  assert.equal(calls.refresh.length, 1);
+  assert.equal(calls.refresh[0].expectedSubscriptionId, "sub_stale_owner");
+});
+
+test("a lost renewal webhook is healed forward rather than revoking a paying learner", async () => {
+  let record = defaultRecord({
+    customerId: "cus_renewed",
+    subscriptionId: "sub_renewed",
+    plan: "monthly",
+    status: "active",
+    // Stored period end is in the past; the renewal webhook never arrived.
+    currentPeriodEndsAt: "2026-07-25T12:00:00.000Z",
+  });
+  const { api } = createHarness({
+    store: {
+      getByUid: async () => record,
+      refreshSubscriptionSnapshot: async () => {
+        record = defaultRecord({
+          customerId: "cus_renewed",
+          subscriptionId: "sub_renewed",
+          plan: "monthly",
+          status: "active",
+          currentPeriodEndsAt: "2026-09-25T12:00:00.000Z",
+        });
+        return { applied: true, reason: "refreshed" };
+      },
+    },
+    gateway: {
+      retrieveSubscription: async () => ({
+        id: "sub_renewed",
+        customerId: "cus_renewed",
+        status: "active",
+        priceId: CONFIG.plans.monthly.priceId,
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+        currentPeriodEnd: 1_790_000_000,
+      }),
+    },
+  });
+
+  const result = await invoke(api, "/api/billing/access");
+  assert.equal(result.response.status, 200);
+  assert.equal(result.response.json().access, "full");
+  assert.equal(result.response.json().status, "active");
+});
+
+test("a stale record fails closed when the provider cannot be reached or disagrees", async () => {
+  for (const gateway of [
+    { retrieveSubscription: async () => { throw new Error("provider down"); } },
+    // Belongs to a different customer: never trust it.
+    {
+      retrieveSubscription: async () => ({
+        id: "sub_stale_owner",
+        customerId: "cus_someone_else",
+        status: "active",
+        priceId: CONFIG.plans.monthly.priceId,
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+        currentPeriodEnd: 1_790_000_000,
+      }),
+    },
+    // Unknown price: the plan cannot be determined.
+    {
+      retrieveSubscription: async () => ({
+        id: "sub_stale_owner",
+        customerId: "cus_stale_owner",
+        status: "active",
+        priceId: "price_not_ours",
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+        currentPeriodEnd: 1_790_000_000,
+      }),
+    },
+  ]) {
+    const { api } = createHarness({
+      store: {
+        getByUid: async () => defaultRecord(LAPSED_TRIAL_RECORD),
+        refreshSubscriptionSnapshot: async () => ({ applied: true }),
+      },
+      gateway,
+    });
+    const result = await invoke(api, "/api/billing/access");
+    assert.equal(result.response.status, 200);
+    assert.equal(result.response.json().access, "none");
+  }
+});
+
+test("a record inside its own end date never re-reads the provider", async () => {
+  const calls = { retrieve: [] };
+  for (const record of [
+    // Trial still running.
+    defaultRecord({
+      customerId: "cus_fresh",
+      subscriptionId: "sub_fresh",
+      plan: "monthly",
+      status: "trialing",
+      trialUsedAt: NOW.toISOString(),
+      trialEndsAt: "2026-08-30T12:00:00.000Z",
+    }),
+    // Paid period still running.
+    defaultRecord({
+      customerId: "cus_fresh",
+      subscriptionId: "sub_fresh",
+      plan: "annual",
+      status: "active",
+      currentPeriodEndsAt: "2027-08-30T12:00:00.000Z",
+    }),
+    // Not an access-granting status: nothing to protect against.
+    defaultRecord({
+      customerId: "cus_fresh",
+      subscriptionId: "sub_fresh",
+      plan: "monthly",
+      status: "canceled",
+      currentPeriodEndsAt: "2026-07-01T12:00:00.000Z",
+    }),
+  ]) {
+    const { api } = createHarness({
+      store: { getByUid: async () => record },
+      gateway: {
+        retrieveSubscription: async (id) => {
+          calls.retrieve.push(id);
+          return null;
+        },
+      },
+    });
+    const result = await invoke(api, "/api/billing/access");
+    assert.equal(result.response.status, 200);
+  }
+  // The provider is only consulted for records that look stale.
+  assert.deepEqual(calls.retrieve, []);
+});

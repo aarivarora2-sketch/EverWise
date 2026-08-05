@@ -1373,6 +1373,74 @@ export function createBillingStore({
     });
   }
 
+  // Applies a subscription read live from the provider, for the case where a
+  // webhook never arrived and the stored record has drifted out of date.
+  //
+  // Unlike the webhook paths this deliberately does NOT touch the processed
+  // event ledger or the lastEventCreated/lastEventId watermark: a live read has
+  // no position in the event stream, so recording one would either consume an
+  // event id that never existed or suppress a real event that arrives later.
+  // Leaving the watermark alone keeps every webhook applying by its own rules.
+  function refreshSubscriptionSnapshot({ expectedSubscriptionId, snapshot } = {}) {
+    return enqueueMutation((data, currentDate) => {
+      if (!isPlainObject(snapshot)) throw invalidInput();
+      const normalizedExpected = requireIdentifier(
+        expectedSubscriptionId,
+        SUBSCRIPTION_ID_PATTERN,
+      );
+      const uid = requireUid(snapshot.uid);
+      const customerId = requireIdentifier(snapshot.customerId, CUSTOMER_ID_PATTERN);
+      const subscriptionId = requireIdentifier(
+        snapshot.subscriptionId,
+        SUBSCRIPTION_ID_PATTERN,
+      );
+      if (!PLANS.has(snapshot.plan) || !SUBSCRIPTION_STATUSES.has(snapshot.status)) {
+        throw invalidInput();
+      }
+      if (typeof snapshot.cancelAtPeriodEnd !== "boolean") throw invalidInput();
+      const trialEndsAt = normalizeOptionalTimestamp(snapshot.trialEndsAt);
+      const currentPeriodEndsAt = normalizeOptionalTimestamp(snapshot.currentPeriodEndsAt);
+
+      const record = Object.hasOwn(data.learners, uid) ? data.learners[uid] : null;
+      // Refresh only the exact subscription that was read. If the stored record
+      // moved on while the provider was being queried, the read is stale and
+      // must not overwrite newer state.
+      if (
+        !record ||
+        record.customerId !== customerId ||
+        record.subscriptionId !== normalizedExpected ||
+        subscriptionId !== normalizedExpected
+      ) {
+        return mutation({ applied: false, reason: "superseded" }, false);
+      }
+      const subscriptionOwner = Object.values(data.learners).find(
+        (candidate) => candidate.subscriptionId === subscriptionId,
+      );
+      if (subscriptionOwner && subscriptionOwner.uid !== uid) {
+        throw storeError(
+          "BILLING_STORE_IDENTITY_CONFLICT",
+          "The billing identity conflicts with another learner.",
+        );
+      }
+
+      const timestamp = currentDate.toISOString();
+      const trialUsedAt =
+        record.trialUsedAt ||
+        (snapshot.status === "trialing" || trialEndsAt !== null ? timestamp : null);
+      Object.assign(record, {
+        plan: snapshot.plan,
+        status: snapshot.status,
+        trialUsedAt,
+        trialEndsAt,
+        currentPeriodEndsAt,
+        cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+        updatedAt: timestamp,
+      });
+      if (trialUsedAt !== null) delete record.pendingTrialCheckout;
+      return mutation({ applied: true, reason: "refreshed" });
+    });
+  }
+
   async function hasUsedTrial(uid) {
     const normalizedUid = requireUid(uid);
     const anchor = await openStoreAnchor();
@@ -1425,6 +1493,7 @@ export function createBillingStore({
     applySubscriptionSnapshot,
     beginSubscriptionReconciliation,
     reconcileSubscriptionSnapshot,
+    refreshSubscriptionSnapshot,
     hasUsedTrial,
     recordProcessedEvent,
   });
