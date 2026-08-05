@@ -1762,7 +1762,15 @@ function LearnerApp({ initialPartnerFragment }) {
           current?.kind === "temporary" ? null : current,
         );
       })
-      .catch(() => {
+      .catch((err) => {
+        // TEMP DIAGNOSTIC - remove before merging a real fix.
+        console.log("[DIAG billing-effect] caught: " + JSON.stringify({
+          name: err?.name,
+          code: err?.code,
+          message: err?.message,
+          status: err?.status,
+          stack: String(err?.stack).slice(0, 500),
+        }));
         if (!isCurrent()) return;
         setBillingPlans([]);
         setBillingAccess(null);
