@@ -66,7 +66,7 @@ test("DigitalOcean deployment verifies both API integrations through the restric
 test("DigitalOcean deployment archives only the built app and reviewed partner server tooling", () => {
   assert.match(
     workflow,
-    /tar -czf "\$release_archive" dist server\.mjs server scripts\/manage-partners\.mjs src\/utils\/validation\.js server\/package\.json server\/package-lock\.json/,
+    /tar --format=ustar -czf "\$release_archive" dist server\.mjs server scripts\/manage-partners\.mjs src\/utils\/validation\.js ops\/everwise-nginx\.conf server\/package\.json server\/package-lock\.json/,
   );
   assert.doesNotMatch(workflow, /tar -czf -[^\n]*\bscripts\b(?!\/manage-partners\.mjs)/);
   assert.doesNotMatch(workflow, /tar -czf -[^\n]*(?:\.env|node_modules|partners\.json)/);
