@@ -472,18 +472,24 @@ const billingRequest = async ({
     path,
   }));
   if (!dependencies) throw unavailable();
+  // Destructured to plain locals before use: calling these as
+  // dependencies.fetchImpl(...) etc. would invoke them with `this` bound to
+  // the plain `dependencies` object. The real fetch/setTimeout/clearTimeout
+  // are native functions that require `this` to be the actual global object
+  // (or undefined, for a bare identifier call) and throw "Illegal
+  // invocation" otherwise — which happened on every single billing request,
+  // before any network activity, which is why this never worked.
+  const { fetchImpl, apiEndpointImpl, setTimeoutImpl, clearTimeoutImpl } =
+    dependencies;
   const token = await authenticatedToken(user);
   console.log("[DIAG billingRequest] token acquired, len=" + (token ? token.length : "null"));
   const controller = new AbortController();
   const termination = createRequestTermination(controller);
   let timeoutId = null;
   try {
-    timeoutId = dependencies.setTimeoutImpl(
-      termination.abort,
-      BILLING_REQUEST_TIMEOUT_MS,
-    );
-    const endpoint = await resolveApiEndpoint(path, dependencies.apiEndpointImpl);
-    const response = await dependencies.fetchImpl(endpoint, {
+    timeoutId = setTimeoutImpl(termination.abort, BILLING_REQUEST_TIMEOUT_MS);
+    const endpoint = await resolveApiEndpoint(path, apiEndpointImpl);
+    const response = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -513,7 +519,7 @@ const billingRequest = async ({
   } finally {
     if (timeoutId !== null) {
       try {
-        dependencies.clearTimeoutImpl(timeoutId);
+        clearTimeoutImpl(timeoutId);
       } catch {
         // Cleanup cannot expose dependency details or change a completed result.
       }
