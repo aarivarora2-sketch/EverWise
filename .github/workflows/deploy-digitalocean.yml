@@ -131,3 +131,6 @@ jobs:
           health="$(curl -fsS --retry 4 --retry-delay 1 --max-time 10 https://everwise.dexio-games.com/healthz)"
           grep -q '"partnerAccessConfigured":true' <<<"$health"
           grep -q '"partnerStoreHealthy":true' <<<"$health"
+          grep -q '"billingConfigured":true' <<<"$health"
+          grep -q '"billingPlansVerified":true' <<<"$health"
+          grep -q '"billingStoreHealthy":true' <<<"$health"
