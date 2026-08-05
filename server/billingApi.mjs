@@ -243,6 +243,27 @@ const SUBSCRIPTION_STATUSES = new Set([
   "none",
 ]);
 const GRANTING_STATUSES = new Set(["trialing", "active"]);
+// Clock-skew allowance before a record that still claims access past its own
+// end date is treated as stale and re-read from the provider.
+const STALE_ACCESS_GRACE_MS = 5 * 60 * 1000;
+
+// Unlike the webhook's equivalent these report failure by returning null
+// instead of throwing: a stale-record refresh handles "cannot determine" by
+// failing closed, rather than turning it into a request error.
+const planForPrice = (plans, priceId) => {
+  const matches = ["monthly", "annual"].filter(
+    (key) => plans?.[key]?.priceId === priceId,
+  );
+  return matches.length === 1 ? matches[0] : null;
+};
+
+const secondsToIso = (seconds) => {
+  if (!Number.isSafeInteger(seconds)) return null;
+  const milliseconds = seconds * 1_000;
+  if (!Number.isFinite(milliseconds)) return null;
+  const date = new Date(milliseconds);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+};
 
 const nullableString = (value) => value === null || typeof value === "string";
 
@@ -693,9 +714,76 @@ export const createBillingApi = ({
       throw apiError(503, "BILLING_UNAVAILABLE", "Billing is temporarily unavailable.");
     });
 
+  // Access is served from the local store, which only webhooks update. If a
+  // webhook is ever lost for longer than the provider's retry window, a record
+  // can sit at "trialing"/"active" forever even though the subscription lapsed,
+  // and nothing would correct it. Whenever a record still claims access past
+  // its own end date, re-read the subscription from the provider and store the
+  // result. This self-heals in both directions: a lapsed learner is revoked,
+  // and a paying learner whose renewal webhook was lost keeps access.
+  const staleAccessRecord = (record, nowMs) => {
+    if (!isPlainObject(record)) return false;
+    if (!GRANTING_STATUSES.has(record.status)) return false;
+    if (typeof record.subscriptionId !== "string" || !record.subscriptionId) {
+      return false;
+    }
+    const boundary =
+      record.status === "trialing" ? record.trialEndsAt : record.currentPeriodEndsAt;
+    if (typeof boundary !== "string") return false;
+    const boundaryMs = Date.parse(boundary);
+    if (!Number.isFinite(boundaryMs)) return false;
+    // Small allowance for clock skew between this host and the provider.
+    return boundaryMs + STALE_ACCESS_GRACE_MS < nowMs;
+  };
+
+  const refreshStaleRecord = async (uid, record) => {
+    const subscriptionId = record.subscriptionId;
+    let subscription;
+    try {
+      subscription = await gateway.retrieveSubscription(subscriptionId);
+    } catch {
+      // The provider is unreachable. Fail closed on a record we already believe
+      // is out of date rather than serving access we can no longer justify.
+      return { ...record, status: "unpaid" };
+    }
+    const plan = planForPrice(config.plans, subscription?.priceId);
+    if (
+      !isPlainObject(subscription) ||
+      subscription.id !== subscriptionId ||
+      subscription.customerId !== record.customerId ||
+      plan === null
+    ) {
+      return { ...record, status: "unpaid" };
+    }
+    try {
+      await store.refreshSubscriptionSnapshot({
+        expectedSubscriptionId: subscriptionId,
+        snapshot: {
+          uid,
+          customerId: subscription.customerId,
+          subscriptionId,
+          plan,
+          status: subscription.status,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd === true,
+          trialEndsAt: secondsToIso(subscription.trialEnd),
+          currentPeriodEndsAt: secondsToIso(subscription.currentPeriodEnd),
+        },
+      });
+    } catch {
+      // Persisting failed; still answer from the value just read rather than
+      // from the record known to be stale.
+    }
+    const refreshed = await store.getByUid(uid);
+    return isPlainObject(refreshed) ? refreshed : record;
+  };
+
   const getAccess = async (uid) => {
     await requireHealthyBilling();
-    return publicAccess(await store.getByUid(uid));
+    const record = await store.getByUid(uid);
+    if (staleAccessRecord(record, now().getTime())) {
+      return publicAccess(await refreshStaleRecord(uid, record));
+    }
+    return publicAccess(record);
   };
 
   const createPortal = async (uid) => {
