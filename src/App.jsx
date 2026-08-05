@@ -1703,7 +1703,7 @@ function LearnerApp({ initialPartnerFragment }) {
 
   useEffect(() => {
     // TEMP DIAGNOSTIC - remove before merging a real fix.
-    console.log("[DIAG billing-effect]", {
+    console.log("[DIAG billing-effect] " + JSON.stringify({
       platform,
       authChecked,
       authSettled: authSettledRef.current,
@@ -1713,7 +1713,7 @@ function LearnerApp({ initialPartnerFragment }) {
       inFlightRef: authoritativeAccessRefreshInFlightRef.current,
       versionRef: authoritativeAccessVersionRef.current,
       billingRefreshAttempt,
-    });
+    }));
     if (
       platform !== "web" ||
       !authChecked ||
