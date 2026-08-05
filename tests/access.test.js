@@ -186,22 +186,19 @@ test("an EverWise roster-style username does not grant access without server spo
   );
 });
 
-test("public learners can complete the introduction and Lesson 1 only", () => {
+test("public learners can open the first lesson only", () => {
   assert.equal(
     canOpenLesson({ lessonId: "welcome", completed: false, fullAccess: false }),
     true,
   );
+  // Lesson 2 onwards is paid.
   assert.equal(
     canOpenLesson({ lessonId: "internet", completed: false, fullAccess: false }),
-    true,
+    false,
   );
   assert.equal(
     canOpenLesson({ lessonId: "devices", completed: false, fullAccess: false }),
     false,
-  );
-  assert.equal(
-    canOpenLesson({ lessonId: "devices", completed: true, fullAccess: false }),
-    true,
   );
   assert.equal(
     canOpenLesson({ lessonId: "devices", completed: false, fullAccess: true }),
@@ -209,7 +206,26 @@ test("public learners can complete the introduction and Lesson 1 only", () => {
   );
 });
 
-test("only unfinished protected course content exits after access is revoked", () => {
+test("a self-reported completion never unlocks paid content", () => {
+  // completedLessons is stored in the learner's own Firestore document, which
+  // the security rules let them write. Treating it as an entitlement would let
+  // anyone unlock the whole course by editing their own profile.
+  assert.equal(
+    canOpenLesson({ lessonId: "devices", completed: true, fullAccess: false }),
+    false,
+  );
+  assert.equal(
+    canOpenLesson({ lessonId: "internet", completed: true, fullAccess: false }),
+    false,
+  );
+  // The free lesson stays open regardless.
+  assert.equal(
+    canOpenLesson({ lessonId: "welcome", completed: true, fullAccess: false }),
+    true,
+  );
+});
+
+test("all paid course content exits after access is revoked", () => {
   const cases = [
     {
       name: "unfinished protected lesson",
@@ -249,7 +265,7 @@ test("only unfinished protected course content exits after access is revoked", (
         completedIds: ["devices"],
         fullAccess: false,
       },
-      expected: false,
+      expected: true,
     },
     {
       name: "completed challenge",
@@ -259,7 +275,7 @@ test("only unfinished protected course content exits after access is revoked", (
         completedIds: ["challenge-1"],
         fullAccess: false,
       },
-      expected: false,
+      expected: true,
     },
     {
       name: "completed exam",
@@ -269,7 +285,7 @@ test("only unfinished protected course content exits after access is revoked", (
         completedIds: ["exam-1"],
         fullAccess: false,
       },
-      expected: false,
+      expected: true,
     },
     {
       name: "free welcome lesson",
@@ -282,14 +298,14 @@ test("only unfinished protected course content exits after access is revoked", (
       expected: false,
     },
     {
-      name: "free Lesson 1",
+      name: "paid Lesson 2",
       input: {
         screen: "lesson",
         itemId: "internet",
         completedIds: [],
         fullAccess: false,
       },
-      expected: false,
+      expected: true,
     },
     {
       name: "non-player screen",

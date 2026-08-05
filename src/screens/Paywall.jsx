@@ -489,6 +489,17 @@ export default function Paywall({
               {ctaLabel}
               <ArrowRight className="h-7 w-7 shrink-0" aria-hidden="true" />
             </button>
+            {busy && !native ? (
+              // The browser stays on this screen while the Checkout Session is
+              // created, which can take a moment. Announce the wait separately
+              // so the button keeps its stable accessible name.
+              <p
+                className="mt-3 shrink-0 text-center font-sans text-base font-semibold text-sage-dark"
+                role="status"
+              >
+                Opening secure checkout…
+              </p>
+            ) : null}
             {native ? (
               <p className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink" style={fixedText.reassurance}>
                 {selectedPlan === "annual"

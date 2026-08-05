@@ -2732,7 +2732,6 @@ function LearnerApp({ initialPartnerFragment }) {
     const exitProtectedContent = shouldExitProtectedContent({
       screen: currentProtectedContent.screen,
       itemId: currentProtectedContent.itemId,
-      completedIds: currentProtectedContent.completedIds,
       fullAccess: currentAccess,
     });
     if (!isCurrent()) return null;
@@ -3135,14 +3134,12 @@ function LearnerApp({ initialPartnerFragment }) {
 
   const startLesson = async (index) => {
     const lesson = lessonsByOrder[index];
-    const done = lesson && completedLessons.includes(lesson.id);
     let currentAccess = access;
     const requiresFullAccess = !canOpenLesson({
       lessonId: lesson?.id,
-      completed: done,
       fullAccess: false,
     });
-    if ((requiresFullAccess || (!done && sponsoredActive)) && user?.uid) {
+    if ((requiresFullAccess || sponsoredActive) && user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
       });
@@ -3160,7 +3157,6 @@ function LearnerApp({ initialPartnerFragment }) {
     if (
       !canOpenLesson({
         lessonId: lesson?.id,
-        completed: done,
         fullAccess: currentAccess,
       })
     ) {
@@ -3179,9 +3175,8 @@ function LearnerApp({ initialPartnerFragment }) {
   };
 
   const startChallenge = async (challenge) => {
-    const done = completedLessons.includes(challenge.id);
     let currentAccess = access;
-    if (!done && user?.uid) {
+    if (user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
       });
@@ -3195,7 +3190,7 @@ function LearnerApp({ initialPartnerFragment }) {
         return;
       }
     }
-    if (!currentAccess && !done) {
+    if (!currentAccess) {
       routeDeniedProtectedEntry(
         { screen: "challenge", itemId: challenge.id, item: challenge },
         { partnerStatus, billingUnavailable: ownedBillingStatus === "unavailable" },
@@ -3208,9 +3203,8 @@ function LearnerApp({ initialPartnerFragment }) {
   };
 
   const startExam = async (exam) => {
-    const done = completedLessons.includes(exam.id);
     let currentAccess = access;
-    if (!done && user?.uid) {
+    if (user?.uid) {
       const refreshed = await refreshAuthoritativePartnerAccess({
         routeCurrent: false,
       });
@@ -3224,7 +3218,7 @@ function LearnerApp({ initialPartnerFragment }) {
         return;
       }
     }
-    if (!currentAccess && !done) {
+    if (!currentAccess) {
       routeDeniedProtectedEntry(
         { screen: "exam", itemId: exam.id, item: exam },
         { partnerStatus, billingUnavailable: ownedBillingStatus === "unavailable" },

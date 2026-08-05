@@ -1730,116 +1730,89 @@ describe("sponsored signup orchestration", () => {
     expect(screen.getByRole("heading", { name: "Great Job!" })).toBeVisible();
   });
 
-  test.each([
-    {
-      name: "a completed protected lesson",
-      completedLessons: ["welcome", "internet", "ai"],
-      buttonName: "Redo completed lesson: What is AI?",
-      heading: "What is AI?",
-      entryRefresh: false,
-    },
-    {
-      name: "free Lesson 1",
-      completedLessons: ["welcome"],
-      buttonName: "Start lesson: What is the Internet?",
-      heading: "What is the Internet?",
-      entryRefresh: true,
-    },
-  ])("authoritative none does not eject $name", async ({
-    completedLessons,
-    buttonName,
-    heading,
-    entryRefresh,
-  }) => {
+  test("authoritative none does not eject free Lesson 1", async () => {
     installMatchMedia();
-    mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
-    if (entryRefresh) {
-      mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
-    }
-    mocks.fetchPartnerAccess.mockResolvedValueOnce({ status: "none" });
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValue({ status: "none" });
     await openReturningSponsoredAppWithFakeTimers({
-      uid: `none-keeps-${entryRefresh ? "free" : "completed"}-lesson`,
-      completedLessons,
+      uid: "none-keeps-free-lesson",
+      completedLessons: ["welcome"],
     });
     await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
-    await clickWithFakeTimers(screen.getByRole("button", { name: buttonName }));
-    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Redo completed lesson: Welcome to Everwise" }),
+    );
+    expect(screen.getByRole("heading", { name: "How Everwise Works" })).toBeVisible();
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
-    expect(mocks.fetchPartnerAccess).toHaveBeenCalledTimes(
-      entryRefresh ? 3 : 2,
-    );
-    expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "How Everwise Works" })).toBeVisible();
     expect(screen.queryByText("Pricing and subscription")).not.toBeInTheDocument();
   });
 
-  test.each([
-    {
-      name: "free Lesson 1",
-      completedLessons: ["welcome", "internet"],
-      replayButton: "Redo completed lesson: What is the Internet?",
-      replayHeading: "What is the Internet?",
-      protectedButton: "Start lesson: What is AI?",
-      protectedHeading: "What is AI?",
-      entryRefresh: true,
-    },
-    {
-      name: "a completed protected lesson",
+  // Completion lives in the learner's own profile document, so it cannot stand
+  // in for entitlement: when sponsored access ends, paid lessons close again
+  // even if they were previously finished.
+  test("authoritative none ejects a completed paid lesson", async () => {
+    installMatchMedia();
+    mocks.fetchPartnerAccess
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+      .mockResolvedValue({ status: "none" });
+    await openReturningSponsoredAppWithFakeTimers({
+      uid: "none-ejects-completed-lesson",
       completedLessons: ["welcome", "internet", "ai"],
-      replayButton: "Redo completed lesson: What is AI?",
-      replayHeading: "What is AI?",
-      protectedButton: "Start lesson: What is ChatGPT?",
-      protectedHeading: "What is ChatGPT?",
-      entryRefresh: false,
-    },
-  ])(
-    "authoritative suspension keeps $name replayable but blocks the next unfinished protected entry",
-    async ({
-      completedLessons,
-      replayButton,
-      replayHeading,
-      protectedButton,
-      protectedHeading,
-      entryRefresh,
-    }) => {
+    });
+    await clickWithFakeTimers(screen.getByRole("button", { name: "Open Course" }));
+    await clickWithFakeTimers(
+      screen.getByRole("button", { name: "Redo completed lesson: What is AI?" }),
+    );
+    expect(screen.getByRole("heading", { name: "What is AI?" })).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(screen.queryByRole("heading", { name: "What is AI?" })).not.toBeInTheDocument();
+  });
+
+  test(
+    "authoritative suspension keeps free Lesson 1 replayable but blocks the next unfinished protected entry",
+    async () => {
       installMatchMedia();
-      mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
-      if (entryRefresh) {
-        mocks.fetchPartnerAccess.mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS);
-      }
       const suspendedAccess = {
         ...ACTIVE_PARTNER_ACCESS,
         status: "suspended",
       };
       mocks.fetchPartnerAccess
-        .mockResolvedValueOnce(suspendedAccess)
+        .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
+        .mockResolvedValueOnce(ACTIVE_PARTNER_ACCESS)
         .mockResolvedValue(suspendedAccess);
       await openReturningSponsoredAppWithFakeTimers({
-        uid: `suspended-replay-${entryRefresh ? "free" : "completed"}`,
-        completedLessons,
+        uid: "suspended-replay-free",
+        completedLessons: ["welcome"],
       });
       await clickWithFakeTimers(
         screen.getByRole("button", { name: "Open Course" }),
       );
       await clickWithFakeTimers(
-        screen.getByRole("button", { name: replayButton }),
+        screen.getByRole("button", { name: "Redo completed lesson: Welcome to Everwise" }),
       );
-      expect(screen.getByRole("heading", { name: replayHeading })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "How Everwise Works" })).toBeVisible();
 
       await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
-      expect(screen.getByRole("heading", { name: replayHeading })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "How Everwise Works" })).toBeVisible();
       expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
       await clickWithFakeTimers(screen.getByRole("button", { name: "Go back" }));
       await clickWithFakeTimers(
-        screen.getByRole("button", { name: protectedButton }),
+        screen.getByRole("button", { name: "Start lesson: What is the Internet?" }),
       );
 
       expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
       expect(screen.getByRole("button", { name: "Log out" })).toBeVisible();
       expect(
-        screen.queryByRole("heading", { name: protectedHeading }),
+        screen.queryByRole("heading", { name: "What is the Internet?" }),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("heading", { name: "Pricing and subscription" }),
