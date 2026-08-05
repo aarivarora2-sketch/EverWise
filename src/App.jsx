@@ -3247,6 +3247,11 @@ function LearnerApp({ initialPartnerFragment }) {
       }
       const uid = user.uid;
       const generation = authGenerationRef.current;
+      // A leftover "Checkout was canceled" notice from a previous attempt
+      // should not sit above the paywall while a new checkout is starting.
+      setBillingRecovery((current) =>
+        current?.kind === "cancel" ? null : current,
+      );
       setBillingBusy(true);
       try {
         const checkout = await createBillingCheckout(user, plan);
@@ -4143,7 +4148,13 @@ function LearnerApp({ initialPartnerFragment }) {
               platform === "web" &&
               ownedBillingStatus !== "unavailable" &&
               Boolean(ownedBillingAccess) &&
-              !billingBusy &&
+              // Deliberately not gated on billingBusy: work in progress is not
+              // the same as unavailable. Including it meant that pressing
+              // "Start free trial" — which sets billingBusy while the Checkout
+              // Session is created — replaced the whole paywall with the
+              // "Subscription options are temporarily unavailable" screen for
+              // the moment before Stripe loaded. Paywall already receives
+              // billingBusy separately to disable controls and show progress.
               billingPlans.length > 0 &&
               billingRecovery?.kind !== "temporary"
             }
