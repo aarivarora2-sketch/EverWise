@@ -126,7 +126,7 @@ unsafe_archive_entry() {
   done
 
   case "$archive_entry" in
-    server.mjs|server/|scripts/|scripts/manage-partners.mjs|src/|src/utils/|src/utils/validation.js|dist/|dist/*)
+    server.mjs|server/|server/package.json|server/package-lock.json|scripts/|scripts/manage-partners.mjs|src/|src/utils/|src/utils/validation.js|dist/|dist/*)
       return 1
       ;;
     server/*.mjs)
@@ -259,7 +259,8 @@ NODE
 validate_release_archive() {
   local archive_path="$1"
   local archive_entry listing
-  local saw_server=false saw_server_directory=false saw_script=false saw_validation=false saw_index=false
+  local saw_server=false saw_server_directory=false saw_server_package=false
+  local saw_server_lock=false saw_script=false saw_validation=false saw_index=false
 
   validate_archive_bounds "$archive_path"
   tar -tzf "$archive_path" >/dev/null
@@ -272,6 +273,8 @@ validate_release_archive() {
     case "$archive_entry" in
       server.mjs) saw_server=true ;;
       server/) saw_server_directory=true ;;
+      server/package.json) saw_server_package=true ;;
+      server/package-lock.json) saw_server_lock=true ;;
       scripts/manage-partners.mjs) saw_script=true ;;
       src/utils/validation.js) saw_validation=true ;;
       dist/index.html) saw_index=true ;;
@@ -290,6 +293,8 @@ validate_release_archive() {
 
   if [[ "$saw_server" != "true" ||
         "$saw_server_directory" != "true" ||
+        "$saw_server_package" != "true" ||
+        "$saw_server_lock" != "true" ||
         "$saw_script" != "true" ||
         "$saw_validation" != "true" ||
         "$saw_index" != "true" ]]; then
@@ -313,6 +318,8 @@ validate_release_tree() {
   test -f "$tree_path/dist/index.html"
   test -f "$tree_path/server.mjs"
   test -d "$tree_path/server"
+  test -f "$tree_path/server/package.json"
+  test -f "$tree_path/server/package-lock.json"
   test -f "$tree_path/scripts/manage-partners.mjs"
   test -f "$tree_path/src/utils/validation.js"
   /usr/local/bin/node --check "$tree_path/server.mjs"
@@ -321,6 +328,23 @@ validate_release_tree() {
   done < <(find "$tree_path/server" -maxdepth 1 -type f -name '*.mjs' -print0)
   /usr/local/bin/node --check "$tree_path/scripts/manage-partners.mjs"
   /usr/local/bin/node --check "$tree_path/src/utils/validation.js"
+}
+
+verify_release_dependencies() {
+  local tree_path="$1"
+
+  (
+    cd "$tree_path"
+    /usr/local/bin/node --input-type=module -e 'await import("./server/stripeGateway.mjs")'
+  )
+}
+
+install_release_dependencies() {
+  local tree_path="$1"
+
+  /usr/bin/timeout 120s /usr/local/bin/npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    --prefix "$tree_path/server"
+  verify_release_dependencies "$tree_path"
 }
 
 ensure_partner_store() {
@@ -375,6 +399,7 @@ deploy_release() {
     -C "$staging_path"
 
   validate_release_tree "$staging_path"
+  install_release_dependencies "$staging_path"
 
   test ! -e /var/lib/everwise/partners.json || test -f /var/lib/everwise/partners.json
   ensure_partner_store
@@ -388,6 +413,7 @@ deploy_release() {
     test -d "$release_path"
     test ! -L "$release_path"
     validate_release_tree "$release_path"
+    verify_release_dependencies "$release_path"
     reuse_existing_release=true
   else
     chown -R root:root "$staging_path"
@@ -418,6 +444,8 @@ deploy_release() {
     exit 1
   fi
 
+  cleanup_release_files
+  trap - EXIT
   echo "EverWise release $release_sha deployed successfully."
 }
 

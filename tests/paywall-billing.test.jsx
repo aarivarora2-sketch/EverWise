@@ -56,7 +56,10 @@ function renderWebPaywall(overrides = {}) {
   return { ...render(<Paywall {...props} />), props };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("browser Stripe paywall", () => {
   test("renders only the two verified server offers with exact trial and renewal copy", () => {
@@ -97,6 +100,22 @@ describe("browser Stripe paywall", () => {
     expect(monthly).toHaveAttribute("aria-checked", "true");
     await user.click(screen.getByRole("button", { name: "Start 3-day free trial" }));
     expect(props.onStartTrial).toHaveBeenCalledWith("monthly");
+  });
+
+  test("ignores a caller-supplied Payment Link and uses authenticated subscription Checkout", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { assign });
+    const { props } = renderWebPaywall({
+      checkoutUrl: "https://example.invalid/temporary-one-time-link",
+    });
+
+    expect(screen.getByText("$7.99/month")).toBeVisible();
+    expect(screen.getByText("$60/year")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
+
+    expect(props.onStartTrial).toHaveBeenCalledWith("annual");
+    expect(assign).not.toHaveBeenCalled();
   });
 
   test("returns to free lessons without starting Checkout", async () => {
