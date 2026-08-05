@@ -293,9 +293,27 @@ const phase1Lessons = [
       }
     ],
     quiz: [
-      { question: "What is the internet?", options: ["A phone", "A television", "A worldwide network that connects devices", "A password"], correctIndex: 2 },
-      { question: "Which activity uses the internet?", options: ["Reading a printed newspaper", "Playing cards", "Watching YouTube", "Writing with a pencil"], correctIndex: 2 },
-      { question: "What is a website?", options: ["A phone", "A Wi-Fi password", "A page you visit on the internet", "A charger"], correctIndex: 2 },
+      {
+        question: "What is the internet?",
+        options: ["A phone", "A television", "A worldwide network that connects devices", "A password"],
+        correctIndex: 2,
+        explanation:
+          "A phone or television is one device. The internet is the network those devices connect to, which is why it reaches all of them at once."
+      },
+      {
+        question: "Which activity uses the internet?",
+        options: ["Reading a printed newspaper", "Playing cards", "Watching YouTube", "Writing with a pencil"],
+        correctIndex: 2,
+        explanation:
+          "Printed paper, cards and pencils all work with nothing switched on. YouTube has to fetch the video from somewhere else, and that journey is the internet."
+      },
+      {
+        question: "What is a website?",
+        options: ["A phone", "A Wi-Fi password", "A page you visit on the internet", "A charger"],
+        correctIndex: 2,
+        explanation:
+          "A phone, password and charger help you get online. A website is one of the places you arrive at once you are."
+      },
       { question: "What app helps you visit websites?", options: ["Calculator", "Camera", "Browser", "Flashlight"], correctIndex: 2 },
       { question: "True or False: The internet only works on computers.", options: ["True", "False"], correctIndex: 1 },
       { question: "The ______ connects millions of devices.", options: ["Internet", "Book", "Phone"], correctIndex: 0 },
