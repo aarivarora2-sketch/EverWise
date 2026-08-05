@@ -1687,8 +1687,7 @@ function LearnerApp({ initialPartnerFragment }) {
       platform !== "web" ||
       !authChecked ||
       !authSettledRef.current ||
-      !user?.uid ||
-      !profile
+      !user?.uid
     ) {
       return undefined;
     }
@@ -1746,7 +1745,7 @@ function LearnerApp({ initialPartnerFragment }) {
     return () => {
       cancelled = true;
     };
-  }, [authChecked, billingRefreshAttempt, platform, profile, sponsoredActive, user]);
+  }, [authChecked, billingRefreshAttempt, platform, sponsoredActive, user]);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
