@@ -1192,3 +1192,35 @@ test("Stripe failures and webhook signature failures are always redacted", async
     },
   );
 });
+
+test("a cancellation scheduled during a trial is reported as a pending cancellation", async () => {
+  // Cancelling mid-trial gives cancel_at = trial end while cancel_at_period_end
+  // stays false. Reading only the flag left a learner who had successfully
+  // cancelled with no confirmation anywhere in the app.
+  const fake = createFakeFetch([
+    {
+      body: subscriptionResponse("sub_trial_cancel", "trialing", {
+        cancel_at: 1_800_000_000,
+        cancel_at_period_end: false,
+        trial_end: 1_800_000_000,
+      }),
+    },
+    {
+      body: subscriptionResponse("sub_period_cancel", "active", {
+        cancel_at_period_end: true,
+      }),
+    },
+    { body: subscriptionResponse("sub_running", "active") },
+  ]);
+  const gateway = createStripeGateway({ secretKey: SECRET_KEY, fetchImpl: fake.fetchImpl });
+
+  const trialCancel = await gateway.retrieveSubscription("sub_trial_cancel");
+  assert.equal(trialCancel.cancelAtPeriodEnd, true);
+
+  const periodCancel = await gateway.retrieveSubscription("sub_period_cancel");
+  assert.equal(periodCancel.cancelAtPeriodEnd, true);
+
+  // A subscription with no cancellation scheduled is still reported as running.
+  const running = await gateway.retrieveSubscription("sub_running");
+  assert.equal(running.cancelAtPeriodEnd, false);
+});

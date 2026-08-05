@@ -206,7 +206,16 @@ const normalizeSubscription = (subscription) => {
     status: subscription.status,
     priceId,
     livemode: subscription.livemode === true,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end === true,
+    // Stripe expresses "already cancelled, still running out the paid time" in
+    // two different ways: cancel_at_period_end for a cancellation at the end of
+    // a billing period, and a concrete cancel_at timestamp when the end is a
+    // fixed instant — which is what cancelling during a trial produces
+    // (cancel_at = trial end, cancel_at_period_end stays false). Reading only
+    // the flag left a learner who had successfully cancelled with no
+    // confirmation anywhere in the app, so it looked like cancelling failed.
+    cancelAtPeriodEnd:
+      subscription.cancel_at_period_end === true ||
+      Number.isSafeInteger(subscription.cancel_at),
     currentPeriodEnd: subscription.current_period_end ?? null,
     trialEnd: subscription.trial_end ?? null,
   };
