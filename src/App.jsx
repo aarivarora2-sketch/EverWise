@@ -1702,6 +1702,18 @@ function LearnerApp({ initialPartnerFragment }) {
   }, [access, partnerOwnerUid, partnerStatus, screen, user?.uid]);
 
   useEffect(() => {
+    // TEMP DIAGNOSTIC - remove before merging a real fix.
+    console.log("[DIAG billing-effect]", {
+      platform,
+      authChecked,
+      authSettled: authSettledRef.current,
+      authSettledVersion,
+      hasUid: Boolean(user?.uid),
+      sponsoredActive,
+      inFlightRef: authoritativeAccessRefreshInFlightRef.current,
+      versionRef: authoritativeAccessVersionRef.current,
+      billingRefreshAttempt,
+    });
     if (
       platform !== "web" ||
       !authChecked ||
