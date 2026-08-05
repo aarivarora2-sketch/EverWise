@@ -186,23 +186,20 @@ describe("wrong answers come back before a lesson can finish", () => {
 });
 
 describe("testing out of a lesson you already know", () => {
-  const openOffer = (overrides = {}) =>
-    renderPlayer({ initialPosition: null, ...overrides });
+  // Entered from the course path, so the lesson itself opens straight into the
+  // quick check rather than putting a choice in front of every learner.
+  const openTestOut = (overrides = {}) =>
+    renderPlayer({ initialPosition: null, startInTestOut: true, ...overrides });
 
-  test("a fresh lesson offers the choice between working through it and testing out", () => {
-    openOffer();
-    expect(
-      screen.getByRole("button", { name: "Start the lesson" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: /I already know this/ }),
-    ).toBeVisible();
+  test("opening a lesson normally goes straight into it, with no extra step", () => {
+    renderPlayer({ initialPosition: null });
+    expect(screen.getByRole("heading", { name: "Learn" })).toBeVisible();
+    expect(screen.queryByText("Quick check")).not.toBeInTheDocument();
   });
 
   test("answering every question correctly marks the lesson done without doing it", () => {
-    const props = openOffer();
+    const props = openTestOut();
 
-    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
     answer("A worldwide network");
     advance("Next");
     answer("A page you visit online");
@@ -212,9 +209,8 @@ describe("testing out of a lesson you already know", () => {
   });
 
   test("one wrong answer ends the attempt and starts the lesson properly", () => {
-    const props = openOffer();
+    const props = openTestOut();
 
-    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
     answer("A phone"); // wrong
     // No way to carry on testing out; the only route forward is the lesson.
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
@@ -225,24 +221,22 @@ describe("testing out of a lesson you already know", () => {
     expect(screen.getByRole("heading", { name: "Learn" })).toBeVisible();
   });
 
-  test("a lesson with no quiz cannot be tested out", () => {
+  test("a lesson with no quiz cannot be tested out even if asked", () => {
     renderPlayer({
       initialPosition: null,
+      startInTestOut: true,
       lesson: { ...LESSON, quiz: [] },
     });
-    expect(
-      screen.queryByRole("button", { name: /I already know this/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Quick check")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Learn" })).toBeVisible();
   });
 
-  test("resuming a part-done lesson goes back to the saved place, not the offer", () => {
+  test("a saved place wins over the quick check, so progress is never lost", () => {
     renderPlayer({
       initialPosition: { ...AT_QUIZ, quizIndex: 1 },
+      startInTestOut: true,
     });
-    expect(
-      screen.queryByRole("button", { name: /I already know this/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Quick check")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "What is a website?" }),
     ).toBeVisible();
@@ -254,9 +248,12 @@ describe("testing out of a lesson you already know", () => {
       options: ["Right", "Wrong"],
       correctIndex: 0,
     }));
-    renderPlayer({ initialPosition: null, lesson: { ...LESSON, quiz: many } });
+    renderPlayer({
+      initialPosition: null,
+      startInTestOut: true,
+      lesson: { ...LESSON, quiz: many },
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
     expect(screen.getByText("Question 1 of 5")).toBeVisible();
   });
 });

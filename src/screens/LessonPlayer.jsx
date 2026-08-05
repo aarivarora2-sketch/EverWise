@@ -14,6 +14,7 @@ export default function LessonPlayer({
   initialPosition = null,
   onPositionChange,
   onExit,
+  startInTestOut = false,
 }) {
   const quiz = lesson.quiz ?? [];
   const quizTotal = quiz.length;
@@ -37,9 +38,10 @@ export default function LessonPlayer({
       ? initialPosition
       : null;
 
-  // "offer" | "testout" | "block" | "quiz" | "review"
+  // "testout" | "block" | "quiz" | "review"
   const [phase, setPhase] = useState(
-    resumed?.phase ?? (quizTotal > 0 ? "offer" : "block"),
+    resumed?.phase ??
+      (startInTestOut && quizTotal > 0 ? "testout" : "block"),
   );
   const [blockIndex, setBlockIndex] = useState(resumed?.blockIndex ?? 0);
   const [quizIndex, setQuizIndex] = useState(resumed?.quizIndex ?? 0);
@@ -204,47 +206,6 @@ export default function LessonPlayer({
     }
   };
 
-  if (phase === "offer") {
-    return (
-      <BlockShell
-        label="Lesson"
-        progress={0}
-        progressTotal={totalSteps}
-        onBack={onBack}
-        onExit={onExit}
-        footer={
-          <button className="btn-primary" onClick={beginLessonProperly}>
-            Start the lesson
-          </button>
-        }
-      >
-        <h1 className="page-title mt-3">{lesson.title}</h1>
-        <p className="mt-4 text-xl leading-relaxed text-ink-soft">
-          Take it step by step, or skip ahead if you already know this.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setPhase("testout");
-            setTestOutIndex(0);
-            setTestOutFailed(false);
-            setSelected(null);
-          }}
-          className="mt-8 w-full rounded-2xl border-2 border-ink/15 bg-cream-card px-6 py-6 text-left transition-colors hover:border-clay hover:bg-clay/5"
-        >
-          <span className="block text-2xl font-bold text-ink">
-            I already know this
-          </span>
-          <span className="mt-1 block text-lg leading-snug text-ink-soft">
-            Answer {testOutQuestions.length}{" "}
-            {testOutQuestions.length === 1 ? "question" : "questions"} correctly
-            and we'll mark this lesson done.
-          </span>
-        </button>
-      </BlockShell>
-    );
-  }
-
   if (phase === "testout") {
     const testQuestion = testOutQuestions[testOutIndex];
     const isLast = testOutIndex + 1 === testOutQuestions.length;
@@ -254,7 +215,7 @@ export default function LessonPlayer({
         label="Quick check"
         progress={testOutIndex + 1}
         progressTotal={testOutQuestions.length}
-        onBack={() => setPhase("offer")}
+        onBack={onBack}
         onExit={onExit}
         scrollKey={testOutIndex}
         footer={

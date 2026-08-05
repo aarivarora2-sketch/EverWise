@@ -964,6 +964,9 @@ function LearnerApp({ initialPartnerFragment }) {
   const [screen, setScreen] = useState("landing");
   const [paywallVariant, setPaywallVariant] = useState("subscribe");
   const [activeIndex, setActiveIndex] = useState(0);
+  // Set when the learner chose the quick check from the course path, so the
+  // lesson opens on it instead of its first teaching block.
+  const [startInTestOut, setStartInTestOut] = useState(false);
   const [activeExam, setActiveExam] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
   const [textSize, setTextSize] = useState(getSavedTextSize);
@@ -3152,7 +3155,7 @@ function LearnerApp({ initialPartnerFragment }) {
     }
   };
 
-  const startLesson = async (index) => {
+  const startLesson = async (index, { testOut = false } = {}) => {
     const lesson = lessonsByOrder[index];
     let currentAccess = access;
     const requiresFullAccess = !canOpenLesson({
@@ -3191,8 +3194,15 @@ function LearnerApp({ initialPartnerFragment }) {
     setActiveExam(null);
     setActiveChallenge(null);
     setActiveIndex(index);
+    // Only set once every access check above has passed, so the quick check is
+    // never a way into a lesson the learner could not otherwise open.
+    setStartInTestOut(testOut);
     setScreen("lesson");
   };
+
+  // Testing out runs through exactly the same checks as opening the lesson
+  // normally; the only difference is where the lesson starts.
+  const startLessonTestOut = (index) => startLesson(index, { testOut: true });
 
   const startChallenge = async (challenge) => {
     let currentAccess = access;
@@ -4287,6 +4297,7 @@ function LearnerApp({ initialPartnerFragment }) {
           completedLessons={completedLessons}
           textSize={textSize}
           onSelectLesson={startLesson}
+          onTestOutLesson={startLessonTestOut}
           onSelectChallenge={startChallenge}
           onSelectExam={startExam}
           onBack={goHome}
@@ -4313,6 +4324,7 @@ function LearnerApp({ initialPartnerFragment }) {
             })
           }
           onExit={goPath}
+          startInTestOut={startInTestOut}
           onComplete={() => {
             // The lesson is finished, so the saved place is no longer wanted.
             clearLessonPosition({
