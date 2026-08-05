@@ -466,8 +466,14 @@ const billingRequest = async ({
   options,
 }) => {
   const dependencies = snapshotDependencies(options);
+  // TEMP DIAGNOSTIC - remove before merging a real fix.
+  console.log("[DIAG billingRequest] dependencies: " + JSON.stringify({
+    ok: Boolean(dependencies),
+    path,
+  }));
   if (!dependencies) throw unavailable();
   const token = await authenticatedToken(user);
+  console.log("[DIAG billingRequest] token acquired, len=" + (token ? token.length : "null"));
   const controller = new AbortController();
   const termination = createRequestTermination(controller);
   let timeoutId = null;
@@ -495,6 +501,13 @@ const billingRequest = async ({
     if (!normalized) throw unavailable();
     return normalized;
   } catch (error) {
+    // TEMP DIAGNOSTIC - remove before merging a real fix.
+    console.log("[DIAG billingRequest] real error: " + JSON.stringify({
+      isBillingAccessError: error instanceof BillingAccessError,
+      name: error?.name,
+      message: error?.message,
+      stack: String(error?.stack).slice(0, 800),
+    }));
     if (error instanceof BillingAccessError) throw error;
     throw unavailable();
   } finally {
