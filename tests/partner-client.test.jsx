@@ -806,10 +806,6 @@ async function clickWithFakeTimers(element) {
 }
 
 async function finishVisibleLessonUntilProgressSaveStarts() {
-  // Lessons with a quiz open on the choice between working through them and
-  // testing out; take the ordinary route.
-  const start = screen.queryByRole("button", { name: "Start the lesson" });
-  if (start) await clickWithFakeTimers(start);
   for (let step = 0; step < 100 && mocks.updateDoc.mock.calls.length === 0; step += 1) {
     const skip =
       screen.queryByRole("button", { name: "Skip this step" }) ||

@@ -11,6 +11,7 @@ import {
   LockIcon,
   TrophyIcon,
   BookIcon,
+  FastForwardIcon,
   ArrowLeftIcon,
 } from "../components/Icons";
 import {
@@ -71,6 +72,7 @@ export default function LessonPath({
   onSelectLesson,
   onSelectExam,
   onSelectChallenge,
+  onTestOutLesson,
   onBack,
 }) {
   const doneSet = new Set(completedLessons);
@@ -476,7 +478,7 @@ export default function LessonPath({
                     transform: "translateX(-50%)",
                   }}
                 >
-                  <div className="flex flex-col items-center">
+                  <div className="relative flex flex-col items-center">
                     <PathNode
                       state={state}
                       kind={node.kind}
@@ -484,6 +486,26 @@ export default function LessonPath({
                       onClick={onClick}
                       title={node.fullTitle || node.title}
                     />
+                    {/* Offered beside the node, not in the way of it: tapping
+                        the node still starts the lesson as it always did, so
+                        nobody pays for an option they do not want. Only on the
+                        lesson you are actually up to, and only when there are
+                        questions to answer. */}
+                    {onTestOutLesson &&
+                    node.kind === "lesson" &&
+                    state === "current" &&
+                    (lessons[node.lessonIndex]?.quiz?.length ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onTestOutLesson(node.lessonIndex)}
+                        aria-label={`Already know ${node.fullTitle || node.title}? Take a quick check`}
+                        title="Already know this? Take a quick check"
+                        className="path-test-out absolute -right-1 -top-1 flex min-h-11 min-w-11 items-center justify-center rounded-full border-2 border-cream-card bg-cream-card text-ink-soft shadow-btn transition-colors hover:text-ink"
+                        style={{ backgroundColor: CREAM }}
+                      >
+                        <FastForwardIcon className="h-6 w-6" />
+                      </button>
+                    ) : null}
                     <Label
                       state={state}
                       title={node.title}

@@ -74,6 +74,16 @@ export function ArrowLeftIcon({ className = "w-6 h-6" }) {
   );
 }
 
+// Two chevrons: "skip ahead", used on the path for testing out of a lesson.
+export function FastForwardIcon({ className = "w-6 h-6" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
+      <path d="M5 6l6 6-6 6" />
+      <path d="M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
 export function ShieldIcon({ className = "w-6 h-6" }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" {...base}>
