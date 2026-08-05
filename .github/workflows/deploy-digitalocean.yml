@@ -106,7 +106,7 @@ jobs:
         run: |
           release_archive="$(mktemp)"
           trap 'rm -f "$release_archive"' EXIT
-          tar --format=ustar -czf "$release_archive" --exclude=server/node_modules dist server.mjs server scripts/manage-partners.mjs src/utils/validation.js ops/everwise-nginx.conf server/package.json server/package-lock.json
+          tar --format=ustar -czf "$release_archive" --exclude=server/node_modules dist server.mjs server scripts/manage-partners.mjs src/utils/validation.js ops/everwise-nginx.conf
           bash -c 'source "$1"; validate_release_archive "$2"' \
             validate-archive \
             ops/deploy-everwise \
