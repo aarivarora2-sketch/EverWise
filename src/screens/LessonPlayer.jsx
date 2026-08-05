@@ -3,6 +3,8 @@ import BlockRenderer from "../components/blocks/BlockRenderer";
 import BlockShell from "../components/blocks/BlockShell";
 import { MultipleChoiceBody } from "../components/blocks/ScenarioBlock";
 
+const MAX_TEST_OUT_QUESTIONS = 5;
+
 // Plays one lesson: every block in order → quiz (one at a time) → signals done.
 // Quiz length is not fixed — lessons may have 5, 6, 8, or any number of questions.
 export default function LessonPlayer({
@@ -15,6 +17,10 @@ export default function LessonPlayer({
 }) {
   const quiz = lesson.quiz ?? [];
   const quizTotal = quiz.length;
+  // A learner who already knows a lesson can prove it instead of sitting
+  // through it. Kept short on purpose — the point is to get someone to the
+  // material they actually need.
+  const testOutQuestions = quiz.slice(0, MAX_TEST_OUT_QUESTIONS);
 
   // A saved position is only honoured if it still fits this lesson. Lessons
   // change as content is edited, so a stale index must never strand someone on
@@ -31,7 +37,10 @@ export default function LessonPlayer({
       ? initialPosition
       : null;
 
-  const [phase, setPhase] = useState(resumed?.phase ?? "block"); // "block" | "quiz"
+  // "offer" | "testout" | "block" | "quiz" | "review"
+  const [phase, setPhase] = useState(
+    resumed?.phase ?? (quizTotal > 0 ? "offer" : "block"),
+  );
   const [blockIndex, setBlockIndex] = useState(resumed?.blockIndex ?? 0);
   const [quizIndex, setQuizIndex] = useState(resumed?.quizIndex ?? 0);
   const [selected, setSelected] = useState(null);
@@ -39,6 +48,8 @@ export default function LessonPlayer({
   // when it is answered correctly, so the lesson is not finished until every
   // mistake has been put right.
   const [reviewQueue, setReviewQueue] = useState(resumed?.reviewQueue ?? []);
+  const [testOutIndex, setTestOutIndex] = useState(0);
+  const [testOutFailed, setTestOutFailed] = useState(false);
   const scoreRef = useRef(resumed?.score ?? 0);
   // Scored on the first attempt only, so replaying a question in review cannot
   // inflate the result.
@@ -129,6 +140,36 @@ export default function LessonPlayer({
     });
   };
 
+  const beginLessonProperly = () => {
+    setPhase("block");
+    setBlockIndex(0);
+    setSelected(null);
+    rememberPosition({ phase: "block", blockIndex: 0, quizIndex: 0 });
+  };
+
+  const answerTestOut = (choice) => {
+    if (selected != null) return;
+    // One wrong answer ends the attempt: the point of testing out is to show
+    // the lesson is not needed, and a near miss means it is.
+    if (choice !== testOutQuestions[testOutIndex].correctIndex) {
+      setTestOutFailed(true);
+    }
+    setSelected(choice);
+  };
+
+  const continueTestOut = () => {
+    if (testOutFailed) {
+      beginLessonProperly();
+      return;
+    }
+    if (testOutIndex + 1 < testOutQuestions.length) {
+      setTestOutIndex((i) => i + 1);
+      setSelected(null);
+      return;
+    }
+    onComplete(testOutQuestions.length);
+  };
+
   const goToPreviousStep = () => {
     setSelected(null);
 
@@ -162,6 +203,91 @@ export default function LessonPlayer({
       onBack();
     }
   };
+
+  if (phase === "offer") {
+    return (
+      <BlockShell
+        label="Lesson"
+        progress={0}
+        progressTotal={totalSteps}
+        onBack={onBack}
+        onExit={onExit}
+        footer={
+          <button className="btn-primary" onClick={beginLessonProperly}>
+            Start the lesson
+          </button>
+        }
+      >
+        <h1 className="page-title mt-3">{lesson.title}</h1>
+        <p className="mt-4 text-xl leading-relaxed text-ink-soft">
+          Take it step by step, or skip ahead if you already know this.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setPhase("testout");
+            setTestOutIndex(0);
+            setTestOutFailed(false);
+            setSelected(null);
+          }}
+          className="mt-8 w-full rounded-2xl border-2 border-ink/15 bg-cream-card px-6 py-6 text-left transition-colors hover:border-clay hover:bg-clay/5"
+        >
+          <span className="block text-2xl font-bold text-ink">
+            I already know this
+          </span>
+          <span className="mt-1 block text-lg leading-snug text-ink-soft">
+            Answer {testOutQuestions.length}{" "}
+            {testOutQuestions.length === 1 ? "question" : "questions"} correctly
+            and we'll mark this lesson done.
+          </span>
+        </button>
+      </BlockShell>
+    );
+  }
+
+  if (phase === "testout") {
+    const testQuestion = testOutQuestions[testOutIndex];
+    const isLast = testOutIndex + 1 === testOutQuestions.length;
+    return (
+      <BlockShell
+        key={`testout-${testOutIndex}`}
+        label="Quick check"
+        progress={testOutIndex + 1}
+        progressTotal={testOutQuestions.length}
+        onBack={() => setPhase("offer")}
+        onExit={onExit}
+        scrollKey={testOutIndex}
+        footer={
+          selected != null ? (
+            <button className="btn-primary" onClick={continueTestOut}>
+              {testOutFailed
+                ? "Go through the lesson"
+                : isLast
+                  ? "Finish"
+                  : "Next"}
+            </button>
+          ) : null
+        }
+      >
+        <p className="text-lg font-semibold text-ink-faint">
+          Question {testOutIndex + 1} of {testOutQuestions.length}
+        </p>
+        {testOutFailed ? (
+          <p className="mt-1 text-lg leading-snug text-ink-soft">
+            No problem — we'll go through this one together.
+          </p>
+        ) : null}
+        <MultipleChoiceBody
+          text={testQuestion.question}
+          options={testQuestion.options}
+          correctIndex={testQuestion.correctIndex}
+          explanation={testQuestion.explanation}
+          selected={selected}
+          onSelect={answerTestOut}
+        />
+      </BlockShell>
+    );
+  }
 
   if (phase === "block") {
     return (
