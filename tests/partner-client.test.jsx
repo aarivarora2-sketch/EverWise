@@ -2530,8 +2530,12 @@ describe("sponsored signup orchestration", () => {
     const returningUser = {
       uid: "returning-sponsored",
       email: "jane@example.com",
+      // A returning user's routine access check must not force a token
+      // refresh: the server only reads the token's uid, and forcing a
+      // refresh on every bootstrap/retry drove repeated auth-state churn
+      // that left the billing-fetch effect never settled.
       getIdToken: vi.fn(async (forceRefresh) => {
-        expect(forceRefresh).toBe(true);
+        expect(forceRefresh).toBeUndefined();
         return "returning-id-token";
       }),
     };
