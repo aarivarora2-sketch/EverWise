@@ -31,6 +31,7 @@ const BILLING_API_PATHS = new Set([
   "/api/billing/access",
   "/api/billing/checkout",
   "/api/billing/portal",
+  "/api/billing/cancel",
 ]);
 
 const scamAssessmentSchema = {

@@ -1662,3 +1662,85 @@ test("Portal rejects client-owned identifiers and learners without billing histo
   });
   assert.equal(calls.createPortalSession.length, 0);
 });
+
+test("Cancel terminates only the authenticated UID's own stored subscription", async () => {
+  const record = defaultRecord({
+    customerId: "cus_private_owner",
+    subscriptionId: "sub_private_owner",
+    plan: "annual",
+    status: "active",
+  });
+  const calls = { uids: [], cancel: [] };
+  const { api } = createHarness({
+    store: {
+      getByUid: async (uid) => {
+        calls.uids.push(uid);
+        return record;
+      },
+    },
+    gateway: {
+      cancelSubscription: async (input) => {
+        calls.cancel.push(input);
+        return { id: input.subscriptionId, status: "canceled" };
+      },
+    },
+  });
+  const result = await invoke(api, "/api/billing/cancel");
+
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.response.json(), { canceled: true });
+  // The subscription id is read from the server's own store for the verified
+  // uid, never taken from the caller.
+  assert.deepEqual(calls.uids, [UID]);
+  assert.equal(calls.cancel.length, 1);
+  assert.equal(calls.cancel[0].uid, UID);
+  assert.equal(calls.cancel[0].subscriptionId, "sub_private_owner");
+  // Provider identifiers must not leak back to the client.
+  const serialized = JSON.stringify(result.response.json());
+  assert.equal(serialized.includes("sub_private_owner"), false);
+  assert.equal(serialized.includes("cus_private_owner"), false);
+});
+
+test("Cancel ignores a caller-supplied subscription id and succeeds with no subscription", async () => {
+  const calls = { cancel: [] };
+  const { api } = createHarness({
+    store: { getByUid: async () => null },
+    gateway: {
+      cancelSubscription: async (input) => {
+        calls.cancel.push(input);
+        return { id: input.subscriptionId, status: "canceled" };
+      },
+    },
+  });
+  // A body naming someone else's subscription is rejected outright.
+  const injected = await invoke(api, "/api/billing/cancel", {
+    body: { subscriptionId: "sub_someone_else" },
+  });
+  assert.equal(injected.response.status, 400);
+  assert.equal(calls.cancel.length, 0);
+
+  // No stored subscription: deleting the account is already safe.
+  const empty = await invoke(api, "/api/billing/cancel");
+  assert.equal(empty.response.status, 200);
+  assert.deepEqual(empty.response.json(), { canceled: false });
+  assert.equal(calls.cancel.length, 0);
+});
+
+test("Cancel reports failure when Stripe does not confirm a terminal state", async () => {
+  const record = defaultRecord({
+    customerId: "cus_owner",
+    subscriptionId: "sub_owner",
+    plan: "annual",
+    status: "active",
+  });
+  const { api } = createHarness({
+    store: { getByUid: async () => record },
+    gateway: {
+      // Still active: the client must not be told billing has stopped.
+      cancelSubscription: async () => ({ id: "sub_owner", status: "active" }),
+    },
+  });
+  const result = await invoke(api, "/api/billing/cancel");
+  assert.equal(result.response.status, 503);
+  assert.equal(result.response.json().error.code, "BILLING_UNAVAILABLE");
+});

@@ -95,6 +95,7 @@ import {
   restoreSubscriptions,
 } from "./services/purchases";
 import {
+  cancelBillingSubscription,
   createBillingCheckout,
   createBillingPortal,
   fetchBillingAccess,
@@ -863,6 +864,18 @@ class FirebaseDeletionStatusIndeterminateError extends Error {
   constructor() {
     super("Firebase account deletion status could not be confirmed.");
     this.name = "FirebaseDeletionStatusIndeterminateError";
+  }
+}
+
+// Deletion stopped before destroying anything because the subscription could
+// not be cancelled. Carries its own learner-facing message past the generic
+// deletion catch so the learner is told to cancel from Manage subscription.
+class SubscriptionCancellationFailedError extends Error {
+  constructor() {
+    super(
+      "We could not cancel your subscription, so your account was not deleted. Please try again, or cancel from Manage subscription first.",
+    );
+    this.name = "SubscriptionCancellationFailedError";
   }
 }
 
@@ -3468,6 +3481,19 @@ function LearnerApp({ initialPartnerFragment }) {
         );
         await reauthenticateWithCredential(expectedUser, credential);
         requireCurrentAccountDeletion(operation);
+        // Stop billing BEFORE anything is destroyed. Deleting the Firebase
+        // user first would leave a live Stripe subscription charging a card
+        // whose owner no longer has an account to cancel from, and the call
+        // needs a valid token anyway. If this fails, abort the deletion
+        // rather than risk silently charging someone forever.
+        if (platform === "web") {
+          try {
+            await cancelBillingSubscription(expectedUser);
+          } catch {
+            throw new SubscriptionCancellationFailedError();
+          }
+          requireCurrentAccountDeletion(operation);
+        }
         await deleteDoc(doc(db, "users", expectedUid));
         profileDeleted = true;
         requireCurrentAccountDeletion(operation);
@@ -3502,6 +3528,7 @@ function LearnerApp({ initialPartnerFragment }) {
             "Account deletion stopped and your saved profile could not be restored. Please contact support.",
           );
         }
+        if (err instanceof SubscriptionCancellationFailedError) throw err;
         if (err instanceof FirebaseDeletionStatusIndeterminateError) {
           throw new Error(
             "We could not confirm whether your account was deleted. Please contact support before trying again.",

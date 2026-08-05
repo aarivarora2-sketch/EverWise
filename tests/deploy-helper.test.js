@@ -321,6 +321,26 @@ test("versioned Nginx config proxies every live API family and health check", as
   assert.match(config, /proxy_pass http:\/\/127\.0\.0\.1:8787/);
 });
 
+test("versioned Nginx config sends baseline browser security headers", async () => {
+  const config = await readFile(nginxConfigUrl, "utf8");
+  // The app handles sign-in and payment, so it must never be framable.
+  assert.match(config, /add_header X-Frame-Options "DENY" always;/);
+  assert.match(config, /frame-ancestors 'none'/);
+  assert.match(config, /add_header X-Content-Type-Options "nosniff" always;/);
+  assert.match(
+    config,
+    /add_header Referrer-Policy "strict-origin-when-cross-origin" always;/,
+  );
+  assert.match(config, /add_header Strict-Transport-Security "max-age=\d+/);
+  assert.match(config, /add_header Permissions-Policy /);
+  // Every header must be `always` so it is still sent on error responses.
+  for (const line of config.split("\n")) {
+    if (line.trim().startsWith("add_header ")) {
+      assert.match(line, /always;\s*$/, `missing always: ${line.trim()}`);
+    }
+  }
+});
+
 test("release directories are immutable and an active-SHA retry reuses the existing release", async () => {
   const helper = await readFile(helperUrl, "utf8");
   assert.doesNotMatch(helper, /rm -rf "\$release_path"/);
