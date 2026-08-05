@@ -9,7 +9,7 @@ readonly MAX_INDIVIDUAL_ENTRY_BYTES=$((8 * 1024 * 1024))
 readonly MAX_TOTAL_EXPANDED_BYTES=$((64 * 1024 * 1024))
 
 health_is_healthy() {
-  local require_partner_health="${1:-false}"
+  local require_release_health="${1:-false}"
   local health
 
   systemctl is-active --quiet everwise-api.service || return 1
@@ -17,9 +17,12 @@ health_is_healthy() {
     health="$(curl -fsS --max-time 5 http://127.0.0.1:8787/healthz || true)"
     if grep -q '"readAloudConfigured":true' <<<"$health" &&
        grep -q '"scamCheckerConfigured":true' <<<"$health" &&
-       { [[ "$require_partner_health" != "true" ]] ||
+       { [[ "$require_release_health" != "true" ]] ||
          { grep -q '"partnerAccessConfigured":true' <<<"$health" &&
-           grep -q '"partnerStoreHealthy":true' <<<"$health"; }; }; then
+           grep -q '"partnerStoreHealthy":true' <<<"$health" &&
+           grep -q '"billingConfigured":true' <<<"$health" &&
+           grep -q '"billingPlansVerified":true' <<<"$health" &&
+           grep -q '"billingStoreHealthy":true' <<<"$health"; }; }; then
       return 0
     fi
     sleep 0.5
@@ -379,6 +382,33 @@ ensure_partner_store() {
   test "$(stat -c '%U:%G:%a' /var/lib/everwise/partners.json)" = "www-data:www-data:600"
 }
 
+ensure_billing_store() {
+  local bootstrap_path
+
+  install -d -o www-data -g www-data -m 750 /var/lib/everwise
+  if [[ -e /var/lib/everwise/billing.json ]]; then
+    test -f /var/lib/everwise/billing.json
+    test ! -L /var/lib/everwise/billing.json
+    test "$(stat -c '%U:%G:%a' /var/lib/everwise/billing.json)" = "www-data:www-data:600"
+    return 0
+  fi
+
+  bootstrap_path="$(mktemp /var/lib/everwise/billing.json.bootstrap.XXXXXX)"
+  if ! printf '%s\n' '{"version":1,"learners":{},"processedEvents":[]}' > "$bootstrap_path" ||
+     ! chown www-data:www-data "$bootstrap_path" ||
+     ! chmod 600 "$bootstrap_path"; then
+    rm -f "$bootstrap_path"
+    return 1
+  fi
+
+  if ! ln "$bootstrap_path" /var/lib/everwise/billing.json; then
+    test -f /var/lib/everwise/billing.json
+    test ! -L /var/lib/everwise/billing.json
+  fi
+  rm -f "$bootstrap_path"
+  test "$(stat -c '%U:%G:%a' /var/lib/everwise/billing.json)" = "www-data:www-data:600"
+}
+
 deploy_release() {
   local release_sha="$1"
   local archive_path staging_path release_root release_path previous_release
@@ -412,6 +442,8 @@ deploy_release() {
 
   test ! -e /var/lib/everwise/partners.json || test -f /var/lib/everwise/partners.json
   ensure_partner_store
+  test ! -e /var/lib/everwise/billing.json || test -f /var/lib/everwise/billing.json
+  ensure_billing_store
 
   release_root="/var/www/everwise-releases"
   release_path="$release_root/$release_sha"

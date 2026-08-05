@@ -75,6 +75,9 @@ test("DigitalOcean deployment archives only the built app and reviewed partner s
 test("DigitalOcean deployment checks partner configuration and store health after release", () => {
   assert.match(workflow, /"partnerAccessConfigured":true/);
   assert.match(workflow, /"partnerStoreHealthy":true/);
+  assert.match(workflow, /"billingConfigured":true/);
+  assert.match(workflow, /"billingPlansVerified":true/);
+  assert.match(workflow, /"billingStoreHealthy":true/);
   assert.match(workflow, /https:\/\/everwise\.dexio-games\.com\/healthz/);
 });
 

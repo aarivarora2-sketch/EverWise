@@ -302,6 +302,9 @@ test("versioned helper preserves restricted commands, rollback, health, and Ngin
   assert.match(helper, /\/etc\/nginx\/conf\.d\/everwise\.dexio-games\.com\.conf/);
   assert.match(helper, /"partnerAccessConfigured":true/);
   assert.match(helper, /"partnerStoreHealthy":true/);
+  assert.match(helper, /"billingConfigured":true/);
+  assert.match(helper, /"billingPlansVerified":true/);
+  assert.match(helper, /"billingStoreHealthy":true/);
   assert.match(helper, /npm ci --omit=dev --ignore-scripts --no-audit --no-fund/);
   assert.match(helper, /import\("\.\/server\/stripeGateway\.mjs"\)/);
   assert.match(helper, /cleanup_release_files\n  trap - EXIT/);
@@ -354,4 +357,19 @@ test("partner storage is installed outside releases without replacing partner da
     helper,
     /release_(?:root|path)=[^\n]*\/var\/lib\/everwise/,
   );
+});
+
+test("billing storage is initialized outside releases without replacing billing data", async () => {
+  const helper = await readFile(helperUrl, "utf8");
+  assert.match(helper, /test ! -e \/var\/lib\/everwise\/billing\.json/);
+  assert.match(
+    helper,
+    /\{"version":1,"learners":\{\},"processedEvents":\[\]\}/,
+  );
+  assert.match(helper, /ln "\$bootstrap_path" \/var\/lib\/everwise\/billing\.json/);
+  assert.doesNotMatch(
+    helper,
+    /\b(?:rm|mv|cp|install)\b[^\n]*\/var\/lib\/everwise\/billing\.json/,
+  );
+  assert.doesNotMatch(helper, />[^\n]*\/var\/lib\/everwise\/billing\.json/);
 });
