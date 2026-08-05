@@ -45,15 +45,6 @@ const VERIFIED_WEB_OFFERS = {
   },
 };
 
-const DIRECT_WEB_OFFER = {
-  key: "annual",
-  currency: "usd",
-  unitAmount: 6000,
-  interval: "year",
-  trialDays: 0,
-  name: "One Year Access",
-};
-
 const fixedText = {
   wordmark: { fontSize: "var(--paywall-wordmark, 30px)", lineHeight: 1 },
   headline: { fontSize: "var(--paywall-headline, 36px)", lineHeight: 1.05 },
@@ -253,9 +244,7 @@ function PlanCard({ disabled, native, offer, onSelect, selected, storeProducts, 
                 {webPrice(displayed)}
               </span>
               <span className="mt-2 block font-sans text-ink" style={fixedText.detail}>
-                {typeof displayed.trialDays === "number" && displayed.trialDays > 0
-                  ? `${displayed.trialDays} days free, then ${webPrice(displayed)} unless canceled.`
-                  : "60 dollars for one year of access, no trial required."}
+                {`${displayed.trialDays} days free, then ${webPrice(displayed)} unless canceled.`}
               </span>
             </>
           )}
@@ -350,7 +339,6 @@ export default function Paywall({
   purchasesAvailable = true,
   sponsored = false,
   storeProducts = [],
-  checkoutUrl = "",
 }) {
   const [selectedPlan, setSelectedPlan] = useState("annual");
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
@@ -359,13 +347,7 @@ export default function Paywall({
   const native = platform === "native";
   const busy = billingBusy || localBusy;
   const webPlans = native ? null : verifiedWebPlans(billingPlans);
-  const hasDirectCheckout = !native && typeof checkoutUrl === "string" &&
-    checkoutUrl.length > 0;
-  const offers = native
-    ? NATIVE_PLANS
-    : hasDirectCheckout
-      ? { annual: DIRECT_WEB_OFFER }
-      : webPlans;
+  const offers = native ? NATIVE_PLANS : webPlans;
 
   const handlePlanKeyDown = (event) => {
     const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
@@ -387,10 +369,6 @@ export default function Paywall({
     setLocalBusy(true);
     setError("");
     try {
-      if (!native && hasDirectCheckout) {
-        globalThis.location.assign(checkoutUrl);
-        return;
-      }
       await onStartTrial(selectedPlan);
     } catch (purchaseError) {
       if (purchaseError?.code !== "PURCHASE_CANCELLED") {
@@ -429,7 +407,7 @@ export default function Paywall({
   }
 
   if (
-    (!native && (!billingAvailable && !hasDirectCheckout)) ||
+    (!native && !billingAvailable) ||
     (native && !purchasesAvailable)
   ) {
     return (
@@ -457,12 +435,9 @@ export default function Paywall({
   }
 
   const selectedOffer = offers[selectedPlan];
-  const hasOnlyDirectOffer = offers.annual && !offers.monthly;
   const ctaLabel = native
     ? selectedPlan === "annual" ? "Start your free trial" : "Continue with monthly"
-    : hasOnlyDirectOffer
-      ? "Start 60 dollars per year"
-      : `Start ${selectedOffer.trialDays}-day free trial`;
+    : `Start ${selectedOffer.trialDays}-day free trial`;
 
   return (
     <div data-testid="browser-paywall" className="release-paywall relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#F8F5EF] px-5 pb-0 pt-4">
@@ -522,9 +497,7 @@ export default function Paywall({
               </p>
             ) : (
               <p className="paywall-reassurance mt-3 shrink-0 text-center font-sans text-ink" style={fixedText.reassurance}>
-                {hasOnlyDirectOffer
-                  ? "60 dollars per year. No free trial. Full access for 365 days."
-                  : "Your payment method is collected now. Billing starts automatically after your trial unless you cancel."}
+                Your payment method is collected now. Billing starts automatically after your trial unless you cancel.
               </p>
             )}
           </section>

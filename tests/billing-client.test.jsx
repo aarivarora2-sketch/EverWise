@@ -605,7 +605,7 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(screen.getByTestId("paywall-billing-access")).toHaveTextContent("none");
   });
 
-  test("keeps direct Checkout available when verified access refresh is unavailable", async () => {
+  test("fails subscription Checkout closed when verified access refresh is unavailable", async () => {
     await openAuthenticatedApp({ access: NONE, uid: "stale-plan-user" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "View plans" }));
@@ -619,9 +619,10 @@ describe("browser billing bootstrap and provider selection", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("false");
     expect(screen.getByTestId("paywall-plan-count")).toHaveTextContent("0");
-    expect(screen.getByRole("button", { name: "Start annual trial" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry billing" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Start annual trial" })).not.toBeInTheDocument();
     expect(mocks.createBillingCheckout).not.toHaveBeenCalled();
   });
 

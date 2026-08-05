@@ -94,6 +94,8 @@ const allowedEntries = [
   { name: "server/", type: "5" },
   { name: "server/partnerStore.mjs", body: "export {};\n" },
   { name: "server/partnerApi.mjs", body: "export {};\n" },
+  { name: "server/package.json", body: '{"dependencies":{"stripe":"22.4.0"}}\n' },
+  { name: "server/package-lock.json", body: '{"lockfileVersion":3}\n' },
   { name: "scripts/", type: "5" },
   { name: "scripts/manage-partners.mjs", body: "export {};\n" },
   { name: "src/", type: "5" },
@@ -126,6 +128,20 @@ test("archive validation requires the shared server validation module", async (t
 
   const result = validateArchive(archivePath);
   assert.notEqual(result.status, 0, "validation module was not required");
+});
+
+test("archive validation requires the pinned server dependency manifests", async (t) => {
+  const directory = await setup(t);
+  for (const missingName of ["server/package.json", "server/package-lock.json"]) {
+    const archivePath = join(directory, `missing-${missingName.split("/")[1]}.tgz`);
+    await createArchive(
+      archivePath,
+      allowedEntries.filter(({ name }) => name !== missingName),
+    );
+
+    const result = validateArchive(archivePath);
+    assert.notEqual(result.status, 0, `${missingName} was not required`);
+  }
 });
 
 test("archive validation rejects traversal, secrets, arbitrary code, dependencies, and partner data", async (t) => {
@@ -278,6 +294,9 @@ test("versioned helper preserves restricted commands, rollback, health, and Ngin
   assert.match(helper, /systemctl reload nginx/);
   assert.match(helper, /"partnerAccessConfigured":true/);
   assert.match(helper, /"partnerStoreHealthy":true/);
+  assert.match(helper, /npm ci --omit=dev --ignore-scripts --no-audit --no-fund/);
+  assert.match(helper, /import\("\.\/server\/stripeGateway\.mjs"\)/);
+  assert.match(helper, /cleanup_release_files\n  trap - EXIT/);
 });
 
 test("release directories are immutable and an active-SHA retry reuses the existing release", async () => {
