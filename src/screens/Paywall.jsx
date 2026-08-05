@@ -5,7 +5,6 @@ import {
   CircleDot,
   MessageCircleWarning,
   Search,
-  X,
 } from "lucide-react";
 import { openLegalPage } from "../config/legalLinks";
 
@@ -254,18 +253,9 @@ function PlanCard({ disabled, native, offer, onSelect, selected, storeProducts, 
   );
 }
 
-function Header({ busy, label, onBack }) {
+function PaywallBrandHeader() {
   return (
     <header className="paywall-header relative flex h-14 shrink-0 items-center justify-center">
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={busy}
-        className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/5"
-        aria-label={label}
-      >
-        <X className="h-7 w-7" strokeWidth={2} aria-hidden="true" />
-      </button>
       <div className="flex min-w-0 items-center justify-center gap-2">
         <img src="/everwise-logo-192.png" alt="" className="paywall-logo h-[52px] w-[52px] shrink-0 object-contain" />
         <span className="truncate font-serif font-bold text-ink" style={fixedText.wordmark}>
@@ -276,7 +266,7 @@ function Header({ busy, label, onBack }) {
   );
 }
 
-function LegalFooter({ busy, native, onRestore }) {
+function LegalFooter({ busy, native, onRestore, onLogOut }) {
   return (
     <div
       className="paywall-footer flex min-h-12 shrink-0 items-center justify-center gap-3 font-sans font-semibold text-teal-800"
@@ -297,14 +287,22 @@ function LegalFooter({ busy, native, onRestore }) {
           </button>
         </>
       ) : null}
+      {onLogOut ? (
+        <>
+          <span aria-hidden="true">•</span>
+          <button type="button" className="min-h-11 rounded-md underline decoration-transparent underline-offset-4 hover:decoration-current" onClick={onLogOut} disabled={busy}>
+            Log out
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }
 
-function Unavailable({ busy, message, onBack, onRetry, sponsored }) {
+function Unavailable({ busy, message, onContinue, onLogOut, onRetry, sponsored }) {
   return (
     <div data-testid="browser-paywall" className="release-paywall relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#F8F5EF] px-5 pb-6 pt-4">
-      <Header busy={busy} label="Back to free lessons" onBack={onBack} />
+      <PaywallBrandHeader />
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-8 text-center">
         <h1 className="font-serif text-4xl font-bold tracking-tight text-ink sm:text-5xl">
           {sponsored ? "Your learning access is ready" : "Continue learning on the web"}
@@ -317,11 +315,18 @@ function Unavailable({ busy, message, onBack, onRetry, sponsored }) {
             Retry
           </button>
         ) : null}
-        <button type="button" className="btn-secondary mx-auto mt-4 min-h-11" onClick={onBack} disabled={busy}>
-          Continue with free lessons
-        </button>
+        {sponsored && typeof onContinue === "function" ? (
+          <button type="button" className="btn-secondary mx-auto mt-4 min-h-11" onClick={onContinue} disabled={busy}>
+            Continue
+          </button>
+        ) : null}
+        {!sponsored && typeof onLogOut === "function" ? (
+          <button type="button" className="btn-secondary mx-auto mt-4 min-h-11" onClick={onLogOut} disabled={busy}>
+            Log out
+          </button>
+        ) : null}
       </main>
-      <LegalFooter busy={busy} native={false} />
+      <LegalFooter busy={busy} native={false} onLogOut={onLogOut} />
     </div>
   );
 }
@@ -331,7 +336,8 @@ export default function Paywall({
   billingBusy = false,
   billingMessage = "",
   billingPlans = [],
-  onMaybeLater,
+  onContinue,
+  onLogOut,
   onRestore,
   onRetry,
   onStartTrial,
@@ -400,7 +406,7 @@ export default function Paywall({
       <Unavailable
         busy={busy}
         message="Your access is provided by a community partner."
-        onBack={onMaybeLater}
+        onContinue={onContinue}
         sponsored
       />
     );
@@ -416,7 +422,7 @@ export default function Paywall({
         message={native
           ? "Lesson 1 is free. Subscription purchases are not available in this browser."
           : "Subscription options are temporarily unavailable."}
-        onBack={onMaybeLater}
+        onLogOut={onLogOut}
         onRetry={native ? undefined : onRetry}
       />
     );
@@ -428,7 +434,7 @@ export default function Paywall({
       <Unavailable
         busy={busy}
         message="Subscription options are temporarily unavailable."
-        onBack={onMaybeLater}
+        onLogOut={onLogOut}
         onRetry={onRetry}
       />
     );
@@ -441,7 +447,7 @@ export default function Paywall({
 
   return (
     <div data-testid="browser-paywall" className="release-paywall relative flex h-full min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#F8F5EF] px-5 pb-0 pt-4">
-      <Header busy={busy} label={native ? "Close subscription options" : "Back to free lessons"} onBack={onMaybeLater} />
+      <PaywallBrandHeader />
       <main className="paywall-main flex min-h-0 min-w-0 flex-1 flex-col justify-between">
         <div className="paywall-layout min-w-0">
           <section className="paywall-story min-w-0">
@@ -502,7 +508,7 @@ export default function Paywall({
             )}
           </section>
         </div>
-        <LegalFooter busy={busy} native={native} onRestore={restore} />
+        <LegalFooter busy={busy} native={native} onRestore={restore} onLogOut={onLogOut} />
       </main>
       {restoreAnnouncement ? <span className="sr-only" role="status">{restoreAnnouncement}</span> : null}
     </div>
