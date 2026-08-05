@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const helperUrl = new URL("../ops/deploy-everwise", import.meta.url);
+const nginxConfigUrl = new URL("../ops/everwise-nginx.conf", import.meta.url);
 const MAX_COMPRESSED_UPLOAD_BYTES = 16 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 4096;
 const MAX_INDIVIDUAL_ENTRY_BYTES = 8 * 1024 * 1024;
@@ -98,6 +99,11 @@ const allowedEntries = [
   { name: "server/package-lock.json", body: '{"lockfileVersion":3}\n' },
   { name: "scripts/", type: "5" },
   { name: "scripts/manage-partners.mjs", body: "export {};\n" },
+  { name: "ops/", type: "5" },
+  {
+    name: "ops/everwise-nginx.conf",
+    body: "server { listen 80; server_name everwise.dexio-games.com; }\n",
+  },
   { name: "src/", type: "5" },
   { name: "src/utils/", type: "5" },
   { name: "src/utils/validation.js", body: "export {};\n" },
@@ -292,11 +298,24 @@ test("versioned helper preserves restricted commands, rollback, health, and Ngin
   assert.match(helper, /curl -fsS --max-time 5 http:\/\/127\.0\.0\.1:8787\/healthz/);
   assert.match(helper, /nginx -t/);
   assert.match(helper, /systemctl reload nginx/);
+  assert.match(helper, /ops\/everwise-nginx\.conf/);
+  assert.match(helper, /\/etc\/nginx\/conf\.d\/everwise\.dexio-games\.com\.conf/);
   assert.match(helper, /"partnerAccessConfigured":true/);
   assert.match(helper, /"partnerStoreHealthy":true/);
   assert.match(helper, /npm ci --omit=dev --ignore-scripts --no-audit --no-fund/);
   assert.match(helper, /import\("\.\/server\/stripeGateway\.mjs"\)/);
   assert.match(helper, /cleanup_release_files\n  trap - EXIT/);
+});
+
+test("versioned Nginx config proxies every live API family and health check", async () => {
+  const config = await readFile(nginxConfigUrl, "utf8");
+  assert.match(config, /location = \/healthz/);
+  assert.match(config, /location \^~ \/api\/billing\//);
+  assert.match(config, /location = \/api\/stripe\/webhook/);
+  assert.match(config, /location \^~ \/api\/partner\//);
+  assert.match(config, /location = \/api\/read-aloud/);
+  assert.match(config, /location = \/api\/check-message/);
+  assert.match(config, /proxy_pass http:\/\/127\.0\.0\.1:8787/);
 });
 
 test("release directories are immutable and an active-SHA retry reuses the existing release", async () => {

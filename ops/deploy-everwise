@@ -2,6 +2,7 @@
 set -euo pipefail
 
 runtime_path="/etc/everwise/everwise.env"
+nginx_config_path="/etc/nginx/conf.d/everwise.dexio-games.com.conf"
 readonly MAX_COMPRESSED_UPLOAD_BYTES=$((16 * 1024 * 1024))
 readonly MAX_ARCHIVE_ENTRIES=4096
 readonly MAX_INDIVIDUAL_ENTRY_BYTES=$((8 * 1024 * 1024))
@@ -126,7 +127,7 @@ unsafe_archive_entry() {
   done
 
   case "$archive_entry" in
-    server.mjs|server/|server/package.json|server/package-lock.json|scripts/|scripts/manage-partners.mjs|src/|src/utils/|src/utils/validation.js|dist/|dist/*)
+    server.mjs|server/|server/package.json|server/package-lock.json|scripts/|scripts/manage-partners.mjs|src/|src/utils/|src/utils/validation.js|ops/|ops/everwise-nginx.conf|dist/|dist/*)
       return 1
       ;;
     server/*.mjs)
@@ -260,7 +261,8 @@ validate_release_archive() {
   local archive_path="$1"
   local archive_entry listing
   local saw_server=false saw_server_directory=false saw_server_package=false
-  local saw_server_lock=false saw_script=false saw_validation=false saw_index=false
+  local saw_server_lock=false saw_script=false saw_validation=false saw_nginx=false
+  local saw_index=false
 
   validate_archive_bounds "$archive_path"
   tar -tzf "$archive_path" >/dev/null
@@ -277,6 +279,7 @@ validate_release_archive() {
       server/package-lock.json) saw_server_lock=true ;;
       scripts/manage-partners.mjs) saw_script=true ;;
       src/utils/validation.js) saw_validation=true ;;
+      ops/everwise-nginx.conf) saw_nginx=true ;;
       dist/index.html) saw_index=true ;;
     esac
   done < <(tar -tzf "$archive_path")
@@ -297,6 +300,7 @@ validate_release_archive() {
         "$saw_server_lock" != "true" ||
         "$saw_script" != "true" ||
         "$saw_validation" != "true" ||
+        "$saw_nginx" != "true" ||
         "$saw_index" != "true" ]]; then
     echo "The release archive is incomplete." >&2
     return 1
@@ -322,6 +326,7 @@ validate_release_tree() {
   test -f "$tree_path/server/package-lock.json"
   test -f "$tree_path/scripts/manage-partners.mjs"
   test -f "$tree_path/src/utils/validation.js"
+  test -f "$tree_path/ops/everwise-nginx.conf"
   /usr/local/bin/node --check "$tree_path/server.mjs"
   while IFS= read -r -d '' module_path; do
     /usr/local/bin/node --check "$module_path"
@@ -377,6 +382,7 @@ ensure_partner_store() {
 deploy_release() {
   local release_sha="$1"
   local archive_path staging_path release_root release_path previous_release
+  local nginx_backup_path="" nginx_had_existing=false
   local reuse_existing_release=false
 
   archive_path="$(mktemp /var/tmp/everwise-release.XXXXXX.tgz)"
@@ -386,6 +392,9 @@ deploy_release() {
     rm -f "$archive_path"
     if [[ -d "$staging_path" ]]; then
       rm -rf "$staging_path"
+    fi
+    if [[ -n "$nginx_backup_path" ]]; then
+      rm -f "$nginx_backup_path"
     fi
   }
   trap cleanup_release_files EXIT
@@ -438,7 +447,28 @@ deploy_release() {
     exit 1
   fi
 
+  if [[ -L "$nginx_config_path" ]]; then
+    restore_release "$previous_release"
+    echo "EverWise Nginx configuration target is unsafe; the prior release was restored." >&2
+    exit 1
+  fi
+  if [[ -e "$nginx_config_path" ]]; then
+    test -f "$nginx_config_path"
+    nginx_had_existing=true
+    nginx_backup_path="$(mktemp /etc/nginx/conf.d/everwise.dexio-games.com.conf.backup.XXXXXX)"
+    cp -p "$nginx_config_path" "$nginx_backup_path"
+  fi
+
+  install -o root -g root -m 644 \
+    "$release_path/ops/everwise-nginx.conf" \
+    "$nginx_config_path"
   if ! nginx -t || ! systemctl reload nginx; then
+    if [[ "$nginx_had_existing" == "true" ]]; then
+      install -o root -g root -m 644 "$nginx_backup_path" "$nginx_config_path"
+    else
+      rm -f "$nginx_config_path"
+    fi
+    nginx -t && systemctl reload nginx || true
     restore_release "$previous_release"
     echo "EverWise Nginx validation failed; the prior release was restored." >&2
     exit 1
