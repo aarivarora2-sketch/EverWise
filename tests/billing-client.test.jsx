@@ -761,6 +761,48 @@ describe("browser billing bootstrap and provider selection", () => {
     expect(mocks.createBillingCheckout).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps the paywall available while the Checkout Session is being created", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", {
+      ...window.location,
+      assign,
+      href: "http://localhost/",
+      origin: "http://localhost",
+      pathname: "/",
+      search: "",
+      hash: "",
+    });
+    const pendingCheckout = deferred();
+    mocks.createBillingCheckout.mockReturnValue(pendingCheckout.promise);
+    await openAuthenticatedApp({ access: NONE });
+    fireEvent.click(screen.getByRole("button", { name: "Open course" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open protected lesson" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start annual trial" }));
+      await Promise.resolve();
+    });
+
+    // Still mid-request: the paywall must not collapse into the
+    // "Subscription options are temporarily unavailable" state just because
+    // a checkout request is in flight.
+    expect(mocks.createBillingCheckout).toHaveBeenCalledTimes(1);
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByTestId("paywall-billing-available")).toHaveTextContent("true");
+
+    await act(async () => {
+      pendingCheckout.resolve({ url: "https://checkout.stripe.com/c/pay/cs_test_ok" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test_ok");
+  });
+
   test("never assigns an unsafe URL returned across the Checkout boundary", async () => {
     const assign = vi.fn();
     vi.stubGlobal("location", {
