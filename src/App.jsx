@@ -1739,7 +1739,10 @@ function LearnerApp({ initialPartnerFragment }) {
         setBillingRecovery({ kind: "temporary" });
       })
       .finally(() => {
-        if (isCurrent()) setBillingBusy(false);
+        // Always clear the busy flag, even when superseded: leaving it true
+        // when isCurrent() is false permanently deadlocks the Retry button,
+        // since the retry handler refuses to fire while billingBusy is true.
+        if (appMountedRef.current) setBillingBusy(false);
       });
 
     return () => {
@@ -2682,7 +2685,10 @@ function LearnerApp({ initialPartnerFragment }) {
           setBillingPlans([]);
           setBillingRecovery({ kind: "temporary" });
         } finally {
-          if (isCurrent()) setBillingBusy(false);
+          // Always clear the busy flag, even when superseded: leaving it
+          // true when isCurrent() is false permanently deadlocks the Retry
+          // button, since the retry handler refuses to fire while busy.
+          if (appMountedRef.current) setBillingBusy(false);
         }
       }
     }
