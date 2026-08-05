@@ -9,6 +9,7 @@ export default function TrueFalseBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const questions = block.questions || [];
   const [qIndex, setQIndex] = useState(0);
@@ -41,6 +42,7 @@ export default function TrueFalseBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={next}
       scrollKey={qIndex}
       footer={

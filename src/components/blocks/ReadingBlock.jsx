@@ -9,6 +9,7 @@ export default function ReadingBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const speakText = [
     block.objective && `Learning goal. ${block.objective}`,
@@ -24,6 +25,7 @@ export default function ReadingBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       footer={
         <button className="btn-primary" onClick={onContinue}>
           Continue

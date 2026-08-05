@@ -9,6 +9,7 @@ export default function MultiselectBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const [picked, setPicked] = useState(() => new Set());
   const [checked, setChecked] = useState(false);
@@ -39,6 +40,7 @@ export default function MultiselectBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       revealKey={checked ? "checked" : null}
       footer={

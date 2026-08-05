@@ -8,6 +8,7 @@ export default function BlockShell({
   progressTotal,
   onBack,
   onSkip,
+  onExit,
   children,
   footer,
   scrollKey,
@@ -58,6 +59,7 @@ export default function BlockShell({
         progressTotal={progressTotal}
         onBack={onBack}
         onSkip={onSkip}
+        onExit={onExit}
       />
       <div
         ref={contentRef}

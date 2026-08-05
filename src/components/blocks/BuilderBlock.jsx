@@ -9,6 +9,7 @@ export default function BuilderBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const columns = block.columns || [];
   // selection per column index
@@ -33,6 +34,7 @@ export default function BuilderBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       footer={
         revealed ? (

@@ -9,6 +9,7 @@ export default function FlashcardsBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const cards = block.cards || [];
   const [index, setIndex] = useState(0);
@@ -35,6 +36,7 @@ export default function FlashcardsBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       footer={
         <button className="btn-primary" onClick={continueFromCard}>

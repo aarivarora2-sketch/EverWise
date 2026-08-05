@@ -8,6 +8,7 @@ export default function ChoiceBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const [selected, setSelected] = useState(null);
 
@@ -17,6 +18,7 @@ export default function ChoiceBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       onSkip={onContinue}
       footer={
         selected != null ? (

@@ -39,6 +39,12 @@ import {
   resolveFullAccess,
   shouldExitProtectedContent,
 } from "./utils/access.js";
+import {
+  clearAllLessonPositions,
+  clearLessonPosition,
+  readLessonPosition,
+  saveLessonPosition,
+} from "./utils/lessonProgress.js";
 import { consumePartnerFragment } from "./utils/partnerLinks.js";
 import {
   clearPartnerClaimRecovery,
@@ -2561,6 +2567,7 @@ function LearnerApp({ initialPartnerFragment }) {
       setPartner(null);
       setPartnerStatus("idle");
       updatePartnerFragment(null);
+      clearAllLessonPositions({ storage: window.localStorage });
       updatePartnerRecovery(null);
       setSignupRetry(null);
       setProfileCompletion(null);
@@ -3381,6 +3388,7 @@ function LearnerApp({ initialPartnerFragment }) {
     setPartner(null);
     setPartnerStatus("idle");
     updatePartnerFragment(null);
+    clearAllLessonPositions({ storage: window.localStorage });
     updatePartnerRecovery(null);
     setSignupRetry(null);
     setProfileCompletion(null);
@@ -4291,7 +4299,29 @@ function LearnerApp({ initialPartnerFragment }) {
           key={activeLesson.id}
           lesson={activeLesson}
           onBack={goPath}
-          onComplete={() => finishLesson()}
+          initialPosition={readLessonPosition({
+            uid: user?.uid,
+            lessonId: activeLesson.id,
+            storage: window.localStorage,
+          })}
+          onPositionChange={(position) =>
+            saveLessonPosition({
+              uid: user?.uid,
+              lessonId: activeLesson.id,
+              position,
+              storage: window.localStorage,
+            })
+          }
+          onExit={goPath}
+          onComplete={() => {
+            // The lesson is finished, so the saved place is no longer wanted.
+            clearLessonPosition({
+              uid: user?.uid,
+              lessonId: activeLesson.id,
+              storage: window.localStorage,
+            });
+            finishLesson();
+          }}
         />
       );
       break;

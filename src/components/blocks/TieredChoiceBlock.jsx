@@ -141,6 +141,7 @@ export default function TieredChoiceBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const [selected, setSelected] = useState(null);
 
@@ -150,6 +151,7 @@ export default function TieredChoiceBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       footer={
         selected != null ? (
           <button className="btn-primary" onClick={onContinue}>

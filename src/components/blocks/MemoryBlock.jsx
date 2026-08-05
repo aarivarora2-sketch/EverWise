@@ -9,6 +9,7 @@ export default function MemoryBlock({
   progressTotal,
   onContinue,
   onBack,
+  onExit,
 }) {
   const links = block.links || [];
   const speakText = [
@@ -22,6 +23,7 @@ export default function MemoryBlock({
       progress={progress}
       progressTotal={progressTotal}
       onBack={onBack}
+      onExit={onExit}
       footer={
         <button className="btn-primary" onClick={onContinue}>
           Continue
