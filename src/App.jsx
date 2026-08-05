@@ -867,7 +867,13 @@ class FirebaseDeletionStatusIndeterminateError extends Error {
 }
 
 async function fetchAuthoritativePartnerAccess(firebaseUser) {
-  const idToken = await firebaseUser.getIdToken(true);
+  // No forced refresh here: this runs on every bootstrap, retry, and
+  // protected-content open, and the server only uses the token's uid (not
+  // any claim whose freshness matters), so a cached token is safe. Forcing
+  // a refresh on every call was firing extra token/auth-state churn that
+  // left the billing-fetch effect's authSettledRef never staying settled
+  // long enough for a Retry click to land in a working window.
+  const idToken = await firebaseUser.getIdToken();
   return fetchPartnerAccess({ idToken });
 }
 
@@ -927,6 +933,11 @@ function LearnerApp({ initialPartnerFragment }) {
   const [profileCompletion, setProfileCompletion] = useState(null);
   const [partnerPreviewAttempt, setPartnerPreviewAttempt] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
+  // Increments every time authSettledRef.current flips to true, even when
+  // authChecked was already true (a same-value setAuthChecked(true) would
+  // otherwise not re-trigger effects that gate on authSettledRef, since
+  // refs aren't part of React's dependency tracking).
+  const [authSettledVersion, setAuthSettledVersion] = useState(0);
   const [authBootstrapAttempt, setAuthBootstrapAttempt] = useState(0);
   const [launchAnimationDone, setLaunchAnimationDone] = useState(false);
   const [user, setUser] = useState(null);
@@ -952,6 +963,14 @@ function LearnerApp({ initialPartnerFragment }) {
   });
   const authGenerationRef = useRef(0);
   const authSettledRef = useRef(false);
+  // authSettledRef is a ref, so flipping it doesn't by itself re-run effects
+  // that gate on it. Route every transition to true through here so
+  // authSettledVersion (a real dependency) changes too, even when
+  // authChecked was already true and setAuthChecked(true) is a no-op.
+  const markAuthSettled = () => {
+    authSettledRef.current = true;
+    setAuthSettledVersion((v) => v + 1);
+  };
   const currentAuthUidRef = useRef(null);
   const operationIdRef = useRef(0);
   const activeOperationRef = useRef(null);
@@ -1342,13 +1361,13 @@ function LearnerApp({ initialPartnerFragment }) {
         }
         setPendingPartnerRelease(readStoredPartnerRelease());
         setReleaseConfirmationBusy(false);
-        authSettledRef.current = true;
+        markAuthSettled();
         setAuthChecked(true);
         return;
       }
 
       if (belongsToActiveSignup) {
-        authSettledRef.current = true;
+        markAuthSettled();
         setAuthChecked(true);
         return;
       }
@@ -1385,7 +1404,7 @@ function LearnerApp({ initialPartnerFragment }) {
           busy: false,
         });
         setScreen("partner-error");
-        authSettledRef.current = true;
+        markAuthSettled();
         setAuthChecked(true);
         return;
       }
@@ -1450,7 +1469,7 @@ function LearnerApp({ initialPartnerFragment }) {
               setScreen("partner-error");
             }
           }
-          authSettledRef.current = true;
+          markAuthSettled();
           setAuthChecked(true);
           return;
         }
@@ -1485,7 +1504,7 @@ function LearnerApp({ initialPartnerFragment }) {
               profile: normalized,
             });
             setScreen("partner-error");
-            authSettledRef.current = true;
+            markAuthSettled();
             setAuthChecked(true);
             return;
           }
@@ -1551,7 +1570,7 @@ function LearnerApp({ initialPartnerFragment }) {
           generation === authGenerationRef.current &&
           currentAuthUidRef.current === u.uid
         ) {
-          authSettledRef.current = true;
+          markAuthSettled();
           setAuthChecked(true);
         }
       }
@@ -1748,7 +1767,14 @@ function LearnerApp({ initialPartnerFragment }) {
     return () => {
       cancelled = true;
     };
-  }, [authChecked, billingRefreshAttempt, platform, sponsoredActive, user]);
+  }, [
+    authChecked,
+    authSettledVersion,
+    billingRefreshAttempt,
+    platform,
+    sponsoredActive,
+    user,
+  ]);
   const lessonIdSet = new Set(lessonsByOrder.map((l) => l.id));
   const lessonsCompletedCount = completedLessons.filter((id) =>
     lessonIdSet.has(id)
@@ -3065,6 +3091,7 @@ function LearnerApp({ initialPartnerFragment }) {
     };
   }, [
     authChecked,
+    authSettledVersion,
     billingPollAttempt,
     billingReturn,
     platform,
@@ -3325,7 +3352,7 @@ function LearnerApp({ initialPartnerFragment }) {
     authoritativeAccessVersionRef.current += 1;
     backgroundAccessRefreshRef.current = null;
     billingPollIdRef.current += 1;
-    authSettledRef.current = true;
+    markAuthSettled();
     currentAuthUidRef.current = null;
     pendingProtectedNavigationRef.current = null;
     clearStoredBillingReturnIntent();
