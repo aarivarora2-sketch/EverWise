@@ -184,3 +184,79 @@ describe("wrong answers come back before a lesson can finish", () => {
     expect(screen.queryByText("Second look")).not.toBeInTheDocument();
   });
 });
+
+describe("testing out of a lesson you already know", () => {
+  const openOffer = (overrides = {}) =>
+    renderPlayer({ initialPosition: null, ...overrides });
+
+  test("a fresh lesson offers the choice between working through it and testing out", () => {
+    openOffer();
+    expect(
+      screen.getByRole("button", { name: "Start the lesson" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /I already know this/ }),
+    ).toBeVisible();
+  });
+
+  test("answering every question correctly marks the lesson done without doing it", () => {
+    const props = openOffer();
+
+    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
+    answer("A worldwide network");
+    advance("Next");
+    answer("A page you visit online");
+    advance("Finish");
+
+    expect(props.onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  test("one wrong answer ends the attempt and starts the lesson properly", () => {
+    const props = openOffer();
+
+    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
+    answer("A phone"); // wrong
+    // No way to carry on testing out; the only route forward is the lesson.
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    advance("Go through the lesson");
+
+    expect(props.onComplete).not.toHaveBeenCalled();
+    // Lands at the first teaching block, not the quiz.
+    expect(screen.getByRole("heading", { name: "Learn" })).toBeVisible();
+  });
+
+  test("a lesson with no quiz cannot be tested out", () => {
+    renderPlayer({
+      initialPosition: null,
+      lesson: { ...LESSON, quiz: [] },
+    });
+    expect(
+      screen.queryByRole("button", { name: /I already know this/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Learn" })).toBeVisible();
+  });
+
+  test("resuming a part-done lesson goes back to the saved place, not the offer", () => {
+    renderPlayer({
+      initialPosition: { ...AT_QUIZ, quizIndex: 1 },
+    });
+    expect(
+      screen.queryByRole("button", { name: /I already know this/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "What is a website?" }),
+    ).toBeVisible();
+  });
+
+  test("the quick check never asks more than five questions", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      question: `Question ${i}?`,
+      options: ["Right", "Wrong"],
+      correctIndex: 0,
+    }));
+    renderPlayer({ initialPosition: null, lesson: { ...LESSON, quiz: many } });
+
+    fireEvent.click(screen.getByRole("button", { name: /I already know this/ }));
+    expect(screen.getByText("Question 1 of 5")).toBeVisible();
+  });
+});
