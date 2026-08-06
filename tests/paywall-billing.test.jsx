@@ -84,7 +84,7 @@ describe("browser Stripe paywall", () => {
     expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
   });
 
-  test("selects annual by default and names the selected trial in the checkout action", async () => {
+  test("selects monthly by default and names the selected trial in the checkout action", async () => {
     const user = userEvent.setup();
     const { props } = renderWebPaywall();
     const group = screen.getByRole("radiogroup", {
@@ -93,12 +93,25 @@ describe("browser Stripe paywall", () => {
     const annual = within(group).getByRole("radio", { name: /Annual/i });
     const monthly = within(group).getByRole("radio", { name: /Monthly/i });
 
-    expect(annual).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("button", { name: "Start 7-day free trial" })).toBeVisible();
-
-    await user.click(monthly);
+    // The plan shown first is the plan already chosen: opening the paywall and
+    // pressing straight through buys monthly, never the year up front.
     expect(monthly).toHaveAttribute("aria-checked", "true");
-    await user.click(screen.getByRole("button", { name: "Start 3-day free trial" }));
+    expect(annual).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Start 3-day free trial" })).toBeVisible();
+
+    await user.click(annual);
+    expect(annual).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
+    expect(props.onStartTrial).toHaveBeenCalledWith("annual");
+  });
+
+  test("a learner who never touches the plans is charged the monthly price", async () => {
+    // Guards the default itself rather than the radio's markup: whatever the
+    // group looks like, the untouched path must not start an annual charge.
+    const user = userEvent.setup();
+    const { props } = renderWebPaywall();
+
+    await user.click(screen.getByRole("button", { name: /free trial/i }));
     expect(props.onStartTrial).toHaveBeenCalledWith("monthly");
   });
 
@@ -112,9 +125,9 @@ describe("browser Stripe paywall", () => {
 
     expect(screen.getByText("$7.99/month")).toBeVisible();
     expect(screen.getByText("$60/year")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
+    await user.click(screen.getByRole("button", { name: "Start 3-day free trial" }));
 
-    expect(props.onStartTrial).toHaveBeenCalledWith("annual");
+    expect(props.onStartTrial).toHaveBeenCalledWith("monthly");
     expect(assign).not.toHaveBeenCalled();
   });
 
@@ -184,10 +197,10 @@ describe("browser Stripe paywall", () => {
     const user = userEvent.setup();
     const plans = VERIFIED_PLANS.map((plan) => ({ ...plan }));
     renderWebPaywall({ billingPlans: plans });
-    expect(screen.getByRole("button", { name: "Start 7-day free trial" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start 3-day free trial" })).toBeVisible();
 
     plans[0].unitAmount = 1;
-    await user.click(screen.getByRole("radio", { name: /Monthly/i }));
+    await user.click(screen.getByRole("radio", { name: /Annual/i }));
 
     expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
     expect(screen.queryByRole("button", { name: /free trial/i })).not.toBeInTheDocument();
@@ -224,15 +237,17 @@ describe("browser Stripe paywall", () => {
     const annual = within(group).getByRole("radio", { name: /Annual/i });
     const monthly = within(group).getByRole("radio", { name: /Monthly/i });
 
-    // Monthly is presented first; Annual stays the selected default, so it
-    // keeps the single tab stop.
-    expect(annual).toHaveAttribute("tabindex", "0");
-    expect(monthly).toHaveAttribute("tabindex", "-1");
-    annual.focus();
-    await user.keyboard("{ArrowLeft}");
-    expect(monthly).toHaveFocus();
+    // Monthly is presented first and is the selected default, so it carries
+    // the single tab stop.
     expect(monthly).toHaveAttribute("tabindex", "0");
     expect(annual).toHaveAttribute("tabindex", "-1");
+    monthly.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(annual).toHaveFocus();
+    expect(annual).toHaveAttribute("tabindex", "0");
+    expect(monthly).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("{ArrowUp}");
+    expect(monthly).toHaveFocus();
     await user.keyboard("{ArrowDown}");
     expect(annual).toHaveFocus();
     await user.keyboard("{End}");
@@ -251,17 +266,17 @@ describe("browser Stripe paywall", () => {
     const { rerender, props } = renderWebPaywall({
       onStartTrial: vi.fn(() => pending.promise),
     });
-    const start = screen.getByRole("button", { name: "Start 7-day free trial" });
+    const start = screen.getByRole("button", { name: "Start 3-day free trial" });
     await user.click(start);
 
     expect(start).toBeDisabled();
-    expect(start).toHaveAccessibleName("Start 7-day free trial");
+    expect(start).toHaveAccessibleName("Start 3-day free trial");
     expect(screen.getAllByRole("radio").every((radio) => radio.disabled)).toBe(true);
 
     pending.resolve();
     await waitFor(() => expect(start).not.toBeDisabled());
     rerender(<Paywall {...props} billingBusy />);
-    expect(screen.getByRole("button", { name: "Start 7-day free trial" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start 3-day free trial" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Back to free lessons" })).toBeDisabled();
   });
 
@@ -277,7 +292,7 @@ describe("browser Stripe paywall", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Checkout was canceled. Your access has not changed.",
     );
-    await user.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
+    await user.click(screen.getByRole("button", { name: "Start 3-day free trial" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Checkout is not available right now.",
     );
