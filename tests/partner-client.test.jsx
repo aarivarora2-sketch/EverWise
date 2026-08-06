@@ -1255,14 +1255,19 @@ describe("custom radio accessibility", () => {
     });
     const annual = within(group).getByRole("radio", { name: /Annual/i });
     const monthly = within(group).getByRole("radio", { name: /Monthly/i });
-    expect(annual).toHaveAttribute("tabindex", "0");
-    expect(monthly).toHaveAttribute("tabindex", "-1");
+    // Monthly is presented first and selected by default, so it holds the tab
+    // stop; keyboard users land on the same plan the eye does.
+    expect(monthly).toHaveAttribute("tabindex", "0");
+    expect(annual).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("button", { name: "Continue with monthly" })).toBeVisible();
 
-    annual.focus();
+    monthly.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(annual).toHaveFocus();
+    expect(annual).toHaveAttribute("aria-checked", "true");
     await user.keyboard("{ArrowLeft}");
     expect(monthly).toHaveFocus();
     expect(monthly).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("button", { name: "Continue with monthly" })).toBeVisible();
     // Monthly is presented first, so Home lands on it and End on Annual.
     await user.keyboard("{Home}");
     expect(monthly).toHaveFocus();

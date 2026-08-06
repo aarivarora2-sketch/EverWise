@@ -340,7 +340,10 @@ export default function Paywall({
   sponsored = false,
   storeProducts = [],
 }) {
-  const [selectedPlan, setSelectedPlan] = useState("annual");
+  // Monthly is both listed first and selected on open: the smaller commitment
+  // is the easier first step for someone still deciding, and the plan they read
+  // first should be the one already chosen.
+  const [selectedPlan, setSelectedPlan] = useState("monthly");
   const [restoreAnnouncement, setRestoreAnnouncement] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const [error, setError] = useState("");
